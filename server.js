@@ -133,7 +133,7 @@ app.delete('/api/users/:id', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
-app.get('*', (req, res) => {
+app.get('/{*path}', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
