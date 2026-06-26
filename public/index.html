@@ -11,7 +11,6 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; background: #F8F9FB; }
 input, select, textarea, button { font-family: inherit; }
-::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: #E4E7EC; border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -19,6 +18,8 @@ input, select, textarea, button { font-family: inherit; }
 <script type="text/babel">
 const { useState } = React;
 
+
+// ===== MOCK DATA =====
 const USERS = [
   { id: 1, login: "torgoviy1", password: "1234", name: "Асхат Бейсенов",  role: "sales",   region: "Актау" },
   { id: 2, login: "torgoviy2", password: "1234", name: "Динара Сейткали", role: "sales",   region: "Актау" },
@@ -46,146 +47,236 @@ const CLIENTS = [
   { id: 5, name: 'ИП Касымова',         address: "мкр. Мамыр 12" },
 ];
 
-const TIME_SLOTS = ["08:00 – 10:00","10:00 – 12:00","12:00 – 14:00","14:00 – 16:00","16:00 – 18:00","18:00 – 20:00"];
-
-const initOrders = [
-  { id: 101, salesId: 1, salesName: "Асхат Бейсенов", clientId: 1, clientName: 'ТОО "Продукты KZ"', address: "ул. Абая 15", timeSlot: "10:00 – 12:00", date: "2025-06-24", status: "delivered", items: [{id:1,name:"Молоко 1л",qty:20,price:450},{id:2,name:"Кефир 0.5л",qty:10,price:280}], total: 11800, payment: { cash: 5000, qr: 4000, debt: 2800 }, comment: "" },
-  { id: 102, salesId: 2, salesName: "Динара Сейткали", clientId: 2, clientName: "ИП Иванов", address: "пр. Достык 42", timeSlot: "14:00 – 16:00", date: "2025-06-24", status: "in_transit", items: [{id:3,name:"Сметана 20%",qty:5,price:520},{id:4,name:"Масло сливочное",qty:3,price:1200}], total: 6200, payment: { cash: 6200, qr: 0, debt: 0 }, comment: "" },
-  { id: 103, salesId: 1, salesName: "Асхат Бейсенов", clientId: 3, clientName: 'Магазин "Береке"', address: "ул. Сейфуллина 88", timeSlot: "16:00 – 18:00", date: "2025-06-25", status: "new", items: [{id:6,name:"Йогурт клубника",qty:12,price:320}], total: 3840, payment: { cash: 0, qr: 0, debt: 3840 }, comment: "Позвонить за час" },
+const TIME_SLOTS = [
+  "08:00 – 10:00", "10:00 – 12:00", "12:00 – 14:00",
+  "14:00 – 16:00", "16:00 – 18:00", "18:00 – 20:00",
 ];
 
-const SL = { new: "Ожидает", in_transit: "В пути", delivered: "Доставлено", cancelled: "Не доставлено", returned: "Возврат" };
-const SC = { new: "#2563EB", in_transit: "#D97706", delivered: "#16A34A", cancelled: "#DC2626", returned: "#7C3AED" };
-const SB = { new: "#EFF6FF", in_transit: "#FFFBEB", delivered: "#F0FDF4", cancelled: "#FEF2F2", returned: "#F5F3FF" };
+const initOrders = [
+  { id: 101, salesId: 1, salesName: "Асхат Бейсенов", clientId: 1, clientName: 'ТОО "Продукты KZ"', address: "ул. Абая 15", driverId: 3, timeSlot: "10:00 – 12:00", date: "2025-06-24", status: "delivered", items: [{id:1,name:"Молоко 1л",qty:20,price:450},{id:2,name:"Кефир 0.5л",qty:10,price:280}], total: 11800, payment: { cash: 5000, qr: 4000, debt: 2800 }, comment: "" },
+  { id: 102, salesId: 2, salesName: "Динара Сейткали", clientId: 2, clientName: "ИП Иванов", address: "пр. Достык 42", driverId: 3, timeSlot: "14:00 – 16:00", date: "2025-06-24", status: "in_transit", items: [{id:3,name:"Сметана 20%",qty:5,price:520},{id:4,name:"Масло сливочное",qty:3,price:1200}], total: 6200, payment: { cash: 6200, qr: 0, debt: 0 }, comment: "" },
+  { id: 103, salesId: 1, salesName: "Асхат Бейсенов", clientId: 3, clientName: 'Магазин "Береке"', address: "ул. Сейфуллина 88", driverId: null, timeSlot: "16:00 – 18:00", date: "2025-06-25", status: "new", items: [{id:6,name:"Йогурт клубника",qty:12,price:320}], total: 3840, payment: { cash: 0, qr: 0, debt: 3840 }, comment: "Позвонить за час" },
+];
+
+const STATUS_LABEL = { new: "Ожидает", in_transit: "В пути", delivered: "Доставлено", cancelled: "Не доставлено", returned: "Возврат" };
+const STATUS_COLOR = { new: "#2563EB", in_transit: "#D97706", delivered: "#16A34A", cancelled: "#DC2626", returned: "#7C3AED" };
+const STATUS_BG    = { new: "#EFF6FF", in_transit: "#FFFBEB", delivered: "#F0FDF4", cancelled: "#FEF2F2", returned: "#F5F3FF" };
 
 const C = {
-  navy:"#1B2B4B", accent:"#2563EB", white:"#FFFFFF", surface:"#F8F9FB",
-  border:"#E4E7EC", text:"#111827", textMid:"#374151", textSub:"#6B7280", textFaint:"#9CA3AF",
-  green:"#16A34A", amber:"#D97706", red:"#DC2626",
-  cashGreen:"#DCFCE7", qrBlue:"#DBEAFE", debtAmber:"#FEF3C7",
+  navy: "#1B2B4B", navyMid: "#243859", navyLight: "#EEF2F8",
+  accent: "#2563EB", white: "#FFFFFF", surface: "#F8F9FB",
+  border: "#E4E7EC", text: "#111827", textMid: "#374151",
+  textSub: "#6B7280", textFaint: "#9CA3AF",
+  green: "#16A34A", amber: "#D97706", red: "#DC2626",
+  cashGreen: "#DCFCE7", qrBlue: "#DBEAFE", debtAmber: "#FEF3C7",
 };
 
 const S = {
-  app: { fontFamily:"inherit", minHeight:"100vh", background:C.surface, color:C.text, fontSize:14 },
-  loginWrap: { minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:24 },
-  loginCard: { background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:"44px 36px", width:"100%", maxWidth:380, boxShadow:"0 4px 24px rgba(0,0,0,0.07)" },
-  logoTitle: { fontSize:22, fontWeight:700, color:C.navy, margin:"0 0 4px", letterSpacing:"-0.3px" },
-  logoSub: { fontSize:13, color:C.textSub, margin:"0 0 32px" },
-  label: { display:"block", fontSize:12, fontWeight:600, color:C.textMid, marginBottom:6, letterSpacing:"0.04em", textTransform:"uppercase" },
-  input: { width:"100%", padding:"11px 13px", border:`1.5px solid ${C.border}`, borderRadius:8, fontSize:14, outline:"none", boxSizing:"border-box", background:C.white, color:C.text },
-  btnPrimary: { width:"100%", padding:"12px", background:C.navy, color:C.white, border:"none", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer", marginTop:4 },
-  errorBox: { background:"#FEF2F2", color:C.red, border:"1px solid #FECACA", padding:"10px 13px", borderRadius:8, fontSize:13, marginBottom:16 },
-  header: { background:C.navy, color:C.white, padding:"0 20px", height:56, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100 },
-  headerMark: { background:"rgba(255,255,255,0.12)", borderRadius:6, padding:"3px 8px", fontSize:11, fontWeight:700, letterSpacing:"0.08em", color:"rgba(255,255,255,0.7)", marginBottom:2 },
-  headerSub: { fontSize:11, color:"rgba(255,255,255,0.5)" },
-  logoutBtn: { background:"transparent", border:"1px solid rgba(255,255,255,0.2)", color:"rgba(255,255,255,0.7)", padding:"5px 12px", borderRadius:6, cursor:"pointer", fontSize:12 },
-  page: { padding:"20px 16px 80px", maxWidth:480, margin:"0 auto" },
-  card: { background:C.white, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", marginBottom:10 },
-  cardTitle: { fontSize:14, fontWeight:600, color:C.text, margin:"0 0 3px" },
-  cardSub: { fontSize:12, color:C.textSub, margin:0 },
-  badge: (s) => ({ display:"inline-block", padding:"2px 9px", borderRadius:4, fontSize:11, fontWeight:600, color:SC[s], background:SB[s], border:`1px solid ${SC[s]}30` }),
-  statsRow: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 },
-  statCard: (a) => ({ background:C.white, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", borderTop:`3px solid ${a}` }),
-  statNum: { fontSize:26, fontWeight:800, color:C.navy, margin:"0 0 2px" },
-  statLabel: { fontSize:11, color:C.textSub, margin:0, fontWeight:500 },
-  nav: { position:"fixed", bottom:0, left:0, right:0, background:C.white, borderTop:`1px solid ${C.border}`, display:"flex", zIndex:100 },
-  navBtn: (a) => ({ flex:1, padding:"10px 0 8px", border:"none", background:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3, color:a?C.navy:C.textFaint, borderTop:a?`2px solid ${C.navy}`:"2px solid transparent" }),
-  navIcon: { fontSize:20 },
-  navLabel: (a) => ({ fontSize:10, fontWeight:a?700:400 }),
-  formGroup: { marginBottom:16 },
-  select: { width:"100%", padding:"11px 13px", border:`1.5px solid ${C.border}`, borderRadius:8, fontSize:14, outline:"none", boxSizing:"border-box", background:C.white },
-  textarea: { width:"100%", padding:"11px 13px", border:`1.5px solid ${C.border}`, borderRadius:8, fontSize:13, outline:"none", boxSizing:"border-box", resize:"vertical", minHeight:70, background:C.white },
-  btnSuccess: { width:"100%", padding:"12px", background:C.green, color:C.white, border:"none", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer" },
-  btnDanger: { width:"100%", padding:"12px", background:C.white, color:C.red, border:`1.5px solid ${C.red}`, borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer", marginTop:8 },
-  btnSecondary: { padding:"7px 14px", background:C.surface, color:C.textMid, border:`1px solid ${C.border}`, borderRadius:7, fontSize:13, cursor:"pointer" },
-  btnOutline: { width:"100%", padding:"12px", background:C.white, color:C.navy, border:`1.5px solid ${C.navy}`, borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer", marginTop:8 },
-  divider: { border:"none", borderTop:`1px solid ${C.border}`, margin:"14px 0" },
-  sectionTitle: { fontSize:16, fontWeight:700, color:C.navy, margin:"0 0 14px" },
-  row: { display:"flex", alignItems:"center", justifyContent:"space-between" },
-  alertSuccess: { background:"#F0FDF4", color:C.green, border:"1px solid #BBF7D0", padding:"11px 14px", borderRadius:8, fontSize:13, fontWeight:600, marginBottom:16 },
-  revenueCard: { background:C.navy, color:C.white, borderRadius:10, padding:"18px 16px", marginBottom:12 },
+  app: { fontFamily: "'Inter', -apple-system, sans-serif", minHeight: "100vh", background: C.surface, color: C.text, fontSize: 14 },
+  loginWrap: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.surface, padding: 24 },
+  loginCard: { background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: "44px 36px", width: "100%", maxWidth: 380, boxShadow: "0 4px 24px rgba(0,0,0,0.07)" },
+  logoWrap: { marginBottom: 32 },
+  logoTitle: { fontSize: 22, fontWeight: 700, color: C.navy, margin: "0 0 4px", letterSpacing: "-0.3px" },
+  logoSub: { fontSize: 13, color: C.textSub, margin: 0 },
+  label: { display: "block", fontSize: 12, fontWeight: 600, color: C.textMid, marginBottom: 6, letterSpacing: "0.04em", textTransform: "uppercase" },
+  input: { width: "100%", padding: "11px 13px", border: `1.5px solid ${C.border}`, borderRadius: 8, fontSize: 14, outline: "none", boxSizing: "border-box", background: C.white, color: C.text },
+  btnPrimary: { width: "100%", padding: "12px", background: C.navy, color: C.white, border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer", letterSpacing: "0.02em", marginTop: 4 },
+  errorBox: { background: "#FEF2F2", color: C.red, border: `1px solid #FECACA`, padding: "10px 13px", borderRadius: 8, fontSize: 13, marginBottom: 16 },
+  header: { background: C.navy, color: C.white, padding: "0 20px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 },
+  headerMark: { background: "rgba(255,255,255,0.12)", borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "rgba(255,255,255,0.7)", marginBottom: 2 },
+  headerSub: { fontSize: 11, color: "rgba(255,255,255,0.5)" },
+  logoutBtn: { background: "transparent", border: `1px solid rgba(255,255,255,0.2)`, color: "rgba(255,255,255,0.7)", padding: "5px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 500 },
+  page: { padding: "20px 16px 16px", maxWidth: 480, margin: "0 auto" },
+  card: { background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", marginBottom: 10 },
+  cardTitle: { fontSize: 14, fontWeight: 600, color: C.text, margin: "0 0 3px" },
+  cardSub: { fontSize: 12, color: C.textSub, margin: 0 },
+  badge: (status) => ({ display: "inline-block", padding: "2px 9px", borderRadius: 4, fontSize: 11, fontWeight: 600, color: STATUS_COLOR[status], background: STATUS_BG[status], border: `1px solid ${STATUS_COLOR[status]}30`, letterSpacing: "0.02em" }),
+  statsRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 },
+  statCard: (accent) => ({ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", borderTop: `3px solid ${accent}` }),
+  statNum: { fontSize: 26, fontWeight: 800, color: C.navy, margin: "0 0 2px" },
+  statLabel: { fontSize: 11, color: C.textSub, margin: 0, fontWeight: 500 },
+  nav: { position: "fixed", bottom: 0, left: 0, right: 0, background: C.white, borderTop: `1px solid ${C.border}`, display: "flex", zIndex: 100 },
+  navBtn: (active) => ({ flex: 1, padding: "10px 0 8px", border: "none", background: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, color: active ? C.navy : C.textFaint, borderTop: active ? `2px solid ${C.navy}` : "2px solid transparent" }),
+  navIcon: { fontSize: 20 },
+  navLabel: (active) => ({ fontSize: 10, fontWeight: active ? 700 : 400 }),
+  formGroup: { marginBottom: 16 },
+  select: { width: "100%", padding: "11px 13px", border: `1.5px solid ${C.border}`, borderRadius: 8, fontSize: 14, outline: "none", boxSizing: "border-box", background: C.white, color: C.text },
+  textarea: { width: "100%", padding: "11px 13px", border: `1.5px solid ${C.border}`, borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", resize: "vertical", minHeight: 70, background: C.white },
+  btnSuccess: { width: "100%", padding: "12px", background: C.green, color: C.white, border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" },
+  btnDanger: { width: "100%", padding: "12px", background: C.white, color: C.red, border: `1.5px solid ${C.red}`, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer", marginTop: 8 },
+  btnSecondary: { padding: "7px 14px", background: C.surface, color: C.textMid, border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: "pointer" },
+  btnOutline: { width: "100%", padding: "12px", background: C.white, color: C.navy, border: `1.5px solid ${C.navy}`, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer", marginTop: 8 },
+  divider: { border: "none", borderTop: `1px solid ${C.border}`, margin: "14px 0" },
+  sectionTitle: { fontSize: 16, fontWeight: 700, color: C.navy, margin: "0 0 14px", letterSpacing: "-0.2px" },
+  row: { display: "flex", alignItems: "center", justifyContent: "space-between" },
+  alertSuccess: { background: "#F0FDF4", color: C.green, border: `1px solid #BBF7D0`, padding: "11px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, marginBottom: 16 },
+  revenueCard: { background: C.navy, color: C.white, borderRadius: 10, padding: "18px 16px", marginBottom: 12 },
 };
 
-function StatusBadge({status}) {
-  return <span style={S.badge(status)}>{SL[status]}</span>;
+// ===== HELPERS =====
+function StatusBadge({ status }) {
+  return <span style={S.badge(status)}>{STATUS_LABEL[status]}</span>;
 }
 
-function PaymentTags({payment}) {
+function PaymentTags({ payment }) {
   if (!payment) return null;
   const tags = [];
-  if (payment.cash>0) tags.push({label:`Нал: ${payment.cash.toLocaleString()} ₸`, bg:C.cashGreen, color:"#15803D"});
-  if (payment.qr>0)   tags.push({label:`QR: ${payment.qr.toLocaleString()} ₸`,   bg:C.qrBlue,   color:"#1D4ED8"});
-  if (payment.debt>0) tags.push({label:`Долг: ${payment.debt.toLocaleString()} ₸`, bg:C.debtAmber, color:"#92400E"});
-  return <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>{tags.map((t,i)=><span key={i} style={{fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:4,background:t.bg,color:t.color}}>{t.label}</span>)}</div>;
+  if (payment.cash > 0) tags.push({ label: `Нал: ${payment.cash.toLocaleString()} ₸`, bg: C.cashGreen, color: "#15803D" });
+  if (payment.qr   > 0) tags.push({ label: `QR: ${payment.qr.toLocaleString()} ₸`,   bg: C.qrBlue,   color: "#1D4ED8" });
+  if (payment.debt > 0) tags.push({ label: `Долг: ${payment.debt.toLocaleString()} ₸`, bg: C.debtAmber, color: "#92400E" });
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+      {tags.map((t, i) => (
+        <span key={i} style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: t.bg, color: t.color }}>{t.label}</span>
+      ))}
+    </div>
+  );
 }
 
-function OrderCard({order, onOpen}) {
+function OrderCard({ order, onOpen }) {
   return (
-    <div style={{...S.card, cursor:"pointer", borderLeft:`3px solid ${SC[order.status]}`}} onClick={()=>onOpen(order)}>
+    <div style={{ ...S.card, cursor: "pointer", borderLeft: `3px solid ${STATUS_COLOR[order.status]}` }} onClick={() => onOpen(order)}>
       <div style={S.row}>
-        <div style={{flex:1,marginRight:10}}>
+        <div style={{ flex: 1, marginRight: 10 }}>
           <p style={S.cardTitle}>№{order.id} · {order.clientName}</p>
           <p style={S.cardSub}>{order.address} · {order.timeSlot}</p>
         </div>
-        <StatusBadge status={order.status}/>
+        <StatusBadge status={order.status} />
       </div>
-      <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}>{order.items.length} поз. · <span style={{fontWeight:700,color:C.text}}>{order.total.toLocaleString()} ₸</span></p>
-      <PaymentTags payment={order.payment}/>
+      <p style={{ margin: "8px 0 4px", fontSize: 13, color: C.textSub }}>
+        {order.items.length} поз. · <span style={{ fontWeight: 700, color: C.text }}>{order.total.toLocaleString()} ₸</span>
+      </p>
+      <PaymentTags payment={order.payment} />
     </div>
   );
 }
 
-function OrderDetail({order, onClose, onUpdateStatus, currentUser}) {
+
+// ===== DRIVER PAYMENT BLOCK =====
+function DriverPaymentBlock({ order, onUpdateStatus }) {
+  const [payType, setPayType] = useState({ cash: false, qr: false, debt: false });
+  const [payAmounts, setPayAmt] = useState({ cash: "", qr: "", debt: "" });
+
+  const cashPaid = payType.cash ? Number(payAmounts.cash) || 0 : 0;
+  const qrPaid   = payType.qr   ? Number(payAmounts.qr)   || 0 : 0;
+  const autodebt = Math.max(0, order.total - cashPaid - qrPaid);
+
+  const handleDeliver = () => {
+    const payment = { cash: cashPaid, qr: qrPaid, debt: autodebt };
+    onUpdateStatus(order.id, "delivered", payment);
+  };
+
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(17,24,39,0.45)",zIndex:200,overflowY:"auto"}}>
-      <div style={{background:C.white,margin:"16px",borderRadius:12,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
-        <div style={{...S.row,marginBottom:14}}>
-          <div>
-            <p style={{margin:0,fontSize:11,color:C.textFaint,fontWeight:600,textTransform:"uppercase"}}>Заявка</p>
-            <p style={{margin:0,fontSize:18,fontWeight:700,color:C.navy}}>№{order.id}</p>
+    <div style={{ marginTop: 20 }}>
+      <p style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 700, color: C.navy }}>Выберите способ оплаты:</p>
+      {[
+        { key: "cash", label: "Наличка", icon: "💵", bg: C.cashGreen, col: "#15803D" },
+        { key: "qr",   label: "QR код",  icon: "📱", bg: C.qrBlue,   col: "#1D4ED8" },
+      ].map(({ key, label, icon, bg, col }) => (
+        <div key={key} style={{ marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div onClick={() => setPayType(pt => ({ ...pt, [key]: !pt[key] }))} style={{
+              width: 22, height: 22, borderRadius: 6,
+              border: `2px solid ${payType[key] ? col : C.border}`,
+              background: payType[key] ? col : C.white,
+              cursor: "pointer", flexShrink: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              {payType[key] && <span style={{ color: C.white, fontSize: 13, fontWeight: 700 }}>✓</span>}
+            </div>
+            <span style={{ fontSize: 14, fontWeight: 600, color: payType[key] ? col : C.textMid }}>{icon} {label}</span>
+            {payType[key] && (
+              <input
+                style={{ flex: 1, border: `1.5px solid ${col}40`, borderRadius: 6, padding: "6px 10px", fontSize: 14, fontWeight: 600, outline: "none", background: bg, color: col }}
+                placeholder="Сумма ₸"
+                value={payAmounts[key]}
+                onChange={e => setPayAmt(a => ({ ...a, [key]: e.target.value }))}
+              />
+            )}
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <StatusBadge status={order.status}/>
+        </div>
+      ))}
+
+      {/* Итог */}
+      <div style={{ padding: "12px 14px", borderRadius: 8, background: C.surface, border: `1px solid ${C.border}`, marginBottom: 14 }}>
+        <div style={{ ...S.row, marginBottom: 6 }}>
+          <span style={{ fontSize: 12, color: C.textSub }}>Сумма заявки</span>
+          <span style={{ fontWeight: 700 }}>{order.total.toLocaleString()} ₸</span>
+        </div>
+        <div style={{ ...S.row, marginBottom: 6 }}>
+          <span style={{ fontSize: 12, color: C.textSub }}>Оплачено</span>
+          <span style={{ fontWeight: 700 }}>{(cashPaid + qrPaid).toLocaleString()} ₸</span>
+        </div>
+        <div style={{ ...S.row, paddingTop: 6, borderTop: `1px solid ${C.border}` }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: autodebt > 0 ? "#92400E" : C.green }}>
+            {autodebt > 0 ? "📋 Долг" : "✅ Полностью оплачено"}
+          </span>
+          {autodebt > 0 && <span style={{ fontWeight: 800, fontSize: 15, color: "#92400E" }}>{autodebt.toLocaleString()} ₸</span>}
+        </div>
+      </div>
+
+      <button style={S.btnSuccess} onClick={handleDeliver}>✅ Подтвердить доставку</button>
+      <button style={S.btnDanger} onClick={() => onUpdateStatus(order.id, "cancelled")}>❌ Не удалось доставить</button>
+      <button style={{ ...S.btnOutline, borderColor: "#7C3AED", color: "#7C3AED", marginTop: 8 }} onClick={() => onUpdateStatus(order.id, "returned")}>↩️ Оформить возврат</button>
+    </div>
+  );
+}
+
+function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.45)", zIndex: 200, overflowY: "auto" }}>
+      <div style={{ background: C.white, margin: "16px", borderRadius: 12, padding: 20, maxWidth: 480, marginLeft: "auto", marginRight: "auto", border: `1px solid ${C.border}` }}>
+        <div style={{ ...S.row, marginBottom: 14 }}>
+          <div>
+            <p style={{ margin: 0, fontSize: 11, color: C.textFaint, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Заявка</p>
+            <p style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.navy }}>№{order.id}</p>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <StatusBadge status={order.status} />
             <button style={S.btnSecondary} onClick={onClose}>✕</button>
           </div>
         </div>
-        <hr style={S.divider}/>
-        {[["Клиент",order.clientName],["Адрес",order.address],["Торговый",order.salesName],["Дата",order.date],["Доставка",order.timeSlot],...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
-          <div key={k} style={{...S.row,marginBottom:8,alignItems:"flex-start"}}>
-            <span style={{fontSize:12,color:C.textFaint,fontWeight:600,minWidth:90,textTransform:"uppercase"}}>{k}</span>
-            <span style={{fontSize:13,color:C.text,textAlign:"right",flex:1}}>{v}</span>
+        <hr style={S.divider} />
+        {[
+          ["Клиент",    order.clientName],
+          ["Адрес",     order.address],
+          ["Торговый",  order.salesName],
+          ["Дата",      order.date],
+          ["Доставка",  order.timeSlot],
+          ...(order.comment ? [["Комментарий", order.comment]] : []),
+        ].map(([k, v]) => (
+          <div key={k} style={{ ...S.row, marginBottom: 8, alignItems: "flex-start" }}>
+            <span style={{ fontSize: 12, color: C.textFaint, fontWeight: 600, minWidth: 90, letterSpacing: "0.03em" }}>{k.toUpperCase()}</span>
+            <span style={{ fontSize: 13, color: C.text, textAlign: "right", flex: 1 }}>{v}</span>
           </div>
         ))}
-        <hr style={S.divider}/>
-        <p style={{margin:"0 0 10px",fontSize:12,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>Состав</p>
-        {order.items.map((item,i)=>(
-          <div key={i} style={{...S.row,marginBottom:8,fontSize:13}}>
-            <span style={{color:C.textMid}}>{item.name}</span>
-            <span style={{color:C.textSub}}>{item.qty} × {item.price} ₸ = <strong style={{color:C.text}}>{(item.qty*item.price).toLocaleString()} ₸</strong></span>
+        <hr style={S.divider} />
+        <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 600, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase" }}>Состав</p>
+        {order.items.map((item, i) => (
+          <div key={i} style={{ ...S.row, marginBottom: 8, fontSize: 13 }}>
+            <span style={{ color: C.textMid }}>{item.name}</span>
+            <span style={{ color: C.textSub }}>{item.qty} × {item.price} ₸ = <strong style={{ color: C.text }}>{(item.qty * item.price).toLocaleString()} ₸</strong></span>
           </div>
         ))}
-        <hr style={S.divider}/>
-        <div style={{...S.row,fontSize:15,fontWeight:700,marginBottom:10}}>
-          <span style={{color:C.textMid}}>Итого</span>
-          <span style={{color:C.navy}}>{order.total.toLocaleString()} ₸</span>
+        <hr style={S.divider} />
+        <div style={{ ...S.row, fontSize: 15, fontWeight: 700, marginBottom: 10 }}>
+          <span style={{ color: C.textMid }}>Итого</span>
+          <span style={{ color: C.navy }}>{order.total.toLocaleString()} ₸</span>
         </div>
-        <p style={{margin:"0 0 8px",fontSize:12,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>Оплата</p>
-        <PaymentTags payment={order.payment}/>
-        {currentUser.role==="driver" && order.status==="in_transit" && (
-          <div style={{marginTop:20}}>
-            <button style={S.btnSuccess} onClick={()=>onUpdateStatus(order.id,"delivered")}>✅ Подтвердить доставку</button>
-            <button style={S.btnDanger} onClick={()=>onUpdateStatus(order.id,"cancelled")}>❌ Не удалось доставить</button>
-            <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:8}} onClick={()=>onUpdateStatus(order.id,"returned")}>↩️ Оформить возврат</button>
+        <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 600, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase" }}>Оплата</p>
+        <PaymentTags payment={order.payment} />
+
+        {currentUser.role === "driver" && order.status === "in_transit" && (
+          <DriverPaymentBlock order={order} onUpdateStatus={onUpdateStatus} />
+        )}
+        {(currentUser.role === "admin" || currentUser.role === "manager") && order.status === "new" && (
+          <div style={{ marginTop: 20 }}>
+            <button style={S.btnOutline} onClick={() => onUpdateStatus(order.id, "in_transit")}>🚗 Передать водителю</button>
           </div>
         )}
-        {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="new" && (
-          <div style={{marginTop:20}}>
-            <button style={S.btnOutline} onClick={()=>onUpdateStatus(order.id,"in_transit")}>🚗 Передать водителю</button>
-          </div>
-        )}
-        {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="in_transit" && (
-          <div style={{marginTop:20}}>
-            <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED"}} onClick={()=>onUpdateStatus(order.id,"returned")}>↩️ Оформить возврат</button>
+        {(currentUser.role === "admin" || currentUser.role === "manager") && order.status === "in_transit" && (
+          <div style={{ marginTop: 20 }}>
+            <button style={{ ...S.btnOutline, borderColor: "#7C3AED", color: "#7C3AED" }} onClick={() => onUpdateStatus(order.id, "returned")}>↩️ Оформить возврат</button>
           </div>
         )}
       </div>
@@ -193,166 +284,206 @@ function OrderDetail({order, onClose, onUpdateStatus, currentUser}) {
   );
 }
 
-function SalesCabinet({user, orders, onAddOrder}) {
+// ===== SALES CABINET =====
+function SalesCabinet({ user, orders, onAddOrder }) {
   const [tab, setTab] = useState("orders");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [submitted, setSubmitted] = useState(false);
+
+  // Form state
   const [clientId, setClientId] = useState("");
   const [timeSlot, setTimeSlot] = useState("");
-  const [comment, setComment] = useState("");
-  const [payType, setPayType] = useState({cash:false,qr:false});
-  const [payAmounts, setPayAmt] = useState({cash:"",qr:""});
-  const newLine = () => ({uid:Math.random(),productId:null,name:"",qty:"",price:"",search:"",showDrop:false});
+  const [comment, setComment]   = useState("");
+
+  // Line items
+  const newLine = () => ({ uid: Math.random(), productId: null, name: "", qty: "", price: "", search: "", showDrop: false });
   const [lines, setLines] = useState([newLine()]);
 
-  const myOrders = orders.filter(o=>o.salesId===user.id);
-  const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
-  const removeLine = (uid) => setLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
-  const addLine = () => setLines(ls=>[...ls,newLine()]);
-  const selectProduct = (uid,prod) => updateLine(uid,{productId:prod.id,name:prod.name,price:prod.price,search:prod.name,showDrop:false,qty:lines.find(l=>l.uid===uid)?.qty||1});
+  const myOrders = orders.filter(o => o.salesId === user.id);
 
-  const filledLines = lines.filter(l=>l.name&&Number(l.qty)>0&&Number(l.price)>0);
-  const total = filledLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
-  const cashPaid = payType.cash ? Number(payAmounts.cash)||0 : 0;
-  const qrPaid   = payType.qr   ? Number(payAmounts.qr)  ||0 : 0;
-  const autodebt = Math.max(0, total - cashPaid - qrPaid);
+  const updateLine = (uid, patch) => setLines(ls => ls.map(l => l.uid === uid ? { ...l, ...patch } : l));
+  const removeLine = (uid) => setLines(ls => ls.length > 1 ? ls.filter(l => l.uid !== uid) : ls);
+  const addLine    = () => setLines(ls => [...ls, newLine()]);
+  const selectProduct = (uid, prod) => updateLine(uid, { productId: prod.id, name: prod.name, price: prod.price, search: prod.name, showDrop: false, qty: lines.find(l=>l.uid===uid)?.qty || 1 });
+
+  const filledLines = lines.filter(l => l.name && Number(l.qty) > 0 && Number(l.price) > 0);
+  const total = filledLines.reduce((s, l) => s + Number(l.qty) * Number(l.price), 0);
+
 
   const handleSubmit = () => {
-    if (!clientId||filledLines.length===0||!timeSlot) return;
-    const client = CLIENTS.find(c=>c.id===Number(clientId));
-    const items = filledLines.map(l=>({id:l.productId,name:l.name,qty:Number(l.qty),price:Number(l.price)}));
-    onAddOrder({salesId:user.id,salesName:user.name,clientId:client.id,clientName:client.name,address:client.address,driverId:null,timeSlot,date:new Date().toISOString().slice(0,10),status:"new",items,total,payment:{cash:cashPaid,qr:qrPaid,debt:autodebt},comment});
-    setLines([newLine()]); setClientId(""); setTimeSlot(""); setComment("");
-    setPayType({cash:false,qr:false}); setPayAmt({cash:"",qr:""});
+    if (!clientId || filledLines.length === 0 || !timeSlot) return;
+    const client = CLIENTS.find(c => c.id === Number(clientId));
+    const items = filledLines.map(l => ({ id: l.productId, name: l.name, qty: Number(l.qty), price: Number(l.price) }));
+    const payment = { cash: 0, qr: 0, debt: 0 };
     setSubmitted(true); setTab("orders");
-    setTimeout(()=>setSubmitted(false),4000);
+    setTimeout(() => setSubmitted(false), 4000);
   };
 
-  const stats = {total:myOrders.length,delivered:myOrders.filter(o=>o.status==="delivered").length,inTransit:myOrders.filter(o=>o.status==="in_transit").length,new:myOrders.filter(o=>o.status==="new").length};
+  const stats = { total: myOrders.length, delivered: myOrders.filter(o => o.status==="delivered").length, inTransit: myOrders.filter(o => o.status==="in_transit").length, new: myOrders.filter(o => o.status==="new").length };
 
   return (
-    <div style={{paddingBottom:72}}>
-      {selectedOrder && <OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={()=>{}} currentUser={user}/>}
+    <div style={{ paddingBottom: 72 }}>
+      {selectedOrder && <OrderDetail order={selectedOrder} onClose={() => setSelectedOrder(null)} onUpdateStatus={() => {}} currentUser={user} />}
       <div style={S.page}>
-        {tab==="orders" && <>
-          <p style={S.sectionTitle}>Мои заявки</p>
-          {submitted && <div style={S.alertSuccess}>Заявка успешно создана и отправлена</div>}
-          <div style={S.statsRow}>
-            <div style={S.statCard(C.navy)}><p style={S.statNum}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
-            <div style={S.statCard(C.green)}><p style={S.statNum}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
-            <div style={S.statCard(C.amber)}><p style={S.statNum}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
-            <div style={S.statCard(C.accent)}><p style={S.statNum}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
-          </div>
-          {myOrders.length===0
-            ? <div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заявок пока нет</p></div>
-            : myOrders.slice().reverse().map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder}/>)
-          }
-        </>}
-        {tab==="new" && <>
-          <p style={S.sectionTitle}>Новая заявка</p>
-          <div style={S.card}>
-            <div style={S.formGroup}>
-              <label style={S.label}>Контрагент</label>
-              <select style={S.select} value={clientId} onChange={e=>setClientId(e.target.value)}>
-                <option value="">— Выберите контрагента —</option>
-                {CLIENTS.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              {clientId && <p style={{margin:"6px 0 0",fontSize:12,color:C.textSub}}>📍 {CLIENTS.find(c=>c.id===Number(clientId))?.address}</p>}
+
+        {/* ── ORDERS TAB ── */}
+        {tab === "orders" && (
+          <>
+            <p style={S.sectionTitle}>Мои заявки</p>
+            {submitted && <div style={S.alertSuccess}>Заявка успешно создана и отправлена</div>}
+            <div style={S.statsRow}>
+              <div style={S.statCard(C.navy)}><p style={S.statNum}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
+              <div style={S.statCard(C.green)}><p style={S.statNum}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
+              <div style={S.statCard(C.amber)}><p style={S.statNum}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
+              <div style={S.statCard(C.accent)}><p style={S.statNum}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
             </div>
-            <div style={S.formGroup}>
-              <label style={S.label}>Время доставки</label>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                {TIME_SLOTS.map(slot=>(
-                  <button key={slot} onClick={()=>setTimeSlot(slot)} style={{padding:"9px 8px",borderRadius:8,border:`1.5px solid ${timeSlot===slot?C.navy:C.border}`,background:timeSlot===slot?C.navy:C.white,color:timeSlot===slot?C.white:C.textMid,fontSize:13,cursor:"pointer"}}>{slot}</button>
-                ))}
+            {myOrders.length === 0
+              ? <div style={{ textAlign: "center", padding: "48px 0", color: C.textFaint }}><div style={{ fontSize: 40, marginBottom: 12 }}>📋</div><p style={{ margin: 0 }}>Заявок пока нет</p></div>
+              : myOrders.slice().reverse().map(o => <OrderCard key={o.id} order={o} onOpen={setSelectedOrder} />)
+            }
+          </>
+        )}
+
+        {/* ── NEW ORDER TAB ── */}
+        {tab === "new" && (
+          <>
+            <p style={S.sectionTitle}>Новая заявка</p>
+
+            {/* Клиент */}
+            <div style={S.card}>
+              <div style={S.formGroup}>
+                <label style={S.label}>Контрагент</label>
+                <select style={S.select} value={clientId} onChange={e => setClientId(e.target.value)}>
+                  <option value="">— Выберите контрагента —</option>
+                  {CLIENTS.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                {clientId && <p style={{ margin: "6px 0 0", fontSize: 12, color: C.textSub }}>📍 {CLIENTS.find(c => c.id === Number(clientId))?.address}</p>}
+              </div>
+              <div style={S.formGroup}>
+                <label style={S.label}>Время доставки</label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {TIME_SLOTS.map(slot => (
+                    <button key={slot} onClick={() => setTimeSlot(slot)} style={{
+                      padding: "9px 8px", borderRadius: 8, border: `1.5px solid ${timeSlot === slot ? C.navy : C.border}`,
+                      background: timeSlot === slot ? C.navy : C.white, color: timeSlot === slot ? C.white : C.textMid,
+                      fontSize: 13, fontWeight: 500, cursor: "pointer",
+                    }}>{slot}</button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-          <div style={S.card}>
-            <div style={{...S.row,marginBottom:12}}>
-              <label style={S.label}>Номенклатура</label>
-              <button onClick={addLine} style={{background:C.navy,color:C.white,border:"none",borderRadius:6,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Строка</button>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,marginBottom:6}}>
-              {["Наименование","Кол-во","Цена ₸",""].map((h,i)=><div key={i} style={{fontSize:10,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
-            </div>
-            {lines.map(line=>{
-              const matched = line.search.length>0 ? PRODUCTS.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())) : PRODUCTS;
-              const lineTotal = Number(line.qty)>0&&Number(line.price)>0 ? Number(line.qty)*Number(line.price) : null;
-              return (
-                <div key={line.uid} style={{marginBottom:8}}>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,alignItems:"center"}}>
-                    <div style={{position:"relative"}}>
-                      <input style={{...S.input,padding:"8px 10px",fontSize:13}} placeholder="Введите товар..." value={line.search}
-                        onChange={e=>updateLine(line.uid,{search:e.target.value,name:e.target.value,productId:null,price:"",showDrop:true})}
-                        onFocus={()=>updateLine(line.uid,{showDrop:true})}
-                        onBlur={()=>setTimeout(()=>updateLine(line.uid,{showDrop:false}),180)}
-                      />
-                      {line.showDrop&&matched.length>0&&(
-                        <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:180,overflowY:"auto"}}>
-                          {matched.map(p=>(
-                            <div key={p.id} onMouseDown={()=>selectProduct(line.uid,p)} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13}}>
-                              <div style={{fontWeight:600}}>{p.name}</div>
-                              <div style={{fontSize:11,color:C.textFaint}}>{p.price.toLocaleString()} ₸ / {p.unit}</div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"center"}} placeholder="0" value={line.qty} type="number" min="1" onChange={e=>updateLine(line.uid,{qty:e.target.value})}/>
-                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"right"}} placeholder="0" value={line.price} type="number" onChange={e=>updateLine(line.uid,{price:e.target.value})}/>
-                    <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
-                  </div>
-                  {lineTotal&&<div style={{textAlign:"right",fontSize:11,color:C.textSub,marginTop:2,paddingRight:34}}>= <strong style={{color:C.navy}}>{lineTotal.toLocaleString()} ₸</strong></div>}
-                </div>
-              );
-            })}
-            {filledLines.length>0&&<><hr style={{...S.divider,marginTop:8}}/><div style={S.row}><span style={{fontSize:13,color:C.textSub}}>Итого</span><span style={{fontSize:16,fontWeight:800,color:C.navy}}>{total.toLocaleString()} ₸</span></div></>}
-          </div>
-          {filledLines.length>0&&(
+
+            {/* Номенклатура */}
             <div style={S.card}>
-              <label style={{...S.label,marginBottom:12}}>Оплата</label>
-              {[{key:"cash",label:"Наличка",icon:"💵",bg:C.cashGreen,col:"#15803D"},{key:"qr",label:"QR код",icon:"📱",bg:C.qrBlue,col:"#1D4ED8"}].map(({key,label,icon,bg,col})=>(
-                <div key={key} style={{marginBottom:10}}>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <div onClick={()=>setPayType(pt=>({...pt,[key]:!pt[key]}))} style={{width:22,height:22,borderRadius:6,border:`2px solid ${payType[key]?col:C.border}`,background:payType[key]?col:C.white,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                      {payType[key]&&<span style={{color:C.white,fontSize:13,fontWeight:700}}>✓</span>}
+              <div style={{ ...S.row, marginBottom: 12 }}>
+                <label style={S.label}>Номенклатура</label>
+                <button onClick={addLine} style={{ background: C.navy, color: C.white, border: "none", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Строка</button>
+              </div>
+
+              {/* Header */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 64px 80px 28px", gap: 6, marginBottom: 6 }}>
+                {["Наименование","Кол-во","Цена, ₸",""].map((h,i) => (
+                  <div key={i} style={{ fontSize: 10, fontWeight: 600, color: C.textFaint, letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
+                ))}
+              </div>
+
+              {lines.map((line) => {
+                const matched = line.search.length > 0
+                  ? PRODUCTS.filter(p => p.name.toLowerCase().includes(line.search.toLowerCase()))
+                  : PRODUCTS;
+                const lineTotal = Number(line.qty) > 0 && Number(line.price) > 0 ? Number(line.qty) * Number(line.price) : null;
+                return (
+                  <div key={line.uid} style={{ marginBottom: 8 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 64px 80px 28px", gap: 6, alignItems: "center" }}>
+                      {/* Наименование с поиском */}
+                      <div style={{ position: "relative" }}>
+                        <input
+                          style={{ ...S.input, padding: "8px 10px", fontSize: 13 }}
+                          placeholder="Введите товар..."
+                          value={line.search}
+                          onChange={e => updateLine(line.uid, { search: e.target.value, name: e.target.value, productId: null, price: "", showDrop: true })}
+                          onFocus={() => updateLine(line.uid, { showDrop: true })}
+                          onBlur={() => setTimeout(() => updateLine(line.uid, { showDrop: false }), 180)}
+                        />
+                        {line.showDrop && matched.length > 0 && (
+                          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.1)", zIndex: 50, maxHeight: 180, overflowY: "auto" }}>
+                            {matched.map(p => (
+                              <div key={p.id} onMouseDown={() => selectProduct(line.uid, p)}
+                                style={{ padding: "9px 12px", cursor: "pointer", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}
+                                onMouseEnter={e => e.currentTarget.style.background = C.surface}
+                                onMouseLeave={e => e.currentTarget.style.background = C.white}
+                              >
+                                <div style={{ fontWeight: 600, color: C.text }}>{p.name}</div>
+                                <div style={{ fontSize: 11, color: C.textFaint }}>{p.price.toLocaleString()} ₸ / {p.unit}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {/* Кол-во */}
+                      <input
+                        style={{ ...S.input, padding: "8px 6px", fontSize: 13, textAlign: "center" }}
+                        placeholder="0"
+                        value={line.qty}
+                        type="number"
+                        min="1"
+                        onChange={e => updateLine(line.uid, { qty: e.target.value })}
+                      />
+                      {/* Цена */}
+                      <input
+                        style={{ ...S.input, padding: "8px 6px", fontSize: 13, textAlign: "right" }}
+                        placeholder="0"
+                        value={line.price}
+                        type="number"
+                        onChange={e => updateLine(line.uid, { price: e.target.value })}
+                      />
+                      {/* Удалить */}
+                      <button onClick={() => removeLine(line.uid)} style={{ width: 28, height: 34, border: `1px solid ${C.border}`, borderRadius: 6, background: C.surface, cursor: "pointer", fontSize: 14, color: C.textFaint, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
                     </div>
-                    <span style={{fontSize:14,fontWeight:600,color:payType[key]?col:C.textMid}}>{icon} {label}</span>
-                    {payType[key]&&<input style={{flex:1,border:`1.5px solid ${col}40`,borderRadius:6,padding:"6px 10px",fontSize:14,fontWeight:600,outline:"none",background:bg,color:col}} placeholder="Сумма ₸" value={payAmounts[key]} onChange={e=>setPayAmt(a=>({...a,[key]:e.target.value}))}/>}
+                    {lineTotal && (
+                      <div style={{ textAlign: "right", fontSize: 11, color: C.textSub, marginTop: 2, paddingRight: 34 }}>
+                        = <strong style={{ color: C.navy }}>{lineTotal.toLocaleString()} ₸</strong>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
-              {(payType.cash||payType.qr)&&total>0&&(
-                <div style={{marginTop:8,padding:"12px 14px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`}}>
-                  <div style={{...S.row,marginBottom:6}}><span style={{fontSize:12,color:C.textSub}}>Сумма заявки</span><span style={{fontWeight:700}}>{total.toLocaleString()} ₸</span></div>
-                  <div style={{...S.row,marginBottom:6}}><span style={{fontSize:12,color:C.textSub}}>Оплачено</span><span style={{fontWeight:700}}>{(cashPaid+qrPaid).toLocaleString()} ₸</span></div>
-                  <div style={{...S.row,paddingTop:6,borderTop:`1px solid ${C.border}`}}>
-                    <span style={{fontSize:13,fontWeight:700,color:autodebt>0?"#92400E":C.green}}>{autodebt>0?"📋 Долг":"✅ Полностью оплачено"}</span>
-                    {autodebt>0&&<span style={{fontWeight:800,fontSize:15,color:"#92400E"}}>{autodebt.toLocaleString()} ₸</span>}
+                );
+              })}
+
+              {filledLines.length > 0 && (
+                <>
+                  <hr style={{ ...S.divider, marginTop: 8 }} />
+                  <div style={S.row}>
+                    <span style={{ fontSize: 13, color: C.textSub }}>Итого</span>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{total.toLocaleString()} ₸</span>
                   </div>
-                </div>
-              )}
-              {!payType.cash&&!payType.qr&&total>0&&(
-                <div style={{padding:"10px 14px",borderRadius:8,background:C.debtAmber,border:"1px solid #FCD34D"}}>
-                  <div style={S.row}><span style={{fontSize:13,fontWeight:700,color:"#92400E"}}>📋 Вся сумма в долг</span><span style={{fontWeight:800,fontSize:15,color:"#92400E"}}>{total.toLocaleString()} ₸</span></div>
-                </div>
+                </>
               )}
             </div>
-          )}
-          <div style={S.card}>
-            <div style={S.formGroup}>
-              <label style={S.label}>Комментарий</label>
-              <textarea style={S.textarea} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Особые пожелания..."/>
+
+
+            {/* Комментарий */}
+            <div style={S.card}>
+              <div style={S.formGroup}>
+                <label style={S.label}>Комментарий</label>
+                <textarea style={S.textarea} value={comment} onChange={e => setComment(e.target.value)} placeholder="Особые пожелания, уточнения..." />
+              </div>
+              <button
+                style={{ ...S.btnPrimary, opacity: (!clientId || filledLines.length === 0 || !timeSlot) ? 0.45 : 1 }}
+                onClick={handleSubmit}
+                disabled={!clientId || filledLines.length === 0 || !timeSlot}
+              >
+                Отправить заявку
+              </button>
             </div>
-            <button style={{...S.btnPrimary,opacity:(!clientId||filledLines.length===0||!timeSlot)?0.45:1}} onClick={handleSubmit} disabled={!clientId||filledLines.length===0||!timeSlot}>Отправить заявку</button>
-          </div>
-        </>}
+          </>
+        )}
       </div>
+
       <div style={S.nav}>
-        {[["orders","📋","Заявки"],["new","＋","Создать"]].map(([k,ic,lb])=>(
-          <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
-            <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
+        {[["orders","📋","Заявки"],["new","＋","Создать"]].map(([k,ic,lb]) => (
+          <button key={k} style={S.navBtn(tab===k)} onClick={() => setTab(k)}>
+            <span style={S.navIcon}>{ic}</span>
+            <span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
         ))}
       </div>
@@ -360,20 +491,24 @@ function SalesCabinet({user, orders, onAddOrder}) {
   );
 }
 
-function DriverCabinet({user, orders, onUpdateStatus}) {
+// ===== DRIVER CABINET =====
+function DriverCabinet({ user, orders, onUpdateStatus }) {
   const [tab, setTab] = useState("queue");
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const handleUpdate = (id,status) => { onUpdateStatus(id,status); setSelectedOrder(null); };
-  const queue=orders.filter(o=>o.status==="new");
-  const myActive=orders.filter(o=>o.status==="in_transit");
-  const done=orders.filter(o=>o.status==="delivered");
-  const failed=orders.filter(o=>o.status==="cancelled");
-  const returned=orders.filter(o=>o.status==="returned");
-  const shown=tab==="queue"?queue:tab==="active"?myActive:tab==="done"?done:tab==="failed"?failed:returned;
+
+  const handleUpdate = (id, status, payment) => { onUpdateStatus(id, status, payment); setSelectedOrder(null); };
+
+  const queue    = orders.filter(o => o.status === "new");
+  const myActive = orders.filter(o => o.status === "in_transit");
+  const done     = orders.filter(o => o.status === "delivered");
+  const failed   = orders.filter(o => o.status === "cancelled");
+  const returned = orders.filter(o => o.status === "returned");
+
+  const shown = tab === "queue" ? queue : tab === "active" ? myActive : tab === "done" ? done : tab === "failed" ? failed : returned;
 
   return (
-    <div style={{paddingBottom:72}}>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
+    <div style={{ paddingBottom: 72 }}>
+      {selectedOrder && <OrderDetail order={selectedOrder} onClose={() => setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user} />}
       <div style={S.page}>
         <div style={S.statsRow}>
           <div style={S.statCard(C.accent)}><p style={S.statNum}>{queue.length}</p><p style={S.statLabel}>Ожидают</p></div>
@@ -381,30 +516,54 @@ function DriverCabinet({user, orders, onUpdateStatus}) {
           <div style={S.statCard(C.green)}><p style={S.statNum}>{done.length}</p><p style={S.statLabel}>Доставлено</p></div>
           <div style={S.statCard("#7C3AED")}><p style={S.statNum}>{returned.length}</p><p style={S.statLabel}>Возвратов</p></div>
         </div>
-        <p style={S.sectionTitle}>{tab==="queue"?"Очередь заявок":tab==="active"?"В пути":tab==="done"?"Доставлено":tab==="failed"?"Не доставлено":"Возвраты"}</p>
-        {shown.length===0
-          ? <div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📦</div><p>Нет заявок</p></div>
-          : shown.map(o=>(
-            <div key={o.id} onClick={()=>setSelectedOrder(o)} style={{...S.card,cursor:"pointer",borderLeft:`3px solid ${SC[o.status]}`}}>
-              <div style={S.row}>
-                <div style={{flex:1,marginRight:10}}>
-                  <p style={S.cardTitle}>№{o.id} · {o.clientName}</p>
-                  <p style={S.cardSub}>{o.address}</p>
-                  <p style={{...S.cardSub,marginTop:2}}>🕐 {o.timeSlot} · {o.salesName}</p>
+
+        <p style={S.sectionTitle}>
+          {tab === "queue" ? "Очередь заявок" : tab === "active" ? "В пути" : tab === "done" ? "Доставлено" : tab === "failed" ? "Не доставлено" : "Возвраты"}
+        </p>
+
+        {shown.length === 0
+          ? <div style={{ textAlign: "center", padding: "48px 0", color: C.textFaint }}><div style={{ fontSize: 40, marginBottom: 12 }}>📦</div><p style={{ margin: 0 }}>Нет заявок в этом разделе</p></div>
+          : shown.map(o => (
+              <div key={o.id} onClick={() => setSelectedOrder(o)} style={{
+                ...S.card, cursor: "pointer",
+                borderLeft: `3px solid ${STATUS_COLOR[o.status]}`,
+              }}>
+                <div style={S.row}>
+                  <div style={{ flex: 1, marginRight: 10 }}>
+                    <p style={S.cardTitle}>№{o.id} · {o.clientName}</p>
+                    <p style={S.cardSub}>{o.address}</p>
+                    <p style={{ ...S.cardSub, marginTop: 2 }}>🕐 {o.timeSlot} · {o.salesName}</p>
+                  </div>
+                  <StatusBadge status={o.status} />
                 </div>
-                <StatusBadge status={o.status}/>
+                <p style={{ margin: "8px 0 4px", fontSize: 13, color: C.textSub }}>
+                  {o.items.length} поз. · <span style={{ fontWeight: 700, color: C.text }}>{o.total.toLocaleString()} ₸</span>
+                </p>
+                <PaymentTags payment={o.payment} />
+                {tab === "queue" && (
+                  <button
+                    onClick={e => { e.stopPropagation(); handleUpdate(o.id, "in_transit"); }}
+                    style={{ marginTop: 10, width: "100%", padding: "9px", background: C.navy, color: C.white, border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    🚗 Взять в доставку
+                  </button>
+                )}
               </div>
-              <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}>{o.items.length} поз. · <span style={{fontWeight:700,color:C.text}}>{o.total.toLocaleString()} ₸</span></p>
-              <PaymentTags payment={o.payment}/>
-              {tab==="queue"&&<button onClick={e=>{e.stopPropagation();handleUpdate(o.id,"in_transit");}} style={{marginTop:10,width:"100%",padding:"9px",background:C.navy,color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>🚗 Взять в доставку</button>}
-            </div>
-          ))
+            ))
         }
       </div>
+
       <div style={S.nav}>
-        {[["queue","📋","Очередь"],["active","🚗","В пути"],["done","✅","Доставлено"],["failed","✕","Не достав."],["returned","↩️","Возврат"]].map(([k,ic,lb])=>(
-          <button key={k} style={{...S.navBtn(tab===k),flex:1}} onClick={()=>setTab(k)}>
-            <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
+        {[
+          ["queue",  "📋", "Очередь"],
+          ["active", "🚗", "В пути"],
+          ["done",   "✅", "Доставлено"],
+          ["failed", "✕",  "Не достав."],
+          ["ret",    "↩️", "Возврат"],
+        ].map(([k, ic, lb]) => (
+          <button key={k} style={{ ...S.navBtn(tab===k), flex: 1 }} onClick={() => setTab(k === "ret" ? "returned" : k)}>
+            <span style={S.navIcon}>{ic}</span>
+            <span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
         ))}
       </div>
@@ -412,87 +571,116 @@ function DriverCabinet({user, orders, onUpdateStatus}) {
   );
 }
 
-function AdminCabinet({user, orders, onUpdateStatus}) {
-  const [tab,setTab]=useState("all");
-  const [filter,setFilter]=useState("all");
-  const [selectedOrder,setSelectedOrder]=useState(null);
-  const handleUpdate=(id,status)=>{onUpdateStatus(id,status);setSelectedOrder(null);};
-  const filtered=orders.filter(o=>filter==="all"||o.status===filter);
-  const stats={
-    total:orders.length,
-    new:orders.filter(o=>o.status==="new").length,
-    inTransit:orders.filter(o=>o.status==="in_transit").length,
-    delivered:orders.filter(o=>o.status==="delivered").length,
-    cancelled:orders.filter(o=>o.status==="cancelled").length,
-    returned:orders.filter(o=>o.status==="returned").length,
-    revenue:orders.filter(o=>o.status==="delivered").reduce((s,o)=>s+o.total,0),
-    cashTotal:orders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment?.cash||0),0),
-    qrTotal:orders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment?.qr||0),0),
-    debtTotal:orders.reduce((s,o)=>s+(o.payment?.debt||0),0),
+// ===== ADMIN / MANAGER CABINET =====
+function AdminCabinet({ user, orders, onUpdateStatus }) {
+  const [tab, setTab]       = useState("all");
+  const [filter, setFilter] = useState("all");
+  const [selectedOrder, setSelectedOrder] = useState(null);
+
+  const handleUpdate = (id, status, payment) => { onUpdateStatus(id, status, payment); setSelectedOrder(null); };
+  const filtered = orders.filter(o => filter === "all" || o.status === filter);
+
+  const stats = {
+    total:     orders.length,
+    new:       orders.filter(o => o.status === "new").length,
+    inTransit: orders.filter(o => o.status === "in_transit").length,
+    delivered: orders.filter(o => o.status === "delivered").length,
+    cancelled: orders.filter(o => o.status === "cancelled").length,
+    returned:  orders.filter(o => o.status === "returned").length,
+    revenue:   orders.filter(o => o.status === "delivered").reduce((s, o) => s + o.total, 0),
+    cashTotal: orders.filter(o => o.status === "delivered").reduce((s, o) => s + (o.payment?.cash || 0), 0),
+    qrTotal:   orders.filter(o => o.status === "delivered").reduce((s, o) => s + (o.payment?.qr   || 0), 0),
+    debtTotal: orders.reduce((s, o) => s + (o.payment?.debt || 0), 0),
   };
-  const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"],["delivered","Доставлено"],["cancelled","Не доставлено"],["returned","Возврат"]];
+
+  const FILTERS = [["all","Все"],["new","Ожидает"],["in_transit","В пути"],["delivered","Доставлено"],["cancelled","Не доставлено"],["returned","Возврат"]];
 
   return (
-    <div style={{paddingBottom:72}}>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
+    <div style={{ paddingBottom: 72 }}>
+      {selectedOrder && <OrderDetail order={selectedOrder} onClose={() => setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user} />}
       <div style={S.page}>
-        {tab==="all"&&<>
-          <p style={S.sectionTitle}>Все заявки</p>
-          <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
-            {FILTERS.map(([k,lb])=>(
-              <button key={k} onClick={()=>setFilter(k)} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${filter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:filter===k?C.navy:C.white,color:filter===k?C.white:C.textMid}}>{lb}</button>
-            ))}
-          </div>
-          {filtered.length===0
-            ? <div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заявок нет</p></div>
-            : filtered.slice().reverse().map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder}/>)
-          }
-        </>}
-        {tab==="report"&&<>
-          <p style={S.sectionTitle}>Отчёт</p>
-          <div style={S.statsRow}>
-            <div style={S.statCard(C.navy)}><p style={S.statNum}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
-            <div style={S.statCard(C.green)}><p style={S.statNum}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
-            <div style={S.statCard(C.amber)}><p style={S.statNum}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
-            <div style={S.statCard(C.red)}><p style={S.statNum}>{stats.cancelled}</p><p style={S.statLabel}>Не доставлено</p></div>
-            <div style={S.statCard("#7C3AED")}><p style={S.statNum}>{stats.returned}</p><p style={S.statLabel}>Возвратов</p></div>
-          </div>
-          <div style={S.revenueCard}>
-            <p style={{margin:"0 0 4px",fontSize:11,opacity:0.5,fontWeight:600,textTransform:"uppercase"}}>Общая выручка</p>
-            <p style={{margin:"0 0 14px",fontSize:26,fontWeight:800}}>{stats.revenue.toLocaleString()} ₸</p>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-              {[{label:"Наличка",val:stats.cashTotal},{label:"QR код",val:stats.qrTotal},{label:"Долг",val:stats.debtTotal}].map(({label,val})=>(
-                <div key={label} style={{background:"rgba(255,255,255,0.1)",borderRadius:8,padding:"10px 8px"}}>
-                  <p style={{margin:"0 0 2px",fontSize:10,opacity:0.7,fontWeight:600}}>{label.toUpperCase()}</p>
-                  <p style={{margin:0,fontSize:13,fontWeight:800}}>{val.toLocaleString()} ₸</p>
-                </div>
+
+        {tab === "all" && (
+          <>
+            <p style={S.sectionTitle}>Все заявки</p>
+            <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+              {FILTERS.map(([k, lb]) => (
+                <button key={k} onClick={() => setFilter(k)} style={{
+                  padding: "5px 12px", borderRadius: 6, border: `1px solid ${filter===k ? C.navy : C.border}`,
+                  cursor: "pointer", fontSize: 12, fontWeight: 600,
+                  background: filter===k ? C.navy : C.white, color: filter===k ? C.white : C.textMid,
+                }}>{lb}</button>
               ))}
             </div>
-          </div>
-          <p style={{...S.sectionTitle,marginTop:4}}>По торговым представителям</p>
-          {USERS.filter(u=>u.role==="sales").map(u=>{
-            const uOrders=orders.filter(o=>o.salesId===u.id);
-            const uDone=uOrders.filter(o=>o.status==="delivered");
-            const uDebt=uOrders.reduce((s,o)=>s+(o.payment?.debt||0),0);
-            return (
-              <div key={u.id} style={S.card}>
-                <div style={{...S.row,marginBottom:8}}>
-                  <div><p style={S.cardTitle}>{u.name}</p><p style={S.cardSub}>{u.region} · {uOrders.length} заявок</p></div>
-                  <div style={{textAlign:"right"}}>
-                    <p style={{margin:0,fontWeight:700,fontSize:14,color:C.green}}>{uDone.reduce((s,o)=>s+o.total,0).toLocaleString()} ₸</p>
-                    <p style={{margin:0,fontSize:11,color:C.textSub}}>{uDone.length} доставлено</p>
+            {filtered.length === 0
+              ? <div style={{ textAlign: "center", padding: "48px 0", color: C.textFaint }}><div style={{ fontSize: 40, marginBottom: 12 }}>📋</div><p style={{ margin: 0 }}>Заявок нет</p></div>
+              : filtered.slice().reverse().map(o => <OrderCard key={o.id} order={o} onOpen={setSelectedOrder} />)
+            }
+          </>
+        )}
+
+        {tab === "report" && (
+          <>
+            <p style={S.sectionTitle}>Отчёт</p>
+            <div style={S.statsRow}>
+              <div style={S.statCard(C.navy)}><p style={S.statNum}>{stats.total}</p><p style={S.statLabel}>Всего заявок</p></div>
+              <div style={S.statCard(C.green)}><p style={S.statNum}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
+              <div style={S.statCard(C.amber)}><p style={S.statNum}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
+              <div style={S.statCard(C.red)}><p style={S.statNum}>{stats.cancelled}</p><p style={S.statLabel}>Не доставлено</p></div>
+              <div style={S.statCard("#7C3AED")}><p style={S.statNum}>{stats.returned}</p><p style={S.statLabel}>Возвратов</p></div>
+            </div>
+
+            <div style={S.revenueCard}>
+              <p style={{ margin: "0 0 4px", fontSize: 11, opacity: 0.5, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>Общая выручка</p>
+              <p style={{ margin: "0 0 14px", fontSize: 26, fontWeight: 800 }}>{stats.revenue.toLocaleString()} ₸</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                {[
+                  { label: "Наличка", val: stats.cashTotal, bg: "#15803D" },
+                  { label: "QR код",  val: stats.qrTotal,   bg: "#1D4ED8" },
+                  { label: "Долг",    val: stats.debtTotal,  bg: "#92400E" },
+                ].map(({ label, val, bg }) => (
+                  <div key={label} style={{ background: "rgba(255,255,255,0.1)", borderRadius: 8, padding: "10px 8px" }}>
+                    <p style={{ margin: "0 0 2px", fontSize: 10, opacity: 0.7, fontWeight: 600 }}>{label.toUpperCase()}</p>
+                    <p style={{ margin: 0, fontSize: 13, fontWeight: 800 }}>{val.toLocaleString()} ₸</p>
                   </div>
-                </div>
-                {uDebt>0&&<div style={{background:C.debtAmber,borderRadius:6,padding:"6px 10px",fontSize:12,fontWeight:600,color:"#92400E"}}>Долг клиентов: {uDebt.toLocaleString()} ₸</div>}
+                ))}
               </div>
-            );
-          })}
-        </>}
+            </div>
+
+            <p style={{ ...S.sectionTitle, marginTop: 4 }}>По торговым представителям</p>
+            {USERS.filter(u => u.role === "sales").map(u => {
+              const uOrders = orders.filter(o => o.salesId === u.id);
+              const uDone   = uOrders.filter(o => o.status === "delivered");
+              const uDebt   = uOrders.reduce((s, o) => s + (o.payment?.debt || 0), 0);
+              return (
+                <div key={u.id} style={S.card}>
+                  <div style={{ ...S.row, marginBottom: 8 }}>
+                    <div>
+                      <p style={S.cardTitle}>{u.name}</p>
+                      <p style={S.cardSub}>{u.region} · {uOrders.length} заявок</p>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: C.green }}>{uDone.reduce((s, o) => s + o.total, 0).toLocaleString()} ₸</p>
+                      <p style={{ margin: 0, fontSize: 11, color: C.textSub }}>{uDone.length} доставлено</p>
+                    </div>
+                  </div>
+                  {uDebt > 0 && (
+                    <div style={{ background: C.debtAmber, borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600, color: "#92400E" }}>
+                      Долг клиентов: {uDebt.toLocaleString()} ₸
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
       </div>
+
       <div style={S.nav}>
-        {[["all","📋","Заявки"],["report","📊","Отчёт"]].map(([k,ic,lb])=>(
-          <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
-            <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
+        {[["all","📋","Заявки"],["report","📊","Отчёт"]].map(([k,ic,lb]) => (
+          <button key={k} style={S.navBtn(tab===k)} onClick={() => setTab(k)}>
+            <span style={S.navIcon}>{ic}</span>
+            <span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
         ))}
       </div>
@@ -500,31 +688,44 @@ function AdminCabinet({user, orders, onUpdateStatus}) {
   );
 }
 
+// ===== ROOT =====
 function App() {
-  const [user,setUser]=useState(null);
-  const [orders,setOrders]=useState(initOrders);
-  const [login,setLogin]=useState("");
-  const [password,setPassword]=useState("");
-  const [error,setError]=useState("");
+  const [user, setUser]     = useState(null);
+  const [orders, setOrders] = useState(initOrders);
+  const [login, setLogin]   = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError]   = useState("");
 
-  const handleLogin=()=>{
-    const u=USERS.find(u=>u.login===login&&u.password===password);
-    if(u){setError("");setUser(u);}
+  const handleLogin = () => {
+    const u = USERS.find(u => u.login === login && u.password === password);
+    if (u) { setError(""); setUser(u); }
     else setError("Неверный логин или пароль");
   };
 
-  const addOrder=(order)=>setOrders(prev=>[...prev,{...order,id:100+prev.length+1}]);
-  const updateStatus=(id,status)=>setOrders(prev=>prev.map(o=>o.id===id?{...o,status}:o));
-  const ROLE_LABEL={sales:"Торговый представитель",driver:"Водитель",admin:"Администратор",manager:"Менеджер"};
+  const addOrder     = (order) => setOrders(prev => [...prev, { ...order, id: 100 + prev.length + 1 }]);
+  const updateStatus = (id, status, payment) => setOrders(prev => prev.map(o => {
+    if (o.id !== id) return o;
+    return payment ? { ...o, status, payment } : { ...o, status };
+  }));
 
-  if(!user) return (
+  const ROLE_LABEL = { sales: "Торговый представитель", driver: "Водитель", admin: "Администратор", manager: "Менеджер" };
+
+  if (!user) return (
     <div style={S.loginWrap}>
       <div style={S.loginCard}>
-        <h1 style={S.logoTitle}>ЖАЙЫК АКТАУ</h1>
-        <p style={S.logoSub}>Система управления заявками</p>
-        {error&&<div style={S.errorBox}>{error}</div>}
-        <div style={S.formGroup}><label style={S.label}>Логин</label><input style={S.input} value={login} onChange={e=>setLogin(e.target.value)} placeholder="Введите логин"/></div>
-        <div style={{...S.formGroup,marginBottom:20}}><label style={S.label}>Пароль</label><input style={S.input} type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Введите пароль" onKeyDown={e=>e.key==="Enter"&&handleLogin()}/></div>
+        <div style={S.logoWrap}>
+          <h1 style={S.logoTitle}>ЖАЙЫК АКТАУ</h1>
+          <p style={S.logoSub}>Система управления заявками</p>
+        </div>
+        {error && <div style={S.errorBox}>{error}</div>}
+        <div style={S.formGroup}>
+          <label style={S.label}>Логин</label>
+          <input style={S.input} value={login} onChange={e => setLogin(e.target.value)} placeholder="Введите логин" />
+        </div>
+        <div style={{ ...S.formGroup, marginBottom: 20 }}>
+          <label style={S.label}>Пароль</label>
+          <input style={S.input} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Введите пароль" onKeyDown={e => e.key === "Enter" && handleLogin()} />
+        </div>
         <button style={S.btnPrimary} onClick={handleLogin}>Войти</button>
       </div>
     </div>
@@ -537,14 +738,15 @@ function App() {
           <div style={S.headerMark}>ЖАЙЫК АКТАУ</div>
           <div style={S.headerSub}>{user.name} · {ROLE_LABEL[user.role]}</div>
         </div>
-        <button style={S.logoutBtn} onClick={()=>setUser(null)}>Выйти</button>
+        <button style={S.logoutBtn} onClick={() => setUser(null)}>Выйти</button>
       </div>
-      {user.role==="sales"&&<SalesCabinet user={user} orders={orders} onAddOrder={addOrder}/>}
-      {user.role==="driver"&&<DriverCabinet user={user} orders={orders} onUpdateStatus={updateStatus}/>}
-      {(user.role==="admin"||user.role==="manager")&&<AdminCabinet user={user} orders={orders} onUpdateStatus={updateStatus}/>}
+      {user.role === "sales"                                    && <SalesCabinet  user={user} orders={orders} onAddOrder={addOrder} />}
+      {user.role === "driver"                                   && <DriverCabinet user={user} orders={orders} onUpdateStatus={updateStatus} />}
+      {(user.role === "admin" || user.role === "manager")       && <AdminCabinet  user={user} orders={orders} onUpdateStatus={updateStatus} />}
     </div>
   );
 }
+
 
 ReactDOM.render(<App/>, document.getElementById('root'));
 </script>
