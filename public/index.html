@@ -275,7 +275,7 @@ function SalesCabinet({ user, token, onLogout }) {
   const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
   const removeLine = (uid) => setLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
   const addLine = () => setLines(ls=>[...ls,newLine()]);
-  const selectProduct = (uid,prod) => updateLine(uid,{productId:prod.id,name:prod.name,price:prod.price,search:prod.name,showDrop:false,qty:lines.find(l=>l.uid===uid)?.qty||1});
+  const selectProduct = (uid,prod) => updateLine(uid,{productId:prod.id,name:prod.name,price:prod.price,search:prod.name,showDrop:false,qty:""});
 
   const filledLines = lines.filter(l=>l.name&&Number(l.qty)>0&&Number(l.price)>0);
   const total = filledLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
@@ -388,8 +388,14 @@ function SalesCabinet({ user, token, onLogout }) {
                         </div>
                       )}
                     </div>
-                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"center"}} placeholder="0" value={line.qty} type="number" min="1" onChange={e=>updateLine(line.uid,{qty:e.target.value})}/>
-                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"right"}} placeholder="0" value={line.price} type="number" onChange={e=>updateLine(line.uid,{price:e.target.value})}/>
+                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"center"}} placeholder="кол" value={line.qty} type="number" min="1"
+                      onChange={e=>updateLine(line.uid,{qty:e.target.value})}
+                      onFocus={e=>e.target.select()}
+                    />
+                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"right"}} placeholder="цена" value={line.price} type="number"
+                      onChange={e=>updateLine(line.uid,{price:e.target.value})}
+                      onFocus={e=>e.target.select()}
+                    />
                     <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
                   </div>
                   {lineTotal&&<div style={{textAlign:"right",fontSize:11,color:C.textSub,marginTop:2,paddingRight:34}}>= <strong style={{color:C.navy}}>{lineTotal.toLocaleString()} ₸</strong></div>}
