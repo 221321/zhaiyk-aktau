@@ -558,6 +558,26 @@ function App() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  // Проверяем токен при загрузке
+  useEffect(() => {
+    const token = getToken();
+    if (token) {
+      try {
+        const parts = token.split('.');
+        const payload = JSON.parse(atob(parts[1]));
+        if (payload.exp * 1000 > Date.now()) {
+          setUser({ id: payload.id, name: payload.name, role: payload.role, region: payload.region });
+        } else {
+          removeToken();
+        }
+      } catch(e) {
+        removeToken();
+      }
+    }
+    setChecking(false);
+  }, []);
 
   const handleLogin = async () => {
     setLoading(true); setError("");
@@ -574,6 +594,12 @@ function App() {
   const handleLogout = () => { removeToken(); setUser(null); };
 
   const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", admin:"Администратор", manager:"Менеджер" };
+
+  if (checking) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#F8F9FB"}}>
+      <div style={{fontSize:14,color:"#6B7280"}}>Загрузка...</div>
+    </div>
+  );
 
   if (!user) return (
     <div style={S.loginWrap}>
