@@ -133,6 +133,22 @@ app.delete('/api/users/:id', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
+// ===== PRODUCTS (Номенклатура из 1С) =====
+db.defaults({ products: [] }).write();
+
+app.get('/api/products', (req, res) => {
+  const products = db.get('products').value();
+  res.json(products);
+});
+
+app.post('/api/products/sync', (req, res) => {
+  const { items, secret } = req.body;
+  if (secret !== '1c_zhaiyk_2025') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  db.set('products', items).write();
+  res.json({ success: true, count: items.length });
+});
 app.get('/{*path}', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
