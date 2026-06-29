@@ -20,17 +20,6 @@ const { useState, useEffect, useCallback } = React;
 
 const API = '';  // same origin
 
-const PRODUCTS = [
-  { id: 1, name: "Молоко 1л",        price: 450,  unit: "шт" },
-  { id: 2, name: "Кефир 0.5л",       price: 280,  unit: "шт" },
-  { id: 3, name: "Сметана 20%",      price: 520,  unit: "шт" },
-  { id: 4, name: "Масло сливочное",  price: 1200, unit: "пач" },
-  { id: 5, name: "Творог 200г",      price: 380,  unit: "шт" },
-  { id: 6, name: "Йогурт клубника",  price: 320,  unit: "шт" },
-  { id: 7, name: "Ряженка 0.5л",     price: 260,  unit: "шт" },
-  { id: 8, name: "Сыр Российский",   price: 1800, unit: "кг" },
-];
-
 const CLIENTS = [
   { id: 1, name: 'ТОО "Продукты KZ"',  address: "ул. Абая 15" },
   { id: 2, name: "ИП Иванов",           address: "пр. Достык 42" },
@@ -251,6 +240,20 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
 // ===== SALES CABINET =====
 function SalesCabinet({ user, token, onLogout }) {
   const [tab, setTab] = useState("orders");
+const [products, setProducts] = useState([]);
+  useEffect(() => {
+    fetch('/api/products')
+      .then(r => r.json())
+      .then(data => setProducts(data.map((p, i) => ({
+        id: i + 1,
+        name: p.name,
+        price: p.price || 0,
+        unit: p.unit || 'кг',
+        group: p.group || '',
+        code: p.code
+      }))))
+      .catch(() => {});
+  }, []);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -366,7 +369,7 @@ function SalesCabinet({ user, token, onLogout }) {
               {["Наименование","Кол-во","Цена ₸",""].map((h,i)=><div key={i} style={{fontSize:10,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
             </div>
             {lines.map(line=>{
-              const matched=line.search.length>0?PRODUCTS.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):PRODUCTS;
+              const matched=line.search.length>0?products.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):products;
               const lineTotal=Number(line.qty)>0&&Number(line.price)>0?Number(line.qty)*Number(line.price):null;
               return(
                 <div key={line.uid} style={{marginBottom:8}}>
