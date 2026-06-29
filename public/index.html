@@ -18,7 +18,7 @@ input, select, textarea, button { font-family: inherit; }
 <script type="text/babel">
 const { useState, useEffect, useCallback } = React;
 
-const API = '';  // same origin
+const API = '';
 
 const CLIENTS = [
   { id: 1, name: 'ТОО "Продукты KZ"',  address: "ул. Абая 15" },
@@ -83,7 +83,6 @@ const S = {
   loadingWrap: { display:"flex", alignItems:"center", justifyContent:"center", padding:"48px 0", color:C.textFaint },
 };
 
-// ===== API HELPERS =====
 function getToken() { return localStorage.getItem('token'); }
 function setToken(t) { localStorage.setItem('token', t); }
 function removeToken() { localStorage.removeItem('token'); }
@@ -100,7 +99,6 @@ async function apiCall(method, path, body) {
   return data;
 }
 
-// ===== COMPONENTS =====
 function StatusBadge({status}) {
   return <span style={S.badge(status)}>{SL[status]||status}</span>;
 }
@@ -121,7 +119,7 @@ function OrderCard({order, onOpen, onEdit}) {
     <div style={{...S.card, borderLeft:`3px solid ${SC[order.status]||'#999'}`}}>
       <div style={{...S.row, cursor:"pointer"}} onClick={()=>onOpen(order)}>
         <div style={{flex:1,marginRight:10}}>
-          <p style={S.cardTitle}>№{order.id} · {order.client_name||order.clientName}</p>
+          <p style={S.cardTitle}>#{order.id} · {order.client_name||order.clientName}</p>
           <p style={S.cardSub}>{order.address} · {order.time_slot||order.timeSlot}</p>
         </div>
         <StatusBadge status={order.status}/>
@@ -129,7 +127,7 @@ function OrderCard({order, onOpen, onEdit}) {
       <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}>{items.length} поз. · <span style={{fontWeight:700,color:C.text}}>{(order.total||0).toLocaleString()} ₸</span></p>
       <PaymentTags payment={payment}/>
       {onEdit && order.status==="new" && (
-        <button onClick={e=>{e.stopPropagation();onEdit(order);}} style={{marginTop:8,padding:"6px 14px",background:C.navyLight||"#EEF2F8",color:C.navy,border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>✏️ Редактировать</button>
+        <button onClick={e=>{e.stopPropagation();onEdit(order);}} style={{marginTop:8,padding:"6px 14px",background:"#EEF2F8",color:C.navy,border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>✏️ Редактировать</button>
       )}
     </div>
   );
@@ -146,7 +144,7 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
   return (
     <div style={{marginTop:20}}>
       <p style={{margin:"0 0 12px",fontSize:13,fontWeight:700,color:C.navy}}>Способ оплаты:</p>
-      {[{key:"cash",label:"Наличка",icon:"💵",bg:C.cashGreen,col:"#15803D"},{key:"qr",label:"QR код",icon:"📱",bg:C.qrBlue,col:"#1D4ED8"}].map(({key,label,icon,bg,col})=>(
+      {[{key:"cash",label:"Наличка",icon:"💵",bg:C.cashGreen,col:"#15803D"},{key:"qr",label:"QR код",icon:"📲",bg:C.qrBlue,col:"#1D4ED8"}].map(({key,label,icon,bg,col})=>(
         <div key={key} style={{marginBottom:10}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div onClick={()=>setPayType(pt=>({...pt,[key]:!pt[key]}))} style={{width:22,height:22,borderRadius:6,border:`2px solid ${payType[key]?col:C.border}`,background:payType[key]?col:C.white,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -180,7 +178,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
         <div style={{...S.row,marginBottom:14}}>
           <div>
             <p style={{margin:0,fontSize:11,color:C.textFaint,fontWeight:600,textTransform:"uppercase"}}>Заявка</p>
-            <p style={{margin:0,fontSize:18,fontWeight:700,color:C.navy}}>№{order.id}</p>
+            <p style={{margin:0,fontSize:18,fontWeight:700,color:C.navy}}>#{order.id}</p>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <StatusBadge status={order.status}/>
@@ -214,7 +212,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
         )}
         {currentUser.role==="driver" && order.status==="new" && (
           <div style={{marginTop:20}}>
-            <button style={S.btnPrimary} onClick={()=>onUpdateStatus(order.id,"in_transit",null)}>🚗 Взять в доставку</button>
+            <button style={S.btnPrimary} onClick={()=>onUpdateStatus(order.id,"in_transit",null)}>🚚 Взять в доставку</button>
           </div>
         )}
         {currentUser.role==="sales" && order.status==="new" && (
@@ -224,7 +222,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
         )}
         {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="new" && (
           <div style={{marginTop:20}}>
-            <button style={S.btnOutline} onClick={()=>onUpdateStatus(order.id,"in_transit",null)}>🚗 Передать водителю</button>
+            <button style={S.btnOutline} onClick={()=>onUpdateStatus(order.id,"in_transit",null)}>🚚 Передать водителю</button>
           </div>
         )}
         {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="in_transit" && (
@@ -237,10 +235,20 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
   );
 }
 
-// ===== SALES CABINET =====
 function SalesCabinet({ user, token, onLogout }) {
   const [tab, setTab] = useState("orders");
-const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [clientId, setClientId] = useState("");
+  const [timeSlot, setTimeSlot] = useState("");
+  const [comment, setComment] = useState("");
+  const [editOrder, setEditOrder] = useState(null);
+  const newLine = () => ({uid:Math.random(),productId:null,name:"",qty:"",price:"",search:"",showDrop:false});
+  const [lines, setLines] = useState([newLine()]);
+
+  const [products, setProducts] = useState([]);
   useEffect(() => {
     fetch('/api/products')
       .then(r => r.json())
@@ -254,16 +262,6 @@ const [products, setProducts] = useState([]);
       }))))
       .catch(() => {});
   }, []);
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedOrder, setSelectedOrder] = useState(null);
-  const [submitted, setSubmitted] = useState(false);
-  const [clientId, setClientId] = useState("");
-  const [timeSlot, setTimeSlot] = useState("");
-  const [comment, setComment] = useState("");
-  const [editOrder, setEditOrder] = useState(null);
-  const newLine = () => ({uid:Math.random(),productId:null,name:"",qty:"",price:"",search:"",showDrop:false});
-  const [lines, setLines] = useState([newLine()]);
 
   const loadOrders = useCallback(async () => {
     try {
@@ -311,7 +309,7 @@ const [products, setProducts] = useState([]);
         <div style={{position:"fixed",inset:0,background:"rgba(17,24,39,0.45)",zIndex:200,overflowY:"auto"}}>
           <div style={{background:"#fff",margin:"16px",borderRadius:12,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto"}}>
             <div style={{...S.row,marginBottom:16}}>
-              <p style={{margin:0,fontSize:17,fontWeight:700,color:C.navy}}>Редактирование №{editOrder.id}</p>
+              <p style={{margin:0,fontSize:17,fontWeight:700,color:C.navy}}>Редактирование #{editOrder.id}</p>
               <button style={S.btnSecondary} onClick={()=>setEditOrder(null)}>✕</button>
             </div>
             <p style={{fontSize:13,color:C.textSub,marginBottom:16}}>Для редактирования отзовите заявку и создайте новую</p>
@@ -362,14 +360,16 @@ const [products, setProducts] = useState([]);
           </div>
           <div style={S.card}>
             <div style={{...S.row,marginBottom:12}}>
-              <label style={S.label}>Номенклатура</label>
+              <label style={S.label}>
+                Номенклатура {products.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:11}}>({products.length} поз. из 1С)</span>}
+              </label>
               <button onClick={addLine} style={{background:C.navy,color:C.white,border:"none",borderRadius:6,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Строка</button>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,marginBottom:6}}>
               {["Наименование","Кол-во","Цена ₸",""].map((h,i)=><div key={i} style={{fontSize:10,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
             </div>
             {lines.map(line=>{
-              const matched=line.search.length>0?products.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):products;
+              const matched=line.search.length>0?products.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):products.slice(0,50);
               const lineTotal=Number(line.qty)>0&&Number(line.price)>0?Number(line.qty)*Number(line.price):null;
               return(
                 <div key={line.uid} style={{marginBottom:8}}>
@@ -385,7 +385,7 @@ const [products, setProducts] = useState([]);
                           {matched.map(p=>(
                             <div key={p.id} onMouseDown={()=>selectProduct(line.uid,p)} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13}}>
                               <div style={{fontWeight:600}}>{p.name}</div>
-                              <div style={{fontSize:11,color:C.textFaint}}>{p.price.toLocaleString()} ₸ / {p.unit}</div>
+                              <div style={{fontSize:11,color:C.textFaint}}>{p.price>0?p.price.toLocaleString()+' ₸ / ':''}{p.unit}{p.group?' · '+p.group:''}</div>
                             </div>
                           ))}
                         </div>
@@ -417,7 +417,7 @@ const [products, setProducts] = useState([]);
         </>}
       </div>
       <div style={S.nav}>
-        {[["orders","📋","Заявки"],["new","＋","Создать"]].map(([k,ic,lb])=>(
+        {[["orders","📋","Заявки"],["new","✍","Создать"]].map(([k,ic,lb])=>(
           <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
@@ -427,7 +427,6 @@ const [products, setProducts] = useState([]);
   );
 }
 
-// ===== DRIVER CABINET =====
 function DriverCabinet({ user, onLogout }) {
   const [tab, setTab] = useState("queue");
   const [orders, setOrders] = useState([]);
@@ -470,25 +469,25 @@ function DriverCabinet({ user, onLogout }) {
         </div>
         <p style={S.sectionTitle}>{tab==="queue"?"Очередь":tab==="active"?"В пути":tab==="done"?"Доставлено":tab==="failed"?"Не доставлено":"Возвраты"}</p>
         {loading?<div style={S.loadingWrap}>Загрузка...</div>:shown.length===0
-          ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📦</div><p>Нет заявок</p></div>
+          ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>🚗</div><p>Нет заявок</p></div>
           :shown.map(o=>(
             <div key={o.id} style={{...S.card,cursor:"pointer",borderLeft:`3px solid ${SC[o.status]||'#999'}`}} onClick={()=>setSelectedOrder(o)}>
               <div style={S.row}>
                 <div style={{flex:1,marginRight:10}}>
-                  <p style={S.cardTitle}>№{o.id} · {o.client_name}</p>
+                  <p style={S.cardTitle}>#{o.id} · {o.client_name}</p>
                   <p style={S.cardSub}>{o.address}</p>
                   <p style={{...S.cardSub,marginTop:2}}>🕐 {o.time_slot} · {o.sales_name}</p>
                 </div>
                 <StatusBadge status={o.status}/>
               </div>
               <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}><span style={{fontWeight:700,color:C.text}}>{(o.total||0).toLocaleString()} ₸</span></p>
-              {tab==="queue"&&<button onClick={e=>{e.stopPropagation();handleUpdate(o.id,"in_transit",null);}} style={{marginTop:10,width:"100%",padding:"9px",background:C.navy,color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>🚗 Взять в доставку</button>}
+              {tab==="queue"&&<button onClick={e=>{e.stopPropagation();handleUpdate(o.id,"in_transit",null);}} style={{marginTop:10,width:"100%",padding:"9px",background:C.navy,color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>🚚 Взять в доставку</button>}
             </div>
           ))
         }
       </div>
       <div style={S.nav}>
-        {[["queue","📋","Очередь"],["active","🚗","В пути"],["done","✅","Доставлено"],["failed","✕","Не достав."],["returned","↩️","Возврат"]].map(([k,ic,lb])=>(
+        {[["queue","📋","Очередь"],["active","🚚","В пути"],["done","✅","Доставлено"],["failed","✕","Не достав."],["returned","↩️","Возврат"]].map(([k,ic,lb])=>(
           <button key={k} style={{...S.navBtn(tab===k),flex:1}} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
@@ -498,7 +497,6 @@ function DriverCabinet({ user, onLogout }) {
   );
 }
 
-// ===== ADMIN CABINET =====
 function AdminCabinet({ user, onLogout }) {
   const [tab, setTab] = useState("all");
   const [filter, setFilter] = useState("all");
@@ -587,7 +585,6 @@ function AdminCabinet({ user, onLogout }) {
   );
 }
 
-// ===== ROOT =====
 function App() {
   const [user, setUser] = useState(null);
   const [login, setLogin] = useState("");
@@ -596,7 +593,6 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
 
-  // Проверяем токен при загрузке
   useEffect(() => {
     const token = getToken();
     if (token) {
@@ -628,7 +624,6 @@ function App() {
   };
 
   const handleLogout = () => { removeToken(); setUser(null); };
-
   const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", admin:"Администратор", manager:"Менеджер" };
 
   if (checking) return (
