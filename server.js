@@ -134,11 +134,19 @@ app.delete('/api/users/:id', authMiddleware, (req, res) => {
 });
 
 // ===== PRODUCTS (Номенклатура из 1С) =====
-db.defaults({ products: [] }).write();
+db.defaults({ products: [], productAliases: [] }).write();
 
 app.get('/api/products', (req, res) => {
   const products = db.get('products').value();
-  res.json(products);
+  const aliases = db.get('productAliases').value();
+  const aliasMap = {};
+  aliases.forEach(a => { aliasMap[a.code] = a.alias; });
+
+  const result = products.map(p => ({
+    ...p,
+    display_name: (aliasMap[p.code] && aliasMap[p.code].trim()) ? aliasMap[p.code] : p.name
+  }));
+  res.json(result);
 });
 
 app.post('/api/products/sync', (req, res) => {
@@ -148,6 +156,30 @@ app.post('/api/products/sync', (req, res) => {
   }
   db.set('products', items).write();
   res.json({ success: true, count: items.length });
+});
+
+// ===== PRODUCT ALIASES (псевдонимы для сайта) =====
+app.get('/api/product-aliases', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('productAliases').value());
+});
+
+app.post('/api/product-aliases', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { code, alias } = req.body;
+  if (!code) return res.status(400).json({ error: 'Не передан код товара' });
+
+  const existing = db.get('productAliases').find({ code }).value();
+  if (existing) {
+    db.get('productAliases').find({ code }).assign({ alias }).write();
+  } else {
+    db.get('productAliases').push({ code, alias }).write();
+  }
+  res.json({ success: true });
 });
 app.get('/{*path}', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
