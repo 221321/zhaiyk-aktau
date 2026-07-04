@@ -526,6 +526,10 @@ function AdminCabinet({ user, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [aliasSearch, setAliasSearch] = useState("");
+  const [aliasEdits, setAliasEdits] = useState({});
+  const [savingCode, setSavingCode] = useState(null);
 
   const loadOrders = useCallback(async () => {
     try {
@@ -536,6 +540,25 @@ function AdminCabinet({ user, onLogout }) {
   }, []);
 
   useEffect(() => { loadOrders(); }, []);
+
+  const loadProducts = useCallback(async () => {
+    try {
+      const data = await fetch('/api/products').then(r => r.json());
+      setProducts(data);
+    } catch(e) {}
+  }, []);
+
+  useEffect(() => { loadProducts(); }, []);
+
+  const saveAlias = async (code) => {
+    const alias = aliasEdits[code] ?? "";
+    setSavingCode(code);
+    try {
+      await apiCall('POST', '/api/product-aliases', { code, alias });
+      await loadProducts();
+    } catch(e) { alert(e.message); }
+    setSavingCode(null);
+  };
 
   const handleUpdate = async (id, status, payment) => {
     try {
@@ -576,40 +599,6 @@ function AdminCabinet({ user, onLogout }) {
         </>}
         {tab==="report"&&<>
           <p style={S.sectionTitle}>Отчёт</p>
-          {tab==="aliases"&&<>
-  <p style={S.sectionTitle}>Псевдонимы товаров</p>
-  <p style={{fontSize:12,color:C.textSub,marginTop:-8,marginBottom:12}}>
-    Название из 1С меняется от поставки к поставке — задай здесь постоянное имя, которое увидят торгпреды.
-  </p>
-  <input
-    style={{...S.input,marginBottom:12}}
-    placeholder="Поиск по названию или коду..."
-    value={aliasSearch}
-    onChange={e=>setAliasSearch(e.target.value)}
-  />
-  {products
-    .filter(p => !aliasSearch || p.name.toLowerCase().includes(aliasSearch.toLowerCase()) || (p.code||'').includes(aliasSearch))
-    .map(p => (
-      <div key={p.code} style={{...S.card, padding:10, marginBottom:6}}>
-        <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {p.code} {p.group?' · '+p.group:''}</div>
-        <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:C.textMid}}>{p.name}</div>
-        <div style={{display:"flex",gap:6}}>
-          <input
-            style={{...S.input,padding:"7px 10px",fontSize:13}}
-            placeholder="Название для сайта (необязательно)"
-            value={aliasEdits[p.code] ?? (p.display_name !== p.name ? p.display_name : '')}
-            onChange={e=>setAliasEdits(a=>({...a,[p.code]:e.target.value}))}
-          />
-          <button
-            style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingCode===p.code?0.5:1}}
-            disabled={savingCode===p.code}
-            onClick={()=>saveAlias(p.code)}
-          >Сохр.</button>
-        </div>
-      </div>
-  ))}
-  {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
-</>}
           <div style={S.statsRow}>
             <div style={S.statCard(C.navy)}><p style={S.statNum}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
             <div style={S.statCard(C.green)}><p style={S.statNum}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
@@ -630,6 +619,40 @@ function AdminCabinet({ user, onLogout }) {
             </div>
           </div>
         </>}
+        {tab==="aliases"&&<>
+          <p style={S.sectionTitle}>Псевдонимы товаров</p>
+          <p style={{fontSize:12,color:C.textSub,marginTop:-8,marginBottom:12}}>
+            Название из 1С меняется от поставки к поставке — задай здесь постоянное имя, которое увидят торгпреды.
+          </p>
+          <input
+            style={{...S.input,marginBottom:12}}
+            placeholder="Поиск по названию или коду..."
+            value={aliasSearch}
+            onChange={e=>setAliasSearch(e.target.value)}
+          />
+          {products
+            .filter(p => !aliasSearch || p.name.toLowerCase().includes(aliasSearch.toLowerCase()) || (p.code||'').includes(aliasSearch))
+            .map(p => (
+              <div key={p.code} style={{...S.card, padding:10, marginBottom:6}}>
+                <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {p.code} {p.group?' · '+p.group:''}</div>
+                <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:C.textMid}}>{p.name}</div>
+                <div style={{display:"flex",gap:6}}>
+                  <input
+                    style={{...S.input,padding:"7px 10px",fontSize:13}}
+                    placeholder="Название для сайта (необязательно)"
+                    value={aliasEdits[p.code] ?? (p.display_name !== p.name ? p.display_name : '')}
+                    onChange={e=>setAliasEdits(a=>({...a,[p.code]:e.target.value}))}
+                  />
+                  <button
+                    style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingCode===p.code?0.5:1}}
+                    disabled={savingCode===p.code}
+                    onClick={()=>saveAlias(p.code)}
+                  >Сохр.</button>
+                </div>
+              </div>
+          ))}
+          {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
+        </>}
       </div>
       <div style={S.nav}>
         {[["all","📋","Заявки"],["report","📊","Отчёт"],["aliases","🏷","Товары"]].map(([k,ic,lb])=>(
@@ -641,8 +664,6 @@ function AdminCabinet({ user, onLogout }) {
     </div>
   );
 }
-
-function App() {
   const [user, setUser] = useState(null);
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
