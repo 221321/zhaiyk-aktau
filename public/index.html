@@ -576,6 +576,40 @@ function AdminCabinet({ user, onLogout }) {
         </>}
         {tab==="report"&&<>
           <p style={S.sectionTitle}>Отчёт</p>
+          {tab==="aliases"&&<>
+  <p style={S.sectionTitle}>Псевдонимы товаров</p>
+  <p style={{fontSize:12,color:C.textSub,marginTop:-8,marginBottom:12}}>
+    Название из 1С меняется от поставки к поставке — задай здесь постоянное имя, которое увидят торгпреды.
+  </p>
+  <input
+    style={{...S.input,marginBottom:12}}
+    placeholder="Поиск по названию или коду..."
+    value={aliasSearch}
+    onChange={e=>setAliasSearch(e.target.value)}
+  />
+  {products
+    .filter(p => !aliasSearch || p.name.toLowerCase().includes(aliasSearch.toLowerCase()) || (p.code||'').includes(aliasSearch))
+    .map(p => (
+      <div key={p.code} style={{...S.card, padding:10, marginBottom:6}}>
+        <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {p.code} {p.group?' · '+p.group:''}</div>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:C.textMid}}>{p.name}</div>
+        <div style={{display:"flex",gap:6}}>
+          <input
+            style={{...S.input,padding:"7px 10px",fontSize:13}}
+            placeholder="Название для сайта (необязательно)"
+            value={aliasEdits[p.code] ?? (p.display_name !== p.name ? p.display_name : '')}
+            onChange={e=>setAliasEdits(a=>({...a,[p.code]:e.target.value}))}
+          />
+          <button
+            style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingCode===p.code?0.5:1}}
+            disabled={savingCode===p.code}
+            onClick={()=>saveAlias(p.code)}
+          >Сохр.</button>
+        </div>
+      </div>
+  ))}
+  {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
+</>}
           <div style={S.statsRow}>
             <div style={S.statCard(C.navy)}><p style={S.statNum}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
             <div style={S.statCard(C.green)}><p style={S.statNum}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
