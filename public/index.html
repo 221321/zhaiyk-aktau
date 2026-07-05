@@ -432,29 +432,6 @@ function DriverCabinet({ user, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [products, setProducts] = useState([]);
-const [aliasSearch, setAliasSearch] = useState("");
-const [aliasEdits, setAliasEdits] = useState({});
-const [savingCode, setSavingCode] = useState(null);
-
-const loadProducts = useCallback(async () => {
-  try {
-    const data = await fetch('/api/products').then(r => r.json());
-    setProducts(data);
-  } catch(e) {}
-}, []);
-
-useEffect(() => { loadProducts(); }, []);
-
-const saveAlias = async (code) => {
-  const alias = aliasEdits[code] ?? "";
-  setSavingCode(code);
-  try {
-    await apiCall('POST', '/api/product-aliases', { code, alias });
-    await loadProducts();
-  } catch(e) { alert(e.message); }
-  setSavingCode(null);
-};
 
   const loadOrders = useCallback(async () => {
     try {
@@ -664,6 +641,8 @@ function AdminCabinet({ user, onLogout }) {
     </div>
   );
 }
+
+function App() {
   const [user, setUser] = useState(null);
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
