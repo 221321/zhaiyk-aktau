@@ -396,7 +396,8 @@ function SalesCabinet({ user, token, onLogout }) {
                       onChange={e=>updateLine(line.uid,{qty:e.target.value})}
                       onFocus={e=>e.target.select()}
                     />
-                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"right"}} placeholder="цена" value={line.price} type="number"
+                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"right",background:(line.priceOptions&&line.priceOptions.length>0)?C.surface:C.white,color:(line.priceOptions&&line.priceOptions.length>0)?C.textSub:C.text}} placeholder="цена" value={line.price} type="number"
+                      disabled={line.priceOptions&&line.priceOptions.length>0}
                       onChange={e=>updateLine(line.uid,{price:e.target.value})}
                       onFocus={e=>e.target.select()}
                     />
