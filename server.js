@@ -73,7 +73,7 @@ app.get('/api/orders', authMiddleware, (req, res) => {
 });
 
 app.post('/api/orders', authMiddleware, (req, res) => {
-  const { clientName, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone, contactBin } = req.body;
+  const { clientName, clientCode, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone, contactBin } = req.body;
 
   const availableMap = computeAvailableStock();
   for (const it of (items || [])) {
@@ -91,6 +91,7 @@ app.post('/api/orders', authMiddleware, (req, res) => {
     sales_id: req.user.id,
     sales_name: req.user.name,
     client_name: clientName,
+    client_code: clientCode || '',
     address,
     time_slot: timeSlot,
     date: new Date().toISOString().slice(0, 10),
