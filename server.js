@@ -142,10 +142,14 @@ app.get('/api/products', (req, res) => {
   const aliasMap = {};
   aliases.forEach(a => { aliasMap[a.code] = a.alias; });
 
-  const result = products.map(p => ({
-    ...p,
-    display_name: (aliasMap[p.code] && aliasMap[p.code].trim()) ? aliasMap[p.code] : p.name
-  }));
+  const result = products.map(p => {
+    const hasAlias = !!(aliasMap[p.code] && aliasMap[p.code].trim());
+    return {
+      ...p,
+      display_name: hasAlias ? aliasMap[p.code] : p.name,
+      has_alias: hasAlias
+    };
+  });
   res.json(result);
 });
 
