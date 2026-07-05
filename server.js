@@ -100,11 +100,21 @@ app.post('/api/orders', authMiddleware, (req, res) => {
 });
 
 app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
-  const { status } = req.body;
-  const validStatuses = ['new', 'in_transit', 'delivered', 'cancelled', 'returned'];
+  const { status, payment } = req.body;
+  const validStatuses = ['new', 'in_transit', 'delivered', 'cancelled', 'returned', 'revoked'];
   if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Неверный статус' });
   const orderId = parseInt(req.params.id);
-  db.get('orders').find({ id: orderId }).assign({ status }).write();
+  const patch = { status };
+  if (['delivered', 'cancelled', 'returned'].includes(status) && req.user.role === 'driver') {
+    patch.driver_id = req.user.id;
+    patch.driver_name = req.user.name;
+  }
+  if (payment) {
+    patch.payment_cash = payment.cash || 0;
+    patch.payment_qr = payment.qr || 0;
+    patch.payment_debt = payment.debt || 0;
+  }
+  db.get('orders').find({ id: orderId }).assign(patch).write();
   const order = db.get('orders').find({ id: orderId }).value();
   res.json(order);
 });
