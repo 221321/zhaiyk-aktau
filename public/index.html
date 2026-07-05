@@ -252,60 +252,79 @@ const COMPANY_INFO = {
 
 function printWaybill(order) {
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
+  const totalNds = 0;
   const rows = items.map((it,i)=>`
     <tr>
       <td style="text-align:center">${i+1}</td>
       <td>${it.name}</td>
+      <td style="text-align:center">${it.code||''}</td>
+      <td style="text-align:center">${it.qty}</td>
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:right">${Number(it.price).toLocaleString()}</td>
       <td style="text-align:right">${(Number(it.qty)*Number(it.price)).toLocaleString()}</td>
+      <td style="text-align:right">0</td>
     </tr>`).join('');
   const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Накладная №${order.id}</title>
   <style>
-    body{font-family:Arial, sans-serif; font-size:13px; padding:24px; color:#111; max-width:720px; margin:0 auto;}
-    h1{font-size:16px; text-align:center; margin:0 0 4px;}
-    .sub{text-align:center; font-size:12px; margin-bottom:20px; color:#444;}
-    table{width:100%; border-collapse:collapse; margin:16px 0;}
-    th,td{border:1px solid #333; padding:6px 8px; font-size:12px;}
-    th{background:#f0f0f0;}
-    .block{margin-bottom:14px; line-height:1.5;}
-    .total{text-align:right; font-weight:bold; font-size:14px; margin-top:10px;}
-    .sign{margin-top:50px; display:flex; justify-content:space-between; gap:20px;}
-    .sign div{flex:1; border-top:1px solid #333; padding-top:4px; text-align:center; font-size:12px;}
-    .btnbar{text-align:center; margin-bottom:20px;}
+    body{font-family:Arial, sans-serif; font-size:12px; padding:20px; color:#111; max-width:900px; margin:0 auto;}
+    .topright{text-align:right; font-size:11px; line-height:1.4; margin-bottom:10px;}
+    h1{font-size:15px; text-align:center; margin:16px 0;}
+    table{width:100%; border-collapse:collapse; margin:10px 0;}
+    th,td{border:1px solid #333; padding:5px 6px; font-size:11px;}
+    th{background:#f0f0f0; text-align:center;}
+    .headrow{display:flex; border:1px solid #333; margin-top:14px;}
+    .headrow > div{flex:1; border-right:1px solid #333; padding:6px;}
+    .headrow > div:last-child{border-right:none;}
+    .headrow .label{font-size:10px; color:#444; margin-bottom:4px;}
+    .toprow{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;}
+    .totals{margin-top:8px; font-size:12px;}
+    .sign{margin-top:24px;}
+    .sign p{margin:14px 0 2px;}
+    .signline{display:inline-block; min-width:220px; border-bottom:1px solid #333; margin:0 6px;}
+    .btnbar{text-align:center; margin-bottom:20px; display:flex; gap:10px; justify-content:center;}
+    .btnbar button{padding:12px 24px; font-size:15px; font-weight:700; cursor:pointer; border-radius:8px; border:none; color:#fff;}
     @media print { .btnbar{display:none;} }
   </style>
   </head><body>
-    <div class="btnbar"><button onclick="window.print()" style="padding:10px 20px;font-size:14px;cursor:pointer;">Печать</button></div>
-    <h1>НАКЛАДНАЯ №${order.id} от ${order.date}</h1>
-    <div class="sub">на отпуск запасов</div>
-    <div class="block">
-      <b>Отправитель:</b> ${COMPANY_INFO.name}<br>
-      Адрес: ${COMPANY_INFO.address}<br>
-      БИН: ${COMPANY_INFO.bin}, Банк: ${COMPANY_INFO.bank}, БИК: ${COMPANY_INFO.bik}<br>
-      Счёт: ${COMPANY_INFO.account}
+    <div class="btnbar">
+      <button onclick="window.print()" style="background:#1B2B4B;">🖨 Печать</button>
     </div>
-    <div class="block">
-      <b>Получатель:</b> ${order.client_name||''}<br>
-      ${order.address?('Адрес доставки: '+order.address+'<br>'):''}
-      ${order.contact_name?('Контактное лицо: '+order.contact_name+'<br>'):''}
-      ${order.contact_phone?('Телефон: '+order.contact_phone+'<br>'):''}
-      ${order.contact_bin?('БИН: '+order.contact_bin+'<br>'):''}
+    <div class="topright">Приложение 26<br>к приказу Министра финансов<br>Республики Казахстан<br>от 20 декабря 2012 года № 562</div>
+    <div class="toprow"><span>Организация (индивидуальный предприниматель) <b>${COMPANY_INFO.name}</b></span><span>ИИН/БИН <b>${COMPANY_INFO.bin}</b></span></div>
+    <h1>НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ<br><span style="font-weight:400;font-size:12px">Форма З-2 · № ${order.id} от ${order.date}</span></h1>
+    <div class="headrow">
+      <div><div class="label">ОРГАНИЗАЦИЯ — ОТПРАВИТЕЛЬ</div>${COMPANY_INFO.name}</div>
+      <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${order.client_name||''}${order.contact_bin?('<br>БИН: '+order.contact_bin):''}</div>
+      <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name||''}</div>
+      <div><div class="label">АДРЕС ДОСТАВКИ</div>${order.address||''}${order.contact_phone?('<br>Тел: '+order.contact_phone):''}</div>
     </div>
-    <div class="block"><b>Время доставки:</b> ${order.time_slot||''} &nbsp;·&nbsp; <b>Торговый представитель:</b> ${order.sales_name||''}</div>
     <table>
-      <tr><th>№</th><th>Наименование</th><th>Кол-во</th><th>Цена, ₸</th><th>Сумма, ₸</th></tr>
+      <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Кол-во<br>подлежит<br>отпуску</th><th>Кол-во<br>отпущено</th><th>Цена за ед., ₸</th><th>Сумма, ₸</th><th>Сумма НДС, ₸</th></tr>
       ${rows}
+      <tr><td colspan="6" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(order.total||0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds}</td></tr>
     </table>
-    <div class="total">Итого: ${(order.total||0).toLocaleString()} ₸</div>
+    <div class="totals">Всего отпущено на сумму: <b>${(order.total||0).toLocaleString()} ₸</b></div>
     <div class="sign">
-      <div>Отпустил (водитель)${order.driver_name?': '+order.driver_name:''}</div>
-      <div>Запасы получил (клиент)</div>
+      <p>Отпуск разрешил: <span class="signline">&nbsp;</span> должность / подпись / <b>Администратор</b></p>
+      <p>Отпустил (водитель): <span class="signline">${order.driver_name||''}</span> подпись</p>
+      <p>Запасы получил: <span class="signline">&nbsp;</span> подпись / расшифровка подписи</p>
     </div>
   </body></html>`;
   const w = window.open('', '_blank');
   w.document.write(html);
   w.document.close();
+}
+
+function shareWaybillWhatsApp(order) {
+  const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
+  let text = `Накладная №${order.id} от ${order.date}\n${COMPANY_INFO.name}\n\nПолучатель: ${order.client_name||''}\n`;
+  if (order.address) text += `Адрес: ${order.address}\n`;
+  text += `\nСостав заказа:\n`;
+  items.forEach(it=>{ text += `- ${it.name} × ${it.qty} = ${(it.qty*it.price).toLocaleString()} ₸\n`; });
+  text += `\nИтого: ${(order.total||0).toLocaleString()} ₸`;
+  const phone = (order.contact_phone||'').replace(/\D/g,'');
+  const url = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank');
 }
 
 function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
@@ -321,9 +340,12 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <StatusBadge status={order.status}/>
-            <button style={S.btnSecondary} onClick={()=>printWaybill(order)} title="Печать накладной">🖨</button>
             <button style={S.btnSecondary} onClick={onClose}>✕</button>
           </div>
+        </div>
+        <div style={{display:"flex",gap:8,marginBottom:14}}>
+          <button style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>printWaybill(order)}>🖨 Печать накладной</button>
+          <button style={{flex:1,padding:"11px",background:"#25D366",color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>shareWaybillWhatsApp(order)}>📲 В WhatsApp</button>
         </div>
         <hr style={S.divider}/>
         {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.contact_bin?[["БИН",order.contact_bin]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
