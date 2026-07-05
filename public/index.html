@@ -555,7 +555,7 @@ function SalesCabinet({ user, token, onLogout }) {
     const client = clients.find(c=>c.code===clientId);
     const items = filledLines.map(l=>({id:l.productId,code:l.code,name:l.name,qty:Number(l.qty),price:Number(l.price),commission:l.commission||0}));
     try {
-      await apiCall('POST','/api/orders',{clientName:client.name,address:client.address||'',timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment,contactName,contactPhone,contactBin});
+      await apiCall('POST','/api/orders',{clientName:client.name,clientCode:client.code,address:client.address||'',timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment,contactName,contactPhone,contactBin});
       setLines([newLine()]); setClientId(""); setClientSearchText(""); setTimeSlot(""); setComment(""); setContactName(""); setContactPhone(""); setContactBin("");
       setSubmitted(true); setTab("orders"); loadOrders();
       setTimeout(()=>setSubmitted(false),4000);
