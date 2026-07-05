@@ -507,6 +507,7 @@ function AdminCabinet({ user, onLogout }) {
   const [aliasSearch, setAliasSearch] = useState("");
   const [aliasEdits, setAliasEdits] = useState({});
   const [savingCode, setSavingCode] = useState(null);
+  const [editingCodes, setEditingCodes] = useState({});
 
   const loadOrders = useCallback(async () => {
     try {
@@ -533,6 +534,7 @@ function AdminCabinet({ user, onLogout }) {
     try {
       await apiCall('POST', '/api/product-aliases', { code, alias });
       await loadProducts();
+      setEditingCodes(e => { const n = {...e}; delete n[code]; return n; });
     } catch(e) { alert(e.message); }
     setSavingCode(null);
   };
@@ -609,25 +611,31 @@ function AdminCabinet({ user, onLogout }) {
           />
           {products
             .filter(p => !aliasSearch || p.name.toLowerCase().includes(aliasSearch.toLowerCase()) || (p.code||'').includes(aliasSearch))
-            .map(p => (
+            .map(p => {
+              const locked = p.has_alias && !editingCodes[p.code];
+              return (
               <div key={p.code} style={{...S.card, padding:10, marginBottom:6}}>
                 <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {p.code} {p.group?' · '+p.group:''}</div>
                 <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:C.textMid}}>{p.name}</div>
                 <div style={{display:"flex",gap:6}}>
                   <input
-                    style={{...S.input,padding:"7px 10px",fontSize:13}}
+                    style={{...S.input,padding:"7px 10px",fontSize:13,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
                     placeholder="Название для сайта (необязательно)"
-                    value={aliasEdits[p.code] ?? (p.display_name !== p.name ? p.display_name : '')}
+                    disabled={locked}
+                    value={aliasEdits[p.code] ?? (p.has_alias ? p.display_name : '')}
                     onChange={e=>setAliasEdits(a=>({...a,[p.code]:e.target.value}))}
                   />
                   <button
                     style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingCode===p.code?0.5:1}}
                     disabled={savingCode===p.code}
-                    onClick={()=>saveAlias(p.code)}
-                  >{p.has_alias ? "Редакт." : "Сохр."}</button>
+                    onClick={()=>{
+                      if (locked) { setEditingCodes(e=>({...e,[p.code]:true})); }
+                      else { saveAlias(p.code); }
+                    }}
+                  >{locked ? "Редакт." : "Сохр."}</button>
                 </div>
               </div>
-          ))}
+          )})}
           {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
         </>}
       </div>
