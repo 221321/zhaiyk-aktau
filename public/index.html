@@ -218,11 +218,11 @@ function DebtsPanel() {
       <p style={S.sectionTitle}>Должники</p>
       {loadingDebts?<div style={S.loadingWrap}>Загрузка...</div>:debts.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Долгов нет</div>:
         debts.map(d=>(
-          <div key={d.order_id} style={{...S.card, borderLeft: d.overdue?`3px solid ${C.red}`:"3px solid #F59E0B"}}>
+          <div key={d.order_id} style={{...S.card, borderLeft: d.overdue?`3px solid ${C.red}`:"3px solid #F59E0B", background: d.overdue?"#FEF2F2":C.white}}>
             <div style={S.row}>
               <div>
                 <p style={S.cardTitle}>{d.client_name} {d.overdue&&<span style={{color:C.red,fontSize:11,fontWeight:700}}>· ПРОСРОЧЕН</span>}</p>
-                <p style={S.cardSub}>#{d.order_id} · {d.date}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
+                <p style={{...S.cardSub,color:d.overdue?"#B91C1C":C.textSub}}>#{d.order_id} · {d.date}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
               </div>
               <p style={{margin:0,fontWeight:800,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
             </div>
