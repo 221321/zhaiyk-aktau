@@ -134,20 +134,25 @@ app.delete('/api/users/:id', authMiddleware, (req, res) => {
 });
 
 // ===== PRODUCTS (Номенклатура из 1С) =====
+// ===== PRODUCTS (Номенклатура из 1С) =====
 db.defaults({ products: [], productAliases: [] }).write();
 
 app.get('/api/products', (req, res) => {
   const products = db.get('products').value();
   const aliases = db.get('productAliases').value();
   const aliasMap = {};
-  aliases.forEach(a => { aliasMap[a.code] = a.alias; });
+  aliases.forEach(a => { aliasMap[a.code] = a; });
 
   const result = products.map(p => {
-    const hasAlias = !!(aliasMap[p.code] && aliasMap[p.code].trim());
+    const rec = aliasMap[p.code];
+    const hasAlias = !!(rec && rec.alias && rec.alias.trim());
     return {
       ...p,
-      display_name: hasAlias ? aliasMap[p.code] : p.name,
-      has_alias: hasAlias
+      display_name: hasAlias ? rec.alias : p.name,
+      has_alias: hasAlias,
+      price1: rec && rec.price1 != null ? rec.price1 : null,
+      price2: rec && rec.price2 != null ? rec.price2 : null,
+      price3: rec && rec.price3 != null ? rec.price3 : null,
     };
   });
   res.json(result);
@@ -162,6 +167,34 @@ app.post('/api/products/sync', (req, res) => {
   res.json({ success: true, count: items.length });
 });
 
+// ===== PRODUCT ALIASES (псевдонимы и цены для сайта) =====
+app.get('/api/product-aliases', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('productAliases').value());
+});
+
+app.post('/api/product-aliases', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { code, alias, price1, price2, price3 } = req.body;
+  if (!code) return res.status(400).json({ error: 'Не передан код товара' });
+
+  const patch = { alias };
+  if (price1 !== undefined) patch.price1 = price1;
+  if (price2 !== undefined) patch.price2 = price2;
+  if (price3 !== undefined) patch.price3 = price3;
+
+  const existing = db.get('productAliases').find({ code }).value();
+  if (existing) {
+    db.get('productAliases').find({ code }).assign(patch).write();
+  } else {
+    db.get('productAliases').push({ code, ...patch }).write();
+  }
+  res.json({ success: true });
+});
 // ===== PRODUCT ALIASES (псевдонимы для сайта) =====
 app.get('/api/product-aliases', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
