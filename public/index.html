@@ -7,6 +7,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; background: #F8F9FB; }
@@ -250,7 +252,7 @@ const COMPANY_INFO = {
   account: 'KZ33722S000046085888',
 };
 
-function printWaybill(order) {
+function buildWaybillInnerHtml(order) {
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const totalNds = 0;
   const rows = items.map((it,i)=>`
@@ -264,31 +266,7 @@ function printWaybill(order) {
       <td style="text-align:right">${(Number(it.qty)*Number(it.price)).toLocaleString()}</td>
       <td style="text-align:right">0</td>
     </tr>`).join('');
-  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Накладная №${order.id}</title>
-  <style>
-    body{font-family:Arial, sans-serif; font-size:12px; padding:20px; color:#111; max-width:900px; margin:0 auto;}
-    .topright{text-align:right; font-size:11px; line-height:1.4; margin-bottom:10px;}
-    h1{font-size:15px; text-align:center; margin:16px 0;}
-    table{width:100%; border-collapse:collapse; margin:10px 0;}
-    th,td{border:1px solid #333; padding:5px 6px; font-size:11px;}
-    th{background:#f0f0f0; text-align:center;}
-    .headrow{display:flex; border:1px solid #333; margin-top:14px;}
-    .headrow > div{flex:1; border-right:1px solid #333; padding:6px;}
-    .headrow > div:last-child{border-right:none;}
-    .headrow .label{font-size:10px; color:#444; margin-bottom:4px;}
-    .toprow{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;}
-    .totals{margin-top:8px; font-size:12px;}
-    .sign{margin-top:24px;}
-    .sign p{margin:14px 0 2px;}
-    .signline{display:inline-block; min-width:220px; border-bottom:1px solid #333; margin:0 6px;}
-    .btnbar{text-align:center; margin-bottom:20px; display:flex; gap:10px; justify-content:center;}
-    .btnbar button{padding:12px 24px; font-size:15px; font-weight:700; cursor:pointer; border-radius:8px; border:none; color:#fff;}
-    @media print { .btnbar{display:none;} }
-  </style>
-  </head><body>
-    <div class="btnbar">
-      <button onclick="window.print()" style="background:#1B2B4B;">🖨 Печать</button>
-    </div>
+  return `
     <div class="topright">Приложение 26<br>к приказу Министра финансов<br>Республики Казахстан<br>от 20 декабря 2012 года № 562</div>
     <div class="toprow"><span>Организация (индивидуальный предприниматель) <b>${COMPANY_INFO.name}</b></span><span>ИИН/БИН <b>${COMPANY_INFO.bin}</b></span></div>
     <h1>НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ<br><span style="font-weight:400;font-size:12px">Форма З-2 · № ${order.id} от ${order.date}</span></h1>
@@ -308,23 +286,88 @@ function printWaybill(order) {
       <p>Отпуск разрешил: <span class="signline">&nbsp;</span> должность / подпись / <b>Администратор</b></p>
       <p>Отпустил (водитель): <span class="signline">${order.driver_name||''}</span> подпись</p>
       <p>Запасы получил: <span class="signline">&nbsp;</span> подпись / расшифровка подписи</p>
+    </div>`;
+}
+
+const WAYBILL_STYLE = `
+    body{font-family:Arial, sans-serif; font-size:12px; padding:20px; color:#111; max-width:900px; margin:0 auto;}
+    .topright{text-align:right; font-size:11px; line-height:1.4; margin-bottom:10px;}
+    h1{font-size:15px; text-align:center; margin:16px 0;}
+    table{width:100%; border-collapse:collapse; margin:10px 0;}
+    th,td{border:1px solid #333; padding:5px 6px; font-size:11px;}
+    th{background:#f0f0f0; text-align:center;}
+    .headrow{display:flex; border:1px solid #333; margin-top:14px;}
+    .headrow > div{flex:1; border-right:1px solid #333; padding:6px;}
+    .headrow > div:last-child{border-right:none;}
+    .headrow .label{font-size:10px; color:#444; margin-bottom:4px;}
+    .toprow{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;}
+    .totals{margin-top:8px; font-size:12px;}
+    .sign{margin-top:24px;}
+    .sign p{margin:14px 0 2px;}
+    .signline{display:inline-block; min-width:220px; border-bottom:1px solid #333; margin:0 6px;}
+    .btnbar{text-align:center; margin-bottom:20px; display:flex; gap:10px; justify-content:center;}
+    .btnbar button{padding:12px 24px; font-size:15px; font-weight:700; cursor:pointer; border-radius:8px; border:none; color:#fff;}
+    @media print { .btnbar{display:none;} }`;
+
+function printWaybill(order) {
+  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Накладная №${order.id}</title>
+  <style>${WAYBILL_STYLE}</style>
+  </head><body>
+    <div class="btnbar">
+      <button onclick="window.print()" style="background:#1B2B4B;">🖨 Печать</button>
     </div>
+    ${buildWaybillInnerHtml(order)}
   </body></html>`;
   const w = window.open('', '_blank');
   w.document.write(html);
   w.document.close();
 }
 
-function shareWaybillWhatsApp(order) {
-  const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
-  let text = `Накладная №${order.id} от ${order.date}\n${COMPANY_INFO.name}\n\nПолучатель: ${order.client_name||''}\n`;
-  if (order.address) text += `Адрес: ${order.address}\n`;
-  text += `\nСостав заказа:\n`;
-  items.forEach(it=>{ text += `- ${it.name} × ${it.qty} = ${(it.qty*it.price).toLocaleString()} ₸\n`; });
-  text += `\nИтого: ${(order.total||0).toLocaleString()} ₸`;
-  const phone = (order.contact_phone||'').replace(/\D/g,'');
-  const url = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
-  window.open(url, '_blank');
+async function shareWaybillPdf(order) {
+  if (!window.jspdf || !window.html2canvas) {
+    alert('Модуль печати ещё загружается, попробуйте через пару секунд');
+    return;
+  }
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '-9999px';
+  container.style.top = '0';
+  container.style.width = '780px';
+  container.style.background = '#fff';
+  const styleTag = document.createElement('style');
+  styleTag.textContent = WAYBILL_STYLE;
+  container.appendChild(styleTag);
+  const contentDiv = document.createElement('div');
+  contentDiv.innerHTML = buildWaybillInnerHtml(order);
+  container.appendChild(contentDiv);
+  document.body.appendChild(container);
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'pt', 'a4');
+    await doc.html(container, { x: 20, y: 20, width: 555, windowWidth: 780 });
+    document.body.removeChild(container);
+
+    const blob = doc.output('blob');
+    const fileName = `nakladnaya-${order.id}.pdf`;
+    const file = new File([blob], fileName, { type: 'application/pdf' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: `Накладная №${order.id}` });
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fileName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 5000);
+    alert('PDF скачан. На компьютере системная отправка в WhatsApp недоступна — прикрепите файл вручную. На телефоне эта же кнопка сразу откроет "Поделиться".');
+  } catch(e) {
+    if (document.body.contains(container)) document.body.removeChild(container);
+    if (e && e.name === 'AbortError') return;
+    alert('Не удалось сформировать PDF: ' + e.message);
+  }
 }
 
 function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
@@ -345,7 +388,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
         </div>
         <div style={{display:"flex",gap:8,marginBottom:14}}>
           <button style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>printWaybill(order)}>🖨 Печать накладной</button>
-          <button style={{flex:1,padding:"11px",background:"#25D366",color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>shareWaybillWhatsApp(order)}>📲 В WhatsApp</button>
+          <button style={{flex:1,padding:"11px",background:"#25D366",color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>shareWaybillPdf(order)}>📲 Отправить PDF</button>
         </div>
         <hr style={S.divider}/>
         {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.contact_bin?[["БИН",order.contact_bin]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
