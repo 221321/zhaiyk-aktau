@@ -70,7 +70,7 @@ app.get('/api/orders', authMiddleware, (req, res) => {
 });
 
 app.post('/api/orders', authMiddleware, (req, res) => {
-  const { clientName, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment } = req.body;
+  const { clientName, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone, contactBin } = req.body;
   const id = db.get('nextOrderId').value();
   const order = {
     id,
@@ -87,6 +87,9 @@ app.post('/api/orders', authMiddleware, (req, res) => {
     payment_debt: paymentDebt || 0,
     items: items || [],
     comment: comment || '',
+    contact_name: contactName || '',
+    contact_phone: contactPhone || '',
+    contact_bin: contactBin || '',
     created_at: new Date().toISOString()
   };
   db.get('orders').push(order).write();
