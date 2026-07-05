@@ -777,6 +777,9 @@ function AdminCabinet({ user, onLogout }) {
                   value={getField(p,'alias')}
                   onChange={e=>updateField(p.code,'alias',e.target.value)}
                 />
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 70px auto",gap:6,marginBottom:3}}>
+                  {["Цена 1","Цена 2","Цена 3","% торговому",""].map((h,i)=><div key={i} style={{fontSize:9,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
+                </div>
                 <div style={{display:"flex",gap:6}}>
                   <input
                     style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
@@ -802,14 +805,17 @@ function AdminCabinet({ user, onLogout }) {
                     value={getField(p,'price3')}
                     onChange={e=>updateField(p.code,'price3',e.target.value)}
                   />
-                  <input
-                    style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text,maxWidth:70}}
-                    placeholder="% ком."
-                    type="number"
-                    disabled={locked}
-                    value={getField(p,'commission')}
-                    onChange={e=>updateField(p.code,'commission',e.target.value)}
-                  />
+                  <div style={{position:"relative",width:70}}>
+                    <input
+                      style={{...S.input,padding:"7px 18px 7px 8px",fontSize:12,background:locked?C.surface:"#FFFBEB",color:locked?C.textSub:"#92400E",fontWeight:700,borderColor:locked?C.border:"#FDE68A",width:70}}
+                      placeholder="0"
+                      type="number"
+                      disabled={locked}
+                      value={getField(p,'commission')}
+                      onChange={e=>updateField(p.code,'commission',e.target.value)}
+                    />
+                    <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:12,fontWeight:700,color:locked?C.textFaint:"#92400E",pointerEvents:"none"}}>%</span>
+                  </div>
                   <button
                     style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingCode===p.code?0.5:1, width:"auto", whiteSpace:"nowrap"}}
                     disabled={savingCode===p.code}
@@ -823,49 +829,9 @@ function AdminCabinet({ user, onLogout }) {
           )})}
           {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
         </>}
-        {tab==="clients"&&<>
-          <p style={S.sectionTitle}>Контрагенты</p>
-          <p style={{fontSize:12,color:C.textSub,marginTop:-8,marginBottom:12}}>
-            Название приходит из 1С, адрес задай здесь — увидят торгпреды при создании заявки.
-          </p>
-          <input
-            style={{...S.input,marginBottom:12}}
-            placeholder="Поиск по названию или коду..."
-            value={clientSearch}
-            onChange={e=>setClientSearch(e.target.value)}
-          />
-          {clients
-            .filter(c => !clientSearch || c.name.toLowerCase().includes(clientSearch.toLowerCase()) || (c.code||'').includes(clientSearch))
-            .map(c => {
-              const locked = c.has_address && !editingClientCodes[c.code];
-              return (
-              <div key={c.code} style={{...S.card, padding:10, marginBottom:6}}>
-                <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {c.code}</div>
-                <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:C.textMid}}>{c.name}</div>
-                <div style={{display:"flex",gap:6}}>
-                  <input
-                    style={{...S.input,padding:"7px 10px",fontSize:13,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
-                    placeholder="Адрес доставки"
-                    disabled={locked}
-                    value={getClientField(c,'address')}
-                    onChange={e=>updateClientField(c.code,'address',e.target.value)}
-                  />
-                  <button
-                    style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingClientCode===c.code?0.5:1, width:"auto", whiteSpace:"nowrap"}}
-                    disabled={savingClientCode===c.code}
-                    onClick={()=>{
-                      if (locked) { setEditingClientCodes(e=>({...e,[c.code]:true})); }
-                      else { saveClientAddress(c); }
-                    }}
-                  >{locked ? "Редакт." : "Сохр."}</button>
-                </div>
-              </div>
-          )})}
-          {clients.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Контрагенты ещё не синхронизированы из 1С</div>}
-        </>}
       </div>
       <div style={S.nav}>
-        {[["all","📋","Заявки"],["report","📊","Отчёт"],["aliases","🏷","Товары"],["clients","🏢","Контраг."]].map(([k,ic,lb])=>(
+        {[["all","📋","Заявки"],["report","📊","Отчёт"],["aliases","🏷","Товары"]].map(([k,ic,lb])=>(
           <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
