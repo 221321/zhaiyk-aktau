@@ -126,20 +126,23 @@ function OrderCard({order, onOpen, onEdit}) {
 }
 
 function DriverPaymentBlock({ order, onUpdateStatus }) {
-  const [payType, setPayType] = useState({ cash: false, qr: false });
+  const [payType, setPayType] = useState({ cash: false, qr: false, debtFull: false });
   const [payAmounts, setPayAmt] = useState({ cash: "", qr: "" });
   const total = order.total || 0;
   const cashPaid = payType.cash ? Number(payAmounts.cash)||0 : 0;
   const qrPaid   = payType.qr   ? Number(payAmounts.qr)  ||0 : 0;
-  const autodebt = Math.max(0, total - cashPaid - qrPaid);
+  const autodebt = payType.debtFull ? total : Math.max(0, total - cashPaid - qrPaid);
+  const hasSelection = payType.cash || payType.qr || payType.debtFull;
+  const toggleDebtFull = () => setPayType({ cash:false, qr:false, debtFull: !payType.debtFull });
+  const toggleCashQr = (key) => setPayType(pt=>({ ...pt, debtFull:false, [key]: !pt[key] }));
 
   return (
     <div style={{marginTop:20}}>
-      <p style={{margin:"0 0 12px",fontSize:13,fontWeight:700,color:C.navy}}>Способ оплаты:</p>
+      <p style={{margin:"0 0 12px",fontSize:13,fontWeight:700,color:C.navy}}>Способ оплаты: <span style={{color:C.red,fontWeight:400}}>{!hasSelection?"(выберите хотя бы один)":""}</span></p>
       {[{key:"cash",label:"Наличка",icon:"💵",bg:C.cashGreen,col:"#15803D"},{key:"qr",label:"QR код",icon:"📲",bg:C.qrBlue,col:"#1D4ED8"}].map(({key,label,icon,bg,col})=>(
         <div key={key} style={{marginBottom:10}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div onClick={()=>setPayType(pt=>({...pt,[key]:!pt[key]}))} style={{width:22,height:22,borderRadius:6,border:`2px solid ${payType[key]?col:C.border}`,background:payType[key]?col:C.white,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div onClick={()=>toggleCashQr(key)} style={{width:22,height:22,borderRadius:6,border:`2px solid ${payType[key]?col:C.border}`,background:payType[key]?col:C.white,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
               {payType[key]&&<span style={{color:C.white,fontSize:13,fontWeight:700}}>✓</span>}
             </div>
             <span style={{fontSize:14,fontWeight:600,color:payType[key]?col:C.textMid}}>{icon} {label}</span>
@@ -147,6 +150,14 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
           </div>
         </div>
       ))}
+      <div style={{marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div onClick={toggleDebtFull} style={{width:22,height:22,borderRadius:6,border:`2px solid ${payType.debtFull?"#92400E":C.border}`,background:payType.debtFull?"#92400E":C.white,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            {payType.debtFull&&<span style={{color:C.white,fontSize:13,fontWeight:700}}>✓</span>}
+          </div>
+          <span style={{fontSize:14,fontWeight:600,color:payType.debtFull?"#92400E":C.textMid}}>📋 Полностью в долг</span>
+        </div>
+      </div>
       <div style={{padding:"12px 14px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,marginBottom:14}}>
         <div style={{...S.row,marginBottom:6}}><span style={{fontSize:12,color:C.textSub}}>Сумма заявки</span><span style={{fontWeight:700}}>{total.toLocaleString()} ₸</span></div>
         <div style={{...S.row,paddingTop:6,borderTop:`1px solid ${C.border}`}}>
@@ -154,7 +165,7 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
           {autodebt>0&&<span style={{fontWeight:800,fontSize:15,color:"#92400E"}}>{autodebt.toLocaleString()} ₸</span>}
         </div>
       </div>
-      <button style={S.btnSuccess} onClick={()=>onUpdateStatus(order.id,"delivered",{cash:cashPaid,qr:qrPaid,debt:autodebt})}>✅ Подтвердить доставку</button>
+      <button style={{...S.btnSuccess,opacity:hasSelection?1:0.4,cursor:hasSelection?"pointer":"not-allowed"}} disabled={!hasSelection} onClick={()=>onUpdateStatus(order.id,"delivered",{cash:cashPaid,qr:qrPaid,debt:autodebt})}>✅ Подтвердить доставку</button>
       <button style={S.btnDanger} onClick={()=>onUpdateStatus(order.id,"cancelled",null)}>❌ Не удалось доставить</button>
       <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:8}} onClick={()=>onUpdateStatus(order.id,"returned",null)}>↩️ Оформить возврат</button>
     </div>
@@ -764,6 +775,27 @@ function AdminCabinet({ user, onLogout }) {
   const salesList = Object.entries(salesBreakdown).map(([id,v])=>({
     id, ...v, totalBonus: v.items.reduce((s,it)=>s+it.bonus,0)
   })).sort((a,b)=>b.revenue-a.revenue);
+
+  const [expandedDebts, setExpandedDebts] = useState({});
+  const cashByDriver = {};
+  periodOrders.filter(o=>o.status==="delivered"&&o.driver_id).forEach(o=>{
+    const key = o.driver_id;
+    if(!cashByDriver[key]) cashByDriver[key] = { name: o.driver_name, cash:0, qr:0, debt:0, orders:0 };
+    cashByDriver[key].cash += (o.payment_cash||0);
+    cashByDriver[key].qr += (o.payment_qr||0);
+    cashByDriver[key].debt += (o.payment_debt||0);
+    cashByDriver[key].orders += 1;
+  });
+  const driverCashList = Object.values(cashByDriver).sort((a,b)=>b.cash-a.cash);
+
+  const debtByClient = {};
+  periodOrders.filter(o=>o.status==="delivered"&&(o.payment_debt||0)>0).forEach(o=>{
+    const key = o.client_name;
+    if(!debtByClient[key]) debtByClient[key] = { name: o.client_name, debt:0, orders:[] };
+    debtByClient[key].debt += (o.payment_debt||0);
+    debtByClient[key].orders.push({ id:o.id, date:o.date, amount:o.payment_debt });
+  });
+  const debtList = Object.values(debtByClient).sort((a,b)=>b.debt-a.debt);
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
 
   return (
@@ -839,6 +871,67 @@ function AdminCabinet({ user, onLogout }) {
                       <span style={{fontSize:13,color:C.textMid}}>Итого бонус</span>
                       <span style={{fontSize:15,color:C.green}}>{s.totalBonus.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</span>
                     </div>
+                  </div>
+                )}
+              </div>
+          ))}
+        </>}
+        {tab==="cashbox"&&<>
+          <p style={S.sectionTitle}>Касса</p>
+          <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:120}}>
+              <label style={{...S.label,marginBottom:4}}>С</label>
+              <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
+            </div>
+            <div style={{flex:1,minWidth:120}}>
+              <label style={{...S.label,marginBottom:4}}>По</label>
+              <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
+            </div>
+          </div>
+          <p style={{...S.sectionTitle,fontSize:14}}>Сдача кассы по водителям</p>
+          {driverCashList.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Нет закрытых водителями заявок за период</div>:
+            driverCashList.map((d,i)=>(
+              <div key={i} style={S.card}>
+                <p style={S.cardTitle}>{d.name}</p>
+                <p style={S.cardSub}>{d.orders} заявок доставлено</p>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:10}}>
+                  <div style={{background:C.cashGreen,borderRadius:8,padding:"8px 10px"}}>
+                    <p style={{margin:"0 0 2px",fontSize:10,color:"#15803D",fontWeight:600}}>НАЛИЧКА</p>
+                    <p style={{margin:0,fontSize:14,fontWeight:800,color:"#15803D"}}>{d.cash.toLocaleString()} ₸</p>
+                  </div>
+                  <div style={{background:C.qrBlue,borderRadius:8,padding:"8px 10px"}}>
+                    <p style={{margin:"0 0 2px",fontSize:10,color:"#1D4ED8",fontWeight:600}}>QR</p>
+                    <p style={{margin:0,fontSize:14,fontWeight:800,color:"#1D4ED8"}}>{d.qr.toLocaleString()} ₸</p>
+                  </div>
+                  <div style={{background:C.debtAmber,borderRadius:8,padding:"8px 10px"}}>
+                    <p style={{margin:"0 0 2px",fontSize:10,color:"#92400E",fontWeight:600}}>ДОЛГ</p>
+                    <p style={{margin:0,fontSize:14,fontWeight:800,color:"#92400E"}}>{d.debt.toLocaleString()} ₸</p>
+                  </div>
+                </div>
+              </div>
+          ))}
+          <p style={{...S.sectionTitle,fontSize:14,marginTop:20}}>Должники</p>
+          {debtList.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Долгов за период нет</div>:
+            debtList.map((c,i)=>(
+              <div key={i} style={S.card}>
+                <div style={{...S.row,cursor:"pointer"}} onClick={()=>setExpandedDebts(e=>({...e,[i]:!e[i]}))}>
+                  <div>
+                    <p style={S.cardTitle}>{c.name}</p>
+                    <p style={S.cardSub}>{c.orders.length} заявок с долгом</p>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <p style={{margin:0,fontWeight:800,color:"#92400E"}}>{c.debt.toLocaleString()} ₸</p>
+                    <p style={{margin:0,fontSize:11,color:C.textFaint}}>{expandedDebts[i]?"▲ Свернуть":"▼ Подробнее"}</p>
+                  </div>
+                </div>
+                {expandedDebts[i]&&(
+                  <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                    {c.orders.map((o,j)=>(
+                      <div key={j} style={{...S.row,marginBottom:6,fontSize:12}}>
+                        <span style={{color:C.textMid}}>#{o.id} · {o.date}</span>
+                        <span style={{color:"#92400E",fontWeight:700}}>{o.amount.toLocaleString()} ₸</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -924,7 +1017,7 @@ function AdminCabinet({ user, onLogout }) {
         </>}
       </div>
       <div style={S.nav}>
-        {[["all","📋","Заявки"],["report","📊","Отчёт"],["aliases","🏷","Товары"]].map(([k,ic,lb])=>(
+        {[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"]].map(([k,ic,lb])=>(
           <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
