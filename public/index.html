@@ -22,9 +22,9 @@ const API = '';
 
 const TIME_SLOTS = ["До обеда (09:00 – 14:00)", "После обеда (14:00 – 19:00)"];
 
-const SL = { new: "Ожидает", in_transit: "В пути", delivered: "Доставлено", cancelled: "Не доставлено", returned: "Возврат" };
-const SC = { new: "#2563EB", in_transit: "#D97706", delivered: "#16A34A", cancelled: "#DC2626", returned: "#7C3AED" };
-const SB = { new: "#EFF6FF", in_transit: "#FFFBEB", delivered: "#F0FDF4", cancelled: "#FEF2F2", returned: "#F5F3FF" };
+const SL = { new: "Ожидает", in_transit: "В пути", delivered: "Доставлено", cancelled: "Отказ при получении", returned: "Возврат", revoked: "Отозвана" };
+const SC = { new: "#2563EB", in_transit: "#D97706", delivered: "#16A34A", cancelled: "#DC2626", returned: "#7C3AED", revoked: "#6B7280" };
+const SB = { new: "#EFF6FF", in_transit: "#FFFBEB", delivered: "#F0FDF4", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6" };
 
 const C = {
   navy:"#1B2B4B", accent:"#2563EB", white:"#FFFFFF", surface:"#F8F9FB",
@@ -209,7 +209,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
         )}
         {currentUser.role==="sales" && order.status==="new" && (
           <div style={{marginTop:20}}>
-            <button style={S.btnDanger} onClick={()=>onUpdateStatus(order.id,"cancelled",null)}>🗑 Отозвать заявку</button>
+            <button style={S.btnDanger} onClick={()=>onUpdateStatus(order.id,"revoked",null)}>🗑 Отозвать заявку</button>
           </div>
         )}
         {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="new" && (
@@ -280,7 +280,7 @@ function SalesCabinet({ user, token, onLogout }) {
   const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
   const removeLine = (uid) => setLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
   const addLine = () => setLines(ls=>[...ls,newLine()]);
-  const selectProduct = (uid,prod) => updateLine(uid,{productId:prod.id,name:prod.name,price:"",search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0});
+  const selectProduct = (uid,prod) => updateLine(uid,{productId:prod.id,code:prod.code,name:prod.name,price:"",search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0});
 
   const filledLines = lines.filter(l=>l.name&&Number(l.qty)>0&&Number(l.price)>0);
   const total = filledLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
@@ -288,7 +288,7 @@ function SalesCabinet({ user, token, onLogout }) {
   const handleSubmit = async () => {
     if (!clientId||filledLines.length===0||!timeSlot) return;
     const client = clients.find(c=>c.code===clientId);
-    const items = filledLines.map(l=>({id:l.productId,name:l.name,qty:Number(l.qty),price:Number(l.price),commission:l.commission||0}));
+    const items = filledLines.map(l=>({id:l.productId,code:l.code,name:l.name,qty:Number(l.qty),price:Number(l.price),commission:l.commission||0}));
     try {
       await apiCall('POST','/api/orders',{clientName:client.name,address:client.address||'',timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment,contactName,contactPhone,contactBin});
       setLines([newLine()]); setClientId(""); setClientSearchText(""); setTimeSlot(""); setComment(""); setContactName(""); setContactPhone(""); setContactBin("");
@@ -304,7 +304,20 @@ function SalesCabinet({ user, token, onLogout }) {
     } catch(e) { alert(e.message); }
   };
 
-  const stats = {total:orders.length,delivered:orders.filter(o=>o.status==="delivered").length,inTransit:orders.filter(o=>o.status==="in_transit").length,new:orders.filter(o=>o.status==="new").length};
+  const todayStr = new Date().toISOString().slice(0,10);
+  const visibleOrders = orders.filter(o=>o.status==="new"||o.status==="in_transit"||(["delivered","cancelled","returned"].includes(o.status)&&o.date===todayStr));
+  const stats = {total:visibleOrders.length,delivered:visibleOrders.filter(o=>o.status==="delivered").length,inTransit:visibleOrders.filter(o=>o.status==="in_transit").length,new:visibleOrders.filter(o=>o.status==="new").length};
+  const todaySales = orders.filter(o=>o.status==="delivered"&&o.date===todayStr).reduce((s,o)=>s+(o.total||0),0);
+  const [expandedClients, setExpandedClients] = useState({});
+  const clientBreakdown = {};
+  orders.filter(o=>o.status==="delivered"&&o.date===todayStr).forEach(o=>{
+    const key = o.client_name;
+    if(!clientBreakdown[key]) clientBreakdown[key] = { name:o.client_name, revenue:0, items:[] };
+    clientBreakdown[key].revenue += (o.total||0);
+    const its = typeof o.items==='string'?JSON.parse(o.items||'[]'):(o.items||[]);
+    its.forEach(it=>clientBreakdown[key].items.push({name:it.name,qty:it.qty,price:it.price}));
+  });
+  const clientList = Object.values(clientBreakdown).sort((a,b)=>b.revenue-a.revenue);
 
   return (
     <div style={{paddingBottom:72}}>
@@ -319,7 +332,7 @@ function SalesCabinet({ user, token, onLogout }) {
             <p style={{fontSize:13,color:C.textSub,marginBottom:16}}>Для редактирования отзовите заявку и создайте новую</p>
             <button style={S.btnDanger} onClick={async()=>{
               try {
-                await apiCall('PUT',`/api/orders/${editOrder.id}/status`,{status:"cancelled"});
+                await apiCall('PUT',`/api/orders/${editOrder.id}/status`,{status:"revoked"});
                 setEditOrder(null); loadOrders();
               } catch(e){alert(e.message);}
             }}>🗑 Отозвать заявку</button>
@@ -338,8 +351,40 @@ function SalesCabinet({ user, token, onLogout }) {
               <div style={S.statCard(C.amber)}><p style={S.statNum}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
               <div style={S.statCard(C.accent)}><p style={S.statNum}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
             </div>
-            {orders.length===0?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заявок пока нет</p></div>
-              :orders.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder} onEdit={o.status==="new"?setEditOrder:null}/>)}
+            <div style={S.revenueCard}>
+              <p style={{margin:"0 0 4px",fontSize:11,opacity:0.5,fontWeight:600,textTransform:"uppercase"}}>Продажи сегодня</p>
+              <p style={{margin:0,fontSize:26,fontWeight:800}}>{todaySales.toLocaleString()} ₸</p>
+            </div>
+            {clientList.length>0&&<>
+              <p style={{...S.sectionTitle,fontSize:14,marginTop:16}}>Продано сегодня</p>
+              {clientList.map((c,i)=>(
+                <div key={i} style={S.card}>
+                  <div style={{...S.row,cursor:"pointer"}} onClick={()=>setExpandedClients(e=>({...e,[i]:!e[i]}))}>
+                    <div>
+                      <p style={S.cardTitle}>{c.name}</p>
+                      <p style={S.cardSub}>{c.items.length} поз.</p>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <p style={{margin:0,fontWeight:800,color:C.navy}}>{c.revenue.toLocaleString()} ₸</p>
+                      <p style={{margin:0,fontSize:11,color:C.textFaint}}>{expandedClients[i]?"▲ Свернуть":"▼ Подробнее"}</p>
+                    </div>
+                  </div>
+                  {expandedClients[i]&&(
+                    <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                      {c.items.map((it,j)=>(
+                        <div key={j} style={{...S.row,marginBottom:6,fontSize:12}}>
+                          <span style={{color:C.textMid}}>{it.name} <span style={{color:C.textFaint}}>×{it.qty}</span></span>
+                          <span style={{color:C.textSub}}>{it.price} ₸</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </>}
+            <p style={{...S.sectionTitle,fontSize:14,marginTop:16}}>Список заявок</p>
+            {visibleOrders.length===0?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заявок пока нет</p></div>
+              :visibleOrders.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder} onEdit={o.status==="new"?setEditOrder:null}/>)}
           </>}
         </>}
         {tab==="new"&&<>
@@ -466,6 +511,8 @@ function SalesCabinet({ user, token, onLogout }) {
 
 function DriverCabinet({ user, onLogout }) {
   const [tab, setTab] = useState("queue");
+  const [queueFilter, setQueueFilter] = useState("all");
+  const [doneFilter, setDoneFilter] = useState("all");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -482,49 +529,92 @@ function DriverCabinet({ user, onLogout }) {
 
   const handleUpdate = async (id, status, payment) => {
     try {
-      await apiCall('PUT', `/api/orders/${id}/status`, { status });
+      await apiCall('PUT', `/api/orders/${id}/status`, { status, payment });
       setSelectedOrder(null); loadOrders();
     } catch(e) { alert(e.message); }
   };
 
-  const queue=orders.filter(o=>o.status==="new");
-  const myActive=orders.filter(o=>o.status==="in_transit");
-  const done=orders.filter(o=>o.status==="delivered");
-  const failed=orders.filter(o=>o.status==="cancelled");
-  const returned=orders.filter(o=>o.status==="returned");
-  const shown=tab==="queue"?queue:tab==="active"?myActive:tab==="done"?done:tab==="failed"?failed:returned;
+  const todayStr = new Date().toISOString().slice(0,10);
+
+  const queueAll = orders.filter(o=>o.status==="new"||o.status==="in_transit");
+  const queueNew = orders.filter(o=>o.status==="new");
+  const queueActive = orders.filter(o=>o.status==="in_transit");
+  const queueShown = queueFilter==="new"?queueNew:queueFilter==="in_transit"?queueActive:queueAll;
+
+  const myDoneAll = orders.filter(o=>o.driver_id===user.id&&o.date===todayStr&&["delivered","cancelled","returned"].includes(o.status));
+  const myDelivered = myDoneAll.filter(o=>o.status==="delivered");
+  const myCancelled = myDoneAll.filter(o=>o.status==="cancelled");
+  const myReturned = myDoneAll.filter(o=>o.status==="returned");
+  const doneShown = doneFilter==="delivered"?myDelivered:doneFilter==="cancelled"?myCancelled:doneFilter==="returned"?myReturned:myDoneAll;
+
+  const QUEUE_FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"]];
+  const DONE_FILTERS=[["all","Все"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"]];
 
   return (
     <div style={{paddingBottom:72}}>
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
       <div style={S.page}>
-        <div style={S.statsRow}>
-          <div style={S.statCard(C.accent)}><p style={S.statNum}>{queue.length}</p><p style={S.statLabel}>Ожидают</p></div>
-          <div style={S.statCard(C.amber)}><p style={S.statNum}>{myActive.length}</p><p style={S.statLabel}>В пути</p></div>
-          <div style={S.statCard(C.green)}><p style={S.statNum}>{done.length}</p><p style={S.statLabel}>Доставлено</p></div>
-          <div style={S.statCard("#7C3AED")}><p style={S.statNum}>{returned.length}</p><p style={S.statLabel}>Возвратов</p></div>
-        </div>
-        <p style={S.sectionTitle}>{tab==="queue"?"Очередь":tab==="active"?"В пути":tab==="done"?"Доставлено":tab==="failed"?"Не доставлено":"Возвраты"}</p>
-        {loading?<div style={S.loadingWrap}>Загрузка...</div>:shown.length===0
-          ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>🚗</div><p>Нет заявок</p></div>
-          :shown.map(o=>(
-            <div key={o.id} style={{...S.card,cursor:"pointer",borderLeft:`3px solid ${SC[o.status]||'#999'}`}} onClick={()=>setSelectedOrder(o)}>
-              <div style={S.row}>
-                <div style={{flex:1,marginRight:10}}>
-                  <p style={S.cardTitle}>#{o.id} · {o.client_name}</p>
-                  <p style={S.cardSub}>{o.address}</p>
-                  <p style={{...S.cardSub,marginTop:2}}>🕐 {o.time_slot} · {o.sales_name}</p>
+        {tab==="queue"&&<>
+          <div style={S.statsRow}>
+            <div style={S.statCard(C.accent)}><p style={S.statNum}>{queueNew.length}</p><p style={S.statLabel}>Ожидают</p></div>
+            <div style={S.statCard(C.amber)}><p style={S.statNum}>{queueActive.length}</p><p style={S.statLabel}>В пути</p></div>
+          </div>
+          <p style={S.sectionTitle}>Очередь</p>
+          <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+            {QUEUE_FILTERS.map(([k,lb])=>(
+              <button key={k} onClick={()=>setQueueFilter(k)} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${queueFilter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:queueFilter===k?C.navy:C.white,color:queueFilter===k?C.white:C.textMid}}>{lb}</button>
+            ))}
+          </div>
+          {loading?<div style={S.loadingWrap}>Загрузка...</div>:queueShown.length===0
+            ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>🚗</div><p>Нет заявок</p></div>
+            :queueShown.map(o=>(
+              <div key={o.id} style={{...S.card,cursor:"pointer",borderLeft:`3px solid ${SC[o.status]||'#999'}`}} onClick={()=>setSelectedOrder(o)}>
+                <div style={S.row}>
+                  <div style={{flex:1,marginRight:10}}>
+                    <p style={S.cardTitle}>#{o.id} · {o.client_name}</p>
+                    <p style={S.cardSub}>{o.address}</p>
+                    <p style={{...S.cardSub,marginTop:2}}>🕐 {o.time_slot} · {o.sales_name}</p>
+                  </div>
+                  <StatusBadge status={o.status}/>
                 </div>
-                <StatusBadge status={o.status}/>
+                <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}><span style={{fontWeight:700,color:C.text}}>{(o.total||0).toLocaleString()} ₸</span></p>
+                {o.status==="new"&&<button onClick={e=>{e.stopPropagation();handleUpdate(o.id,"in_transit",null);}} style={{marginTop:10,width:"100%",padding:"9px",background:C.navy,color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>🚚 Взять в доставку</button>}
               </div>
-              <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}><span style={{fontWeight:700,color:C.text}}>{(o.total||0).toLocaleString()} ₸</span></p>
-              {tab==="queue"&&<button onClick={e=>{e.stopPropagation();handleUpdate(o.id,"in_transit",null);}} style={{marginTop:10,width:"100%",padding:"9px",background:C.navy,color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>🚚 Взять в доставку</button>}
-            </div>
-          ))
-        }
+            ))
+          }
+        </>}
+        {tab==="done"&&<>
+          <div style={S.statsRow}>
+            <div style={S.statCard(C.green)}><p style={S.statNum}>{myDelivered.length}</p><p style={S.statLabel}>Доставлено</p></div>
+            <div style={S.statCard(C.red)}><p style={S.statNum}>{myCancelled.length}</p><p style={S.statLabel}>Отказ</p></div>
+            <div style={S.statCard("#7C3AED")}><p style={S.statNum}>{myReturned.length}</p><p style={S.statLabel}>Возврат</p></div>
+          </div>
+          <p style={S.sectionTitle}>Закрытые сегодня</p>
+          <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+            {DONE_FILTERS.map(([k,lb])=>(
+              <button key={k} onClick={()=>setDoneFilter(k)} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${doneFilter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:doneFilter===k?C.navy:C.white,color:doneFilter===k?C.white:C.textMid}}>{lb}</button>
+            ))}
+          </div>
+          {loading?<div style={S.loadingWrap}>Загрузка...</div>:doneShown.length===0
+            ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📭</div><p>Сегодня ничего не закрыто</p></div>
+            :doneShown.map(o=>(
+              <div key={o.id} style={{...S.card,cursor:"pointer",borderLeft:`3px solid ${SC[o.status]||'#999'}`}} onClick={()=>setSelectedOrder(o)}>
+                <div style={S.row}>
+                  <div style={{flex:1,marginRight:10}}>
+                    <p style={S.cardTitle}>#{o.id} · {o.client_name}</p>
+                    <p style={S.cardSub}>{o.address}</p>
+                    <p style={{...S.cardSub,marginTop:2}}>🕐 {o.time_slot} · {o.sales_name}</p>
+                  </div>
+                  <StatusBadge status={o.status}/>
+                </div>
+                <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}><span style={{fontWeight:700,color:C.text}}>{(o.total||0).toLocaleString()} ₸</span></p>
+              </div>
+            ))
+          }
+        </>}
       </div>
       <div style={S.nav}>
-        {[["queue","📋","Очередь"],["active","🚚","В пути"],["done","✅","Доставлено"],["failed","✕","Не достав."],["returned","↩️","Возврат"]].map(([k,ic,lb])=>(
+        {[["queue","📋","Очередь"],["done","✅","Закрытые"]].map(([k,ic,lb])=>(
           <button key={k} style={{...S.navBtn(tab===k),flex:1}} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
@@ -633,7 +723,7 @@ function AdminCabinet({ user, onLogout }) {
 
   const handleUpdate = async (id, status, payment) => {
     try {
-      await apiCall('PUT', `/api/orders/${id}/status`, { status });
+      await apiCall('PUT', `/api/orders/${id}/status`, { status, payment });
       setSelectedOrder(null); loadOrders();
     } catch(e) { alert(e.message); }
   };
@@ -652,6 +742,8 @@ function AdminCabinet({ user, onLogout }) {
     debtTotal:periodOrders.reduce((s,o)=>s+(o.payment_debt||0),0),
   };
   const [expandedSales, setExpandedSales] = useState({});
+  const commissionByCode = {};
+  products.forEach(p => { commissionByCode[p.code] = p.commission || 0; });
   const salesBreakdown = {};
   periodOrders.filter(o=>o.status==="delivered").forEach(o=>{
     const key = o.sales_id;
@@ -659,19 +751,20 @@ function AdminCabinet({ user, onLogout }) {
     salesBreakdown[key].revenue += (o.total||0);
     const orderItems = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
     orderItems.forEach(it=>{
+      const liveCommission = it.code && commissionByCode[it.code] !== undefined ? commissionByCode[it.code] : (it.commission||0);
       salesBreakdown[key].items.push({
         name: it.name,
         qty: it.qty,
         price: it.price,
-        commission: it.commission||0,
-        bonus: (Number(it.qty)||0)*(Number(it.price)||0)*(Number(it.commission)||0)/100
+        commission: liveCommission,
+        bonus: (Number(it.qty)||0)*(Number(it.price)||0)*(Number(liveCommission)||0)/100
       });
     });
   });
   const salesList = Object.entries(salesBreakdown).map(([id,v])=>({
     id, ...v, totalBonus: v.items.reduce((s,it)=>s+it.bonus,0)
   })).sort((a,b)=>b.revenue-a.revenue);
-  const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"],["delivered","Доставлено"],["cancelled","Не доставлено"],["returned","Возврат"]];
+  const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
 
   return (
     <div style={{paddingBottom:72}}>
