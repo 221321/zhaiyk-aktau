@@ -256,6 +256,7 @@ function SalesCabinet({ user, token, onLogout }) {
     id: i + 1,
     name: p.display_name || p.name,
     price: p.price || 0,
+    priceOptions: [p.price1, p.price2, p.price3].filter(v => v !== null && v !== undefined),
     unit: p.unit || 'кг',
     group: p.group || '',
     code: p.code
@@ -276,7 +277,7 @@ function SalesCabinet({ user, token, onLogout }) {
   const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
   const removeLine = (uid) => setLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
   const addLine = () => setLines(ls=>[...ls,newLine()]);
-  const selectProduct = (uid,prod) => updateLine(uid,{productId:prod.id,name:prod.name,price:prod.price,search:prod.name,showDrop:false,qty:""});
+  const selectProduct = (uid,prod) => updateLine(uid,{productId:prod.id,name:prod.name,price:"",search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[]});
 
   const filledLines = lines.filter(l=>l.name&&Number(l.qty)>0&&Number(l.price)>0);
   const total = filledLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
@@ -402,6 +403,13 @@ function SalesCabinet({ user, token, onLogout }) {
                     <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
                   </div>
                   {lineTotal&&<div style={{textAlign:"right",fontSize:11,color:C.textSub,marginTop:2,paddingRight:34}}>= <strong style={{color:C.navy}}>{lineTotal.toLocaleString()} ₸</strong></div>}
+                  {line.priceOptions&&line.priceOptions.length>0&&(
+                    <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+                      {line.priceOptions.map((pr,i)=>(
+                        <button key={i} onClick={()=>updateLine(line.uid,{price:pr})} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${Number(line.price)===pr?C.navy:C.border}`,background:Number(line.price)===pr?C.navy:C.white,color:Number(line.price)===pr?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>{pr.toLocaleString()} ₸</button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -505,7 +513,7 @@ function AdminCabinet({ user, onLogout }) {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [products, setProducts] = useState([]);
   const [aliasSearch, setAliasSearch] = useState("");
-  const [aliasEdits, setAliasEdits] = useState({});
+  const [edits, setEdits] = useState({});
   const [savingCode, setSavingCode] = useState(null);
   const [editingCodes, setEditingCodes] = useState({});
 
@@ -528,11 +536,27 @@ function AdminCabinet({ user, onLogout }) {
 
   useEffect(() => { loadProducts(); }, []);
 
-  const saveAlias = async (code) => {
-    const alias = aliasEdits[code] ?? "";
+  const getField = (p, field) => {
+    if (edits[p.code] && edits[p.code][field] !== undefined) return edits[p.code][field];
+    if (field === 'alias') return p.has_alias ? p.display_name : '';
+    return p[field] != null ? String(p[field]) : '';
+  };
+  const updateField = (code, field, value) => setEdits(e => ({...e, [code]: {...e[code], [field]: value}}));
+
+  const saveAlias = async (p) => {
+    const code = p.code;
+    const alias = getField(p, 'alias');
+    const price1 = getField(p, 'price1');
+    const price2 = getField(p, 'price2');
+    const price3 = getField(p, 'price3');
     setSavingCode(code);
     try {
-      await apiCall('POST', '/api/product-aliases', { code, alias });
+      await apiCall('POST', '/api/product-aliases', {
+        code, alias,
+        price1: price1 === '' ? null : Number(price1),
+        price2: price2 === '' ? null : Number(price2),
+        price3: price3 === '' ? null : Number(price3),
+      });
       await loadProducts();
       setEditingCodes(e => { const n = {...e}; delete n[code]; return n; });
     } catch(e) { alert(e.message); }
@@ -617,20 +641,44 @@ function AdminCabinet({ user, onLogout }) {
               <div key={p.code} style={{...S.card, padding:10, marginBottom:6}}>
                 <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {p.code} {p.group?' · '+p.group:''}</div>
                 <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:C.textMid}}>{p.name}</div>
+                <input
+                  style={{...S.input,padding:"7px 10px",fontSize:13,marginBottom:6,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
+                  placeholder="Название для сайта (необязательно)"
+                  disabled={locked}
+                  value={getField(p,'alias')}
+                  onChange={e=>updateField(p.code,'alias',e.target.value)}
+                />
                 <div style={{display:"flex",gap:6}}>
                   <input
-                    style={{...S.input,padding:"7px 10px",fontSize:13,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
-                    placeholder="Название для сайта (необязательно)"
+                    style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
+                    placeholder="Цена 1"
+                    type="number"
                     disabled={locked}
-                    value={aliasEdits[p.code] ?? (p.has_alias ? p.display_name : '')}
-                    onChange={e=>setAliasEdits(a=>({...a,[p.code]:e.target.value}))}
+                    value={getField(p,'price1')}
+                    onChange={e=>updateField(p.code,'price1',e.target.value)}
+                  />
+                  <input
+                    style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
+                    placeholder="Цена 2"
+                    type="number"
+                    disabled={locked}
+                    value={getField(p,'price2')}
+                    onChange={e=>updateField(p.code,'price2',e.target.value)}
+                  />
+                  <input
+                    style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
+                    placeholder="Цена 3"
+                    type="number"
+                    disabled={locked}
+                    value={getField(p,'price3')}
+                    onChange={e=>updateField(p.code,'price3',e.target.value)}
                   />
                   <button
-                    style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingCode===p.code?0.5:1}}
+                    style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingCode===p.code?0.5:1, width:"auto", whiteSpace:"nowrap"}}
                     disabled={savingCode===p.code}
                     onClick={()=>{
                       if (locked) { setEditingCodes(e=>({...e,[p.code]:true})); }
-                      else { saveAlias(p.code); }
+                      else { saveAlias(p); }
                     }}
                   >{locked ? "Редакт." : "Сохр."}</button>
                 </div>
