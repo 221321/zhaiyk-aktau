@@ -1,4 +1,3 @@
-[{"code":"000000004","name":"ГК ПДГ","address":"","has_address":false},{"code":"000000001","name":"Розничная выручка","address":"","has_address":false}]root@cloud-001:/var/www/zhaiyk-aktau# cat /var/www/zhaiyk-aktau/server.js
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -138,7 +137,6 @@ app.delete('/api/users/:id', authMiddleware, (req, res) => {
 });
 
 // ===== PRODUCTS (Номенклатура из 1С) =====
-// ===== PRODUCTS (Номенклатура из 1С) =====
 db.defaults({ products: [], productAliases: [] }).write();
 
 app.get('/api/products', (req, res) => {
@@ -199,29 +197,7 @@ app.post('/api/product-aliases', authMiddleware, (req, res) => {
   }
   res.json({ success: true });
 });
-// ===== PRODUCT ALIASES (псевдонимы для сайта) =====
-app.get('/api/product-aliases', authMiddleware, (req, res) => {
-  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
-    return res.status(403).json({ error: 'Нет доступа' });
-  }
-  res.json(db.get('productAliases').value());
-});
 
-app.post('/api/product-aliases', authMiddleware, (req, res) => {
-  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
-    return res.status(403).json({ error: 'Нет доступа' });
-  }
-  const { code, alias } = req.body;
-  if (!code) return res.status(400).json({ error: 'Не передан код товара' });
-
-  const existing = db.get('productAliases').find({ code }).value();
-  if (existing) {
-    db.get('productAliases').find({ code }).assign({ alias }).write();
-  } else {
-    db.get('productAliases').push({ code, alias }).write();
-  }
-  res.json({ success: true });
-});
 // ===== CLIENTS (Контрагенты из 1С) =====
 db.defaults({ clients: [], clientAddresses: [] }).write();
 
@@ -274,6 +250,7 @@ app.post('/api/client-addresses', authMiddleware, (req, res) => {
   }
   res.json({ success: true });
 });
+
 app.get('/{*path}', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
