@@ -634,7 +634,7 @@ function DriverCabinet({ user, onLogout }) {
   const myReturned = myDoneAll.filter(o=>o.status==="returned");
   const doneShown = doneFilter==="delivered"?myDelivered:doneFilter==="cancelled"?myCancelled:doneFilter==="returned"?myReturned:myDoneAll;
 
-  const [expandedMyClients, setExpandedMyClients] = useState({});
+  const [showMyClients, setShowMyClients] = useState(false);
   const myCashTotal = myDelivered.reduce((s,o)=>s+(o.payment_cash||0),0);
   const myQrTotal = myDelivered.reduce((s,o)=>s+(o.payment_qr||0),0);
   const myDebtTotal = myDelivered.reduce((s,o)=>s+(o.payment_debt||0),0);
@@ -730,20 +730,18 @@ function DriverCabinet({ user, onLogout }) {
             </div>
           </div>
           {myClientList.length>0&&<>
-            <p style={{...S.sectionTitle,fontSize:14}}>По точкам сегодня</p>
-            {myClientList.map((c,i)=>(
+            <div style={{...S.row,cursor:"pointer",marginBottom:8}} onClick={()=>setShowMyClients(s=>!s)}>
+              <p style={{...S.sectionTitle,fontSize:14,margin:0}}>По точкам сегодня</p>
+              <p style={{margin:0,fontSize:12,color:C.textFaint}}>{showMyClients?"▲ Свернуть":"▼ Показать"}</p>
+            </div>
+            {showMyClients&&myClientList.map((c,i)=>(
               <div key={i} style={S.card}>
-                <div style={{...S.row,cursor:"pointer"}} onClick={()=>setExpandedMyClients(e=>({...e,[i]:!e[i]}))}>
-                  <p style={S.cardTitle}>{c.name}</p>
-                  <p style={{margin:0,fontSize:11,color:C.textFaint}}>{expandedMyClients[i]?"▲":"▼"}</p>
+                <p style={S.cardTitle}>{c.name}</p>
+                <div style={{marginTop:6,display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <span style={{fontSize:12,color:"#15803D"}}>Нал: {c.cash.toLocaleString()} ₸</span>
+                  <span style={{fontSize:12,color:"#1D4ED8"}}>QR: {c.qr.toLocaleString()} ₸</span>
+                  <span style={{fontSize:12,color:"#92400E"}}>Долг: {c.debt.toLocaleString()} ₸</span>
                 </div>
-                {expandedMyClients[i]&&(
-                  <div style={{marginTop:8,display:"flex",gap:8}}>
-                    <span style={{fontSize:12,color:"#15803D"}}>Нал: {c.cash.toLocaleString()} ₸</span>
-                    <span style={{fontSize:12,color:"#1D4ED8"}}>QR: {c.qr.toLocaleString()} ₸</span>
-                    <span style={{fontSize:12,color:"#92400E"}}>Долг: {c.debt.toLocaleString()} ₸</span>
-                  </div>
-                )}
               </div>
             ))}
           </>}
