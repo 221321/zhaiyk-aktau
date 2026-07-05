@@ -77,8 +77,10 @@ app.post('/api/orders', authMiddleware, (req, res) => {
 
   const availableMap = computeAvailableStock();
   for (const it of (items || [])) {
-    if (it.code && availableMap[it.code] != null && Number(it.qty) > availableMap[it.code]) {
-      return res.status(400).json({ error: `Недостаточно остатка: "${it.name}" (доступно ${availableMap[it.code]})` });
+    if (!it.code) continue;
+    const avail = availableMap[it.code] != null ? availableMap[it.code] : 0;
+    if (Number(it.qty) > avail) {
+      return res.status(400).json({ error: `Недостаточно остатка: "${it.name}" (доступно ${avail})` });
     }
   }
 
@@ -103,7 +105,8 @@ app.post('/api/orders', authMiddleware, (req, res) => {
     contact_phone: contactPhone || '',
     contact_bin: contactBin || '',
     commission_total: commissionTotal,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    realized_in_1c: false
   };
   db.get('orders').push(order).write();
   db.set('nextOrderId', id + 1).write();
@@ -228,7 +231,7 @@ app.get('/api/products', (req, res) => {
       price2: rec && rec.price2 != null ? rec.price2 : null,
       price3: rec && rec.price3 != null ? rec.price3 : null,
       commission: rec && rec.commission != null ? rec.commission : 0,
-      stock: availableMap[p.code] != null ? availableMap[p.code] : null,
+      stock: availableMap[p.code] != null ? availableMap[p.code] : 0,
     };
   });
   res.json(result);
@@ -400,15 +403,28 @@ app.post('/api/stock/sync', (req, res) => {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   db.set('stock', items).write();
-  db.set('stockSyncedAt', new Date().toISOString()).write();
   res.json({ success: true, count: items.length });
 });
 
-// Считает реально доступный остаток: то, что прислала 1С, минус то, что уже "разобрали"
-// заявками на сайте после последней синхронизации (кроме отменённых/отозванных/возвращённых)
+// 1С вызывает этот эндпоинт сразу после того, как реально создала и провела
+// документ реализации по заявке — с этого момента заявка больше не резервирует
+// остаток на сайте, так как товар уже физически списан в 1С
+app.post('/api/orders/:id/mark-realized', (req, res) => {
+  const { secret } = req.body;
+  if (secret !== '1c_zhaiyk_2025') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const id = parseInt(req.params.id);
+  const order = db.get('orders').find({ id }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+  db.get('orders').find({ id }).assign({ realized_in_1c: true }).write();
+  res.json({ success: true });
+});
+
+// Считает реально доступный остаток: то, что прислала 1С, минус то, что ещё числится
+// за незакрытыми в 1С заявками (независимо от того, когда была последняя синхронизация остатков)
 function computeAvailableStock() {
   const stock = db.get('stock').value();
-  const syncedAt = db.get('stockSyncedAt').value() || '1970-01-01T00:00:00.000Z';
   const stockMap = {};
   stock.forEach(s => { stockMap[s.code] = s.qty; });
 
@@ -416,7 +432,7 @@ function computeAvailableStock() {
   const orders = db.get('orders').value();
   orders.forEach(o => {
     if (['cancelled', 'revoked', 'returned'].includes(o.status)) return;
-    if (!(o.created_at > syncedAt)) return;
+    if (o.realized_in_1c) return; // реализация уже проведена в 1С — товар реально списан со склада, повторно не резервируем
     const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
     items.forEach(it => {
       if (!it.code) return;
