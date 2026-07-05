@@ -1,3 +1,4 @@
+[{"code":"000000004","name":"ГК ПДГ","address":"","has_address":false},{"code":"000000001","name":"Розничная выручка","address":"","has_address":false}]root@cloud-001:/var/www/zhaiyk-aktau# cat /var/www/zhaiyk-aktau/server.js
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -221,13 +222,6 @@ app.post('/api/product-aliases', authMiddleware, (req, res) => {
   }
   res.json({ success: true });
 });
-app.get('/{*path}', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Сервер ЖАЙЫК АКТАУ запущен на порту ${PORT}`);
-});
 // ===== CLIENTS (Контрагенты из 1С) =====
 db.defaults({ clients: [], clientAddresses: [] }).write();
 
@@ -279,4 +273,11 @@ app.post('/api/client-addresses', authMiddleware, (req, res) => {
     db.get('clientAddresses').push({ code, address }).write();
   }
   res.json({ success: true });
+});
+app.get('/{*path}', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Сервер ЖАЙЫК АКТАУ запущен на порту ${PORT}`);
 });
