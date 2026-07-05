@@ -20,14 +20,6 @@ const { useState, useEffect, useCallback } = React;
 
 const API = '';
 
-const CLIENTS = [
-  { id: 1, name: 'ТОО "Продукты KZ"',  address: "ул. Абая 15" },
-  { id: 2, name: "ИП Иванов",           address: "пр. Достык 42" },
-  { id: 3, name: 'Магазин "Береке"',    address: "ул. Сейфуллина 88" },
-  { id: 4, name: 'ТОО "Алтын Дала"',   address: "пр. Аль-Фараби 5" },
-  { id: 5, name: 'ИП Касымова',         address: "мкр. Мамыр 12" },
-];
-
 const TIME_SLOTS = ["До обеда (09:00 – 14:00)", "После обеда (14:00 – 19:00)"];
 
 const SL = { new: "Ожидает", in_transit: "В пути", delivered: "Доставлено", cancelled: "Не доставлено", returned: "Возврат" };
@@ -186,7 +178,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
           </div>
         </div>
         <hr style={S.divider}/>
-        {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
+        {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.contact_bin?[["БИН",order.contact_bin]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
           <div key={k} style={{...S.row,marginBottom:8,alignItems:"flex-start"}}>
             <span style={{fontSize:12,color:C.textFaint,fontWeight:600,minWidth:90,textTransform:"uppercase"}}>{k}</span>
             <span style={{fontSize:13,color:C.text,textAlign:"right",flex:1}}>{v}</span>
@@ -244,9 +236,17 @@ function SalesCabinet({ user, token, onLogout }) {
   const [clientId, setClientId] = useState("");
   const [timeSlot, setTimeSlot] = useState("");
   const [comment, setComment] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactBin, setContactBin] = useState("");
   const [editOrder, setEditOrder] = useState(null);
   const newLine = () => ({uid:Math.random(),productId:null,name:"",qty:"",price:"",search:"",showDrop:false});
   const [lines, setLines] = useState([newLine()]);
+
+  const [clients, setClients] = useState([]);
+  useEffect(() => {
+    fetch('/api/clients').then(r=>r.json()).then(setClients).catch(()=>{});
+  }, []);
 
   const [products, setProducts] = useState([]);
   useEffect(() => {
@@ -284,11 +284,11 @@ function SalesCabinet({ user, token, onLogout }) {
 
   const handleSubmit = async () => {
     if (!clientId||filledLines.length===0||!timeSlot) return;
-    const client = CLIENTS.find(c=>c.id===Number(clientId));
+    const client = clients.find(c=>c.code===clientId);
     const items = filledLines.map(l=>({id:l.productId,name:l.name,qty:Number(l.qty),price:Number(l.price)}));
     try {
-      await apiCall('POST','/api/orders',{clientName:client.name,address:client.address,timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment});
-      setLines([newLine()]); setClientId(""); setTimeSlot(""); setComment("");
+      await apiCall('POST','/api/orders',{clientName:client.name,address:client.address||'',timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment,contactName,contactPhone,contactBin});
+      setLines([newLine()]); setClientId(""); setTimeSlot(""); setComment(""); setContactName(""); setContactPhone(""); setContactBin("");
       setSubmitted(true); setTab("orders"); loadOrders();
       setTimeout(()=>setSubmitted(false),4000);
     } catch(e) { alert(e.message); }
@@ -343,12 +343,18 @@ function SalesCabinet({ user, token, onLogout }) {
           <p style={S.sectionTitle}>Новая заявка</p>
           <div style={S.card}>
             <div style={S.formGroup}>
-              <label style={S.label}>Контрагент</label>
+              <label style={S.label}>Контрагент {clients.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:11}}>({clients.length} из 1С)</span>}</label>
               <select style={S.select} value={clientId} onChange={e=>setClientId(e.target.value)}>
                 <option value="">— Выберите контрагента —</option>
-                {CLIENTS.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                {clients.map(c=><option key={c.code} value={c.code}>{c.name}</option>)}
               </select>
-              {clientId&&<p style={{margin:"6px 0 0",fontSize:12,color:C.textSub}}>📍 {CLIENTS.find(c=>c.id===Number(clientId))?.address}</p>}
+              {clientId&&clients.find(c=>c.code===clientId)?.address&&<p style={{margin:"6px 0 0",fontSize:12,color:C.textSub}}>📍 {clients.find(c=>c.code===clientId)?.address}</p>}
+            </div>
+            <div style={S.formGroup}>
+              <label style={S.label}>Контактное лицо (необязательно)</label>
+              <input style={{...S.input,marginBottom:8}} placeholder="ФИО" value={contactName} onChange={e=>setContactName(e.target.value)}/>
+              <input style={{...S.input,marginBottom:8}} placeholder="Телефон" value={contactPhone} onChange={e=>setContactPhone(e.target.value)}/>
+              <input style={S.input} placeholder="БИН" value={contactBin} onChange={e=>setContactBin(e.target.value)}/>
             </div>
             <div style={S.formGroup}>
               <label style={S.label}>Время доставки</label>
@@ -517,6 +523,39 @@ function AdminCabinet({ user, onLogout }) {
   const [edits, setEdits] = useState({});
   const [savingCode, setSavingCode] = useState(null);
   const [editingCodes, setEditingCodes] = useState({});
+
+  const [clients, setClients] = useState([]);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientEdits, setClientEdits] = useState({});
+  const [savingClientCode, setSavingClientCode] = useState(null);
+  const [editingClientCodes, setEditingClientCodes] = useState({});
+
+  const loadClients = useCallback(async () => {
+    try {
+      const data = await fetch('/api/clients').then(r => r.json());
+      setClients(data);
+    } catch(e) {}
+  }, []);
+
+  useEffect(() => { loadClients(); }, []);
+
+  const getClientField = (c, field) => {
+    if (clientEdits[c.code] && clientEdits[c.code][field] !== undefined) return clientEdits[c.code][field];
+    return c[field] || '';
+  };
+  const updateClientField = (code, field, value) => setClientEdits(e => ({...e, [code]: {...e[code], [field]: value}}));
+
+  const saveClientAddress = async (c) => {
+    const code = c.code;
+    const address = getClientField(c, 'address');
+    setSavingClientCode(code);
+    try {
+      await apiCall('POST', '/api/client-addresses', { code, address });
+      await loadClients();
+      setEditingClientCodes(e => { const n = {...e}; delete n[code]; return n; });
+    } catch(e) { alert(e.message); }
+    setSavingClientCode(null);
+  };
 
   const loadOrders = useCallback(async () => {
     try {
@@ -687,9 +726,49 @@ function AdminCabinet({ user, onLogout }) {
           )})}
           {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
         </>}
+        {tab==="clients"&&<>
+          <p style={S.sectionTitle}>Контрагенты</p>
+          <p style={{fontSize:12,color:C.textSub,marginTop:-8,marginBottom:12}}>
+            Название приходит из 1С, адрес задай здесь — увидят торгпреды при создании заявки.
+          </p>
+          <input
+            style={{...S.input,marginBottom:12}}
+            placeholder="Поиск по названию или коду..."
+            value={clientSearch}
+            onChange={e=>setClientSearch(e.target.value)}
+          />
+          {clients
+            .filter(c => !clientSearch || c.name.toLowerCase().includes(clientSearch.toLowerCase()) || (c.code||'').includes(clientSearch))
+            .map(c => {
+              const locked = c.has_address && !editingClientCodes[c.code];
+              return (
+              <div key={c.code} style={{...S.card, padding:10, marginBottom:6}}>
+                <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {c.code}</div>
+                <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:C.textMid}}>{c.name}</div>
+                <div style={{display:"flex",gap:6}}>
+                  <input
+                    style={{...S.input,padding:"7px 10px",fontSize:13,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
+                    placeholder="Адрес доставки"
+                    disabled={locked}
+                    value={getClientField(c,'address')}
+                    onChange={e=>updateClientField(c.code,'address',e.target.value)}
+                  />
+                  <button
+                    style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingClientCode===c.code?0.5:1, width:"auto", whiteSpace:"nowrap"}}
+                    disabled={savingClientCode===c.code}
+                    onClick={()=>{
+                      if (locked) { setEditingClientCodes(e=>({...e,[c.code]:true})); }
+                      else { saveClientAddress(c); }
+                    }}
+                  >{locked ? "Редакт." : "Сохр."}</button>
+                </div>
+              </div>
+          )})}
+          {clients.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Контрагенты ещё не синхронизированы из 1С</div>}
+        </>}
       </div>
       <div style={S.nav}>
-        {[["all","📋","Заявки"],["report","📊","Отчёт"],["aliases","🏷","Товары"]].map(([k,ic,lb])=>(
+        {[["all","📋","Заявки"],["report","📊","Отчёт"],["aliases","🏷","Товары"],["clients","🏢","Контраг."]].map(([k,ic,lb])=>(
           <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
