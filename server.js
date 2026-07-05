@@ -274,6 +274,71 @@ app.post('/api/client-addresses', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
+// ===== DEBTS (учёт погашения долгов, частично или полностью) =====
+db.defaults({ debtSettlements: [] }).write();
+
+app.get('/api/debts', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'driver'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const orders = db.get('orders').value();
+  const settlements = db.get('debtSettlements').value();
+  const settledByOrder = {};
+  settlements.forEach(s => { settledByOrder[s.order_id] = (settledByOrder[s.order_id] || 0) + s.amount; });
+
+  const today = new Date();
+  const debts = orders
+    .filter(o => o.status === 'delivered' && (o.payment_debt || 0) > 0)
+    .map(o => {
+      const settled = settledByOrder[o.id] || 0;
+      const remaining = Math.max(0, (o.payment_debt || 0) - settled);
+      const orderDate = new Date(o.date);
+      const daysAgo = Math.floor((today - orderDate) / (1000 * 60 * 60 * 24));
+      return {
+        order_id: o.id,
+        client_name: o.client_name,
+        date: o.date,
+        original_debt: o.payment_debt || 0,
+        settled,
+        remaining,
+        overdue: remaining > 0 && daysAgo > 7
+      };
+    })
+    .filter(d => d.remaining > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  res.json(debts);
+});
+
+app.post('/api/debts/settle', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'driver'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { orderId, amount, method } = req.body;
+  if (!orderId || !amount || Number(amount) <= 0) {
+    return res.status(400).json({ error: 'Укажите сумму погашения' });
+  }
+  const order = db.get('orders').find({ id: Number(orderId) }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+
+  const settlements = db.get('debtSettlements').value();
+  const alreadySettled = settlements.filter(s => s.order_id === Number(orderId)).reduce((s, x) => s + x.amount, 0);
+  const remaining = Math.max(0, (order.payment_debt || 0) - alreadySettled);
+  const amt = Math.min(Number(amount), remaining);
+
+  db.get('debtSettlements').push({
+    id: Date.now(),
+    order_id: Number(orderId),
+    client_name: order.client_name,
+    amount: amt,
+    method: method || 'cash',
+    date: new Date().toISOString().slice(0, 10),
+    settled_by: req.user.name
+  }).write();
+
+  res.json({ success: true });
+});
+
 app.get('/{*path}', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
