@@ -225,3 +225,55 @@ app.get('/{*path}', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Сервер ЖАЙЫК АКТАУ запущен на порту ${PORT}`);
 });
+// ===== CLIENTS (Контрагенты из 1С) =====
+db.defaults({ clients: [], clientAddresses: [] }).write();
+
+app.get('/api/clients', (req, res) => {
+  const clients = db.get('clients').value();
+  const addrs = db.get('clientAddresses').value();
+  const addrMap = {};
+  addrs.forEach(a => { addrMap[a.code] = a; });
+
+  const result = clients.map(c => {
+    const rec = addrMap[c.code];
+    const hasAddress = !!(rec && rec.address && rec.address.trim());
+    return {
+      ...c,
+      address: hasAddress ? rec.address : (c.address || ''),
+      has_address: hasAddress
+    };
+  });
+  res.json(result);
+});
+
+app.post('/api/clients/sync', (req, res) => {
+  const { items, secret } = req.body;
+  if (secret !== '1c_zhaiyk_2025') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  db.set('clients', items).write();
+  res.json({ success: true, count: items.length });
+});
+
+app.get('/api/client-addresses', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('clientAddresses').value());
+});
+
+app.post('/api/client-addresses', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { code, address } = req.body;
+  if (!code) return res.status(400).json({ error: 'Не передан код контрагента' });
+
+  const existing = db.get('clientAddresses').find({ code }).value();
+  if (existing) {
+    db.get('clientAddresses').find({ code }).assign({ address }).write();
+  } else {
+    db.get('clientAddresses').push({ code, address }).write();
+  }
+  res.json({ success: true });
+});
