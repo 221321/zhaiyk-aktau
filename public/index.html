@@ -252,7 +252,7 @@ function SalesCabinet({ user, token, onLogout }) {
   useEffect(() => {
     fetch('/api/products')
   .then(r => r.json())
-  .then(data => setProducts(data.map((p, i) => ({
+  .then(data => setProducts(data.filter(p => p.has_alias).map((p, i) => ({
     id: i + 1,
     name: p.display_name || p.name,
     price: p.price || 0,
@@ -624,7 +624,7 @@ function AdminCabinet({ user, onLogout }) {
                     style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingCode===p.code?0.5:1}}
                     disabled={savingCode===p.code}
                     onClick={()=>saveAlias(p.code)}
-                  >Сохр.</button>
+                  >{p.has_alias ? "Редакт." : "Сохр."}</button>
                 </div>
               </div>
           ))}
