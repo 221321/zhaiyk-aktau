@@ -366,10 +366,29 @@ async function shareWaybillPdf(order) {
 
   try {
     await new Promise(r => setTimeout(r, 50));
+    const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+    document.body.removeChild(overlay);
+
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'pt', 'a4');
-    await doc.html(container, { x: 20, y: 20, width: 555, windowWidth: 780 });
-    document.body.removeChild(overlay);
+    const margin = 20;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const imgWidth = pageWidth - margin * 2;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const imgData = canvas.toDataURL('image/png');
+    const usableHeight = pageHeight - margin * 2;
+
+    let heightLeft = imgHeight;
+    let position = margin;
+    doc.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
+    heightLeft -= usableHeight;
+    while (heightLeft > 0) {
+      position = margin - (imgHeight - heightLeft);
+      doc.addPage();
+      doc.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
+      heightLeft -= usableHeight;
+    }
 
     const blob = doc.output('blob');
     const fileName = `nakladnaya-${order.id}.pdf`;
