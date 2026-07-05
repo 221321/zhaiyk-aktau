@@ -278,7 +278,7 @@ app.post('/api/client-addresses', authMiddleware, (req, res) => {
 db.defaults({ debtSettlements: [] }).write();
 
 app.get('/api/debts', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'driver'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'driver', 'sales'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const orders = db.get('orders').value();
