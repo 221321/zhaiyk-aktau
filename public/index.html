@@ -126,19 +126,31 @@ function OrderCard({order, onOpen, onEdit}) {
 }
 
 function DriverPaymentBlock({ order, onUpdateStatus }) {
-  const [payType, setPayType] = useState({ cash: false, qr: false, debtFull: false });
+  const [payType, setPayType] = useState({ cash: false, qr: false, debt: false });
   const [payAmounts, setPayAmt] = useState({ cash: "", qr: "" });
   const total = order.total || 0;
   const cashPaid = payType.cash ? Number(payAmounts.cash)||0 : 0;
   const qrPaid   = payType.qr   ? Number(payAmounts.qr)  ||0 : 0;
-  const autodebt = payType.debtFull ? total : Math.max(0, total - cashPaid - qrPaid);
-  const hasSelection = payType.cash || payType.qr || payType.debtFull;
-  const toggleDebtFull = () => setPayType({ cash:false, qr:false, debtFull: !payType.debtFull });
-  const toggleCashQr = (key) => setPayType(pt=>({ ...pt, debtFull:false, [key]: !pt[key] }));
+  const remainder = Math.max(0, total - cashPaid - qrPaid);
+  const debtAmount = payType.debt ? remainder : 0;
+  const hasSelection = payType.cash || payType.qr || payType.debt;
+  const canConfirm = hasSelection && (payType.debt || remainder === 0);
+
+  const toggleCashQr = (key) => {
+    const turningOn = !payType[key];
+    if (turningOn && payAmounts[key] === "") {
+      const otherKey = key === 'cash' ? 'qr' : 'cash';
+      const otherAmt = payType[otherKey] ? (Number(payAmounts[otherKey])||0) : 0;
+      setPayAmt(a => ({...a, [key]: String(Math.max(0, total - otherAmt))}));
+    } else if (!turningOn) {
+      setPayAmt(a => ({...a, [key]: ""}));
+    }
+    setPayType(pt => ({...pt, [key]: turningOn}));
+  };
 
   return (
     <div style={{marginTop:20}}>
-      <p style={{margin:"0 0 12px",fontSize:13,fontWeight:700,color:C.navy}}>Способ оплаты: <span style={{color:C.red,fontWeight:400}}>{!hasSelection?"(выберите хотя бы один)":""}</span></p>
+      <p style={{margin:"0 0 12px",fontSize:13,fontWeight:700,color:C.navy}}>Способ оплаты: {!hasSelection&&<span style={{color:C.red,fontWeight:400}}>(выберите хотя бы один)</span>}</p>
       {[{key:"cash",label:"Наличка",icon:"💵",bg:C.cashGreen,col:"#15803D"},{key:"qr",label:"QR код",icon:"📲",bg:C.qrBlue,col:"#1D4ED8"}].map(({key,label,icon,bg,col})=>(
         <div key={key} style={{marginBottom:10}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -146,26 +158,26 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
               {payType[key]&&<span style={{color:C.white,fontSize:13,fontWeight:700}}>✓</span>}
             </div>
             <span style={{fontSize:14,fontWeight:600,color:payType[key]?col:C.textMid}}>{icon} {label}</span>
-            {payType[key]&&<input style={{flex:1,border:`1.5px solid ${col}40`,borderRadius:6,padding:"6px 10px",fontSize:14,fontWeight:600,outline:"none",background:bg,color:col}} placeholder="Сумма ₸" value={payAmounts[key]} onChange={e=>setPayAmt(a=>({...a,[key]:e.target.value}))}/>}
+            {payType[key]&&<input style={{flex:1,border:`1.5px solid ${col}40`,borderRadius:6,padding:"6px 10px",fontSize:14,fontWeight:600,outline:"none",background:bg,color:col}} placeholder="Сумма ₸" value={payAmounts[key]} onFocus={e=>e.target.select()} onChange={e=>setPayAmt(a=>({...a,[key]:e.target.value}))}/>}
           </div>
         </div>
       ))}
       <div style={{marginBottom:10}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div onClick={toggleDebtFull} style={{width:22,height:22,borderRadius:6,border:`2px solid ${payType.debtFull?"#92400E":C.border}`,background:payType.debtFull?"#92400E":C.white,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            {payType.debtFull&&<span style={{color:C.white,fontSize:13,fontWeight:700}}>✓</span>}
+          <div onClick={()=>setPayType(pt=>({...pt,debt:!pt.debt}))} style={{width:22,height:22,borderRadius:6,border:`2px solid ${payType.debt?"#92400E":C.border}`,background:payType.debt?"#92400E":C.white,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            {payType.debt&&<span style={{color:C.white,fontSize:13,fontWeight:700}}>✓</span>}
           </div>
-          <span style={{fontSize:14,fontWeight:600,color:payType.debtFull?"#92400E":C.textMid}}>📋 Полностью в долг</span>
+          <span style={{fontSize:14,fontWeight:600,color:payType.debt?"#92400E":C.textMid}}>📋 Долг {payType.debt&&`(${remainder.toLocaleString()} ₸ — остаток посчитан сам)`}</span>
         </div>
       </div>
       <div style={{padding:"12px 14px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,marginBottom:14}}>
         <div style={{...S.row,marginBottom:6}}><span style={{fontSize:12,color:C.textSub}}>Сумма заявки</span><span style={{fontWeight:700}}>{total.toLocaleString()} ₸</span></div>
         <div style={{...S.row,paddingTop:6,borderTop:`1px solid ${C.border}`}}>
-          <span style={{fontSize:13,fontWeight:700,color:autodebt>0?"#92400E":C.green}}>{autodebt>0?"📋 Долг":"✅ Полностью оплачено"}</span>
-          {autodebt>0&&<span style={{fontWeight:800,fontSize:15,color:"#92400E"}}>{autodebt.toLocaleString()} ₸</span>}
+          <span style={{fontSize:13,fontWeight:700,color:debtAmount>0?"#92400E":(remainder>0?C.red:C.green)}}>{debtAmount>0?"📋 Долг":(remainder>0?"⚠️ Не хватает суммы":"✅ Полностью оплачено")}</span>
+          {(debtAmount>0||remainder>0)&&<span style={{fontWeight:800,fontSize:15,color:debtAmount>0?"#92400E":C.red}}>{(debtAmount>0?debtAmount:remainder).toLocaleString()} ₸</span>}
         </div>
       </div>
-      <button style={{...S.btnSuccess,opacity:hasSelection?1:0.4,cursor:hasSelection?"pointer":"not-allowed"}} disabled={!hasSelection} onClick={()=>onUpdateStatus(order.id,"delivered",{cash:cashPaid,qr:qrPaid,debt:autodebt})}>✅ Подтвердить доставку</button>
+      <button style={{...S.btnSuccess,opacity:canConfirm?1:0.4,cursor:canConfirm?"pointer":"not-allowed"}} disabled={!canConfirm} onClick={()=>onUpdateStatus(order.id,"delivered",{cash:cashPaid,qr:qrPaid,debt:debtAmount})}>✅ Подтвердить доставку</button>
       <button style={S.btnDanger} onClick={()=>onUpdateStatus(order.id,"cancelled",null)}>❌ Не удалось доставить</button>
       <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:8}} onClick={()=>onUpdateStatus(order.id,"returned",null)}>↩️ Оформить возврат</button>
     </div>
@@ -973,6 +985,7 @@ function AdminCabinet({ user, onLogout }) {
                     type="number"
                     disabled={locked}
                     value={getField(p,'price1')}
+                    onFocus={e=>e.target.select()}
                     onChange={e=>updateField(p.code,'price1',e.target.value)}
                   />
                   <input
@@ -981,6 +994,7 @@ function AdminCabinet({ user, onLogout }) {
                     type="number"
                     disabled={locked}
                     value={getField(p,'price2')}
+                    onFocus={e=>e.target.select()}
                     onChange={e=>updateField(p.code,'price2',e.target.value)}
                   />
                   <input
@@ -989,6 +1003,7 @@ function AdminCabinet({ user, onLogout }) {
                     type="number"
                     disabled={locked}
                     value={getField(p,'price3')}
+                    onFocus={e=>e.target.select()}
                     onChange={e=>updateField(p.code,'price3',e.target.value)}
                   />
                   <div style={{position:"relative",width:70}}>
@@ -998,6 +1013,7 @@ function AdminCabinet({ user, onLogout }) {
                       type="number"
                       disabled={locked}
                       value={getField(p,'commission')}
+                      onFocus={e=>e.target.select()}
                       onChange={e=>updateField(p.code,'commission',e.target.value)}
                     />
                     <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:12,fontWeight:700,color:locked?C.textFaint:"#92400E",pointerEvents:"none"}}>%</span>
