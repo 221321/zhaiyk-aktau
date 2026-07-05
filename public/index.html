@@ -184,6 +184,63 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
   );
 }
 
+function DebtsPanel() {
+  const [debts, setDebts] = useState([]);
+  const [loadingDebts, setLoadingDebts] = useState(true);
+  const [settleAmounts, setSettleAmounts] = useState({});
+  const [settleMethod, setSettleMethod] = useState({});
+  const [savingId, setSavingId] = useState(null);
+
+  const loadDebts = useCallback(async () => {
+    try {
+      const data = await apiCall('GET', '/api/debts');
+      setDebts(data);
+    } catch(e) {}
+    setLoadingDebts(false);
+  }, []);
+  useEffect(()=>{ loadDebts(); }, []);
+
+  const settle = async (d) => {
+    const amount = Number(settleAmounts[d.order_id] ?? d.remaining);
+    const method = settleMethod[d.order_id] || 'cash';
+    if (!amount || amount<=0) return;
+    setSavingId(d.order_id);
+    try {
+      await apiCall('POST', '/api/debts/settle', { orderId: d.order_id, amount, method });
+      await loadDebts();
+      setSettleAmounts(a=>({...a,[d.order_id]:''}));
+    } catch(e) { alert(e.message); }
+    setSavingId(null);
+  };
+
+  return (
+    <>
+      <p style={S.sectionTitle}>Должники</p>
+      {loadingDebts?<div style={S.loadingWrap}>Загрузка...</div>:debts.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Долгов нет</div>:
+        debts.map(d=>(
+          <div key={d.order_id} style={{...S.card, borderLeft: d.overdue?`3px solid ${C.red}`:"3px solid #F59E0B"}}>
+            <div style={S.row}>
+              <div>
+                <p style={S.cardTitle}>{d.client_name} {d.overdue&&<span style={{color:C.red,fontSize:11,fontWeight:700}}>· ПРОСРОЧЕН</span>}</p>
+                <p style={S.cardSub}>#{d.order_id} · {d.date}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
+              </div>
+              <p style={{margin:0,fontWeight:800,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
+            </div>
+            <div style={{display:"flex",gap:6,marginTop:10}}>
+              <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder={`До ${d.remaining}`} value={settleAmounts[d.order_id]||''} onFocus={e=>e.target.select()} onChange={e=>setSettleAmounts(a=>({...a,[d.order_id]:e.target.value}))}/>
+              <select style={{...S.select,padding:"7px 8px",fontSize:12,width:110}} value={settleMethod[d.order_id]||'cash'} onChange={e=>setSettleMethod(m=>({...m,[d.order_id]:e.target.value}))}>
+                <option value="cash">Нал</option>
+                <option value="qr">Безнал</option>
+              </select>
+              <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,width:"auto",whiteSpace:"nowrap",opacity:savingId===d.order_id?0.5:1}} disabled={savingId===d.order_id} onClick={()=>settle(d)}>Погасить</button>
+            </div>
+          </div>
+        ))
+      }
+    </>
+  );
+}
+
 function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment||'{}') : (order.payment||{cash:order.payment_cash||0,qr:order.payment_qr||0,debt:order.payment_debt||0});
@@ -635,9 +692,10 @@ function DriverCabinet({ user, onLogout }) {
             ))
           }
         </>}
+        {tab==="debts"&&<DebtsPanel/>}
       </div>
       <div style={S.nav}>
-        {[["queue","📋","Очередь"],["done","✅","Закрытые"]].map(([k,ic,lb])=>(
+        {[["queue","📋","Очередь"],["done","✅","Закрытые"],["debts","💰","Должники"]].map(([k,ic,lb])=>(
           <button key={k} style={{...S.navBtn(tab===k),flex:1}} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
@@ -788,7 +846,6 @@ function AdminCabinet({ user, onLogout }) {
     id, ...v, totalBonus: v.items.reduce((s,it)=>s+it.bonus,0)
   })).sort((a,b)=>b.revenue-a.revenue);
 
-  const [expandedDebts, setExpandedDebts] = useState({});
   const cashByDriver = {};
   periodOrders.filter(o=>o.status==="delivered"&&o.driver_id).forEach(o=>{
     const key = o.driver_id;
@@ -800,14 +857,6 @@ function AdminCabinet({ user, onLogout }) {
   });
   const driverCashList = Object.values(cashByDriver).sort((a,b)=>b.cash-a.cash);
 
-  const debtByClient = {};
-  periodOrders.filter(o=>o.status==="delivered"&&(o.payment_debt||0)>0).forEach(o=>{
-    const key = o.client_name;
-    if(!debtByClient[key]) debtByClient[key] = { name: o.client_name, debt:0, orders:[] };
-    debtByClient[key].debt += (o.payment_debt||0);
-    debtByClient[key].orders.push({ id:o.id, date:o.date, amount:o.payment_debt });
-  });
-  const debtList = Object.values(debtByClient).sort((a,b)=>b.debt-a.debt);
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
 
   return (
@@ -922,32 +971,7 @@ function AdminCabinet({ user, onLogout }) {
                 </div>
               </div>
           ))}
-          <p style={{...S.sectionTitle,fontSize:14,marginTop:20}}>Должники</p>
-          {debtList.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Долгов за период нет</div>:
-            debtList.map((c,i)=>(
-              <div key={i} style={S.card}>
-                <div style={{...S.row,cursor:"pointer"}} onClick={()=>setExpandedDebts(e=>({...e,[i]:!e[i]}))}>
-                  <div>
-                    <p style={S.cardTitle}>{c.name}</p>
-                    <p style={S.cardSub}>{c.orders.length} заявок с долгом</p>
-                  </div>
-                  <div style={{textAlign:"right"}}>
-                    <p style={{margin:0,fontWeight:800,color:"#92400E"}}>{c.debt.toLocaleString()} ₸</p>
-                    <p style={{margin:0,fontSize:11,color:C.textFaint}}>{expandedDebts[i]?"▲ Свернуть":"▼ Подробнее"}</p>
-                  </div>
-                </div>
-                {expandedDebts[i]&&(
-                  <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
-                    {c.orders.map((o,j)=>(
-                      <div key={j} style={{...S.row,marginBottom:6,fontSize:12}}>
-                        <span style={{color:C.textMid}}>#{o.id} · {o.date}</span>
-                        <span style={{color:"#92400E",fontWeight:700}}>{o.amount.toLocaleString()} ₸</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-          ))}
+          <div style={{marginTop:20}}><DebtsPanel/></div>
         </>}
         {tab==="aliases"&&<>
           <p style={S.sectionTitle}>Псевдонимы товаров</p>
