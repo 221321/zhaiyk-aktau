@@ -74,6 +74,14 @@ app.get('/api/orders', authMiddleware, (req, res) => {
 
 app.post('/api/orders', authMiddleware, (req, res) => {
   const { clientName, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone, contactBin } = req.body;
+
+  const availableMap = computeAvailableStock();
+  for (const it of (items || [])) {
+    if (it.code && availableMap[it.code] != null && Number(it.qty) > availableMap[it.code]) {
+      return res.status(400).json({ error: `Недостаточно остатка: "${it.name}" (доступно ${availableMap[it.code]})` });
+    }
+  }
+
   const id = db.get('nextOrderId').value();
   const commissionTotal = (items || []).reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0) * (Number(it.commission) || 0) / 100, 0);
   const order = {
@@ -205,6 +213,7 @@ db.defaults({ products: [], productAliases: [] }).write();
 app.get('/api/products', (req, res) => {
   const products = db.get('products').value();
   const aliases = db.get('productAliases').value();
+  const availableMap = computeAvailableStock();
   const aliasMap = {};
   aliases.forEach(a => { aliasMap[a.code] = a; });
 
@@ -219,6 +228,7 @@ app.get('/api/products', (req, res) => {
       price2: rec && rec.price2 != null ? rec.price2 : null,
       price3: rec && rec.price3 != null ? rec.price3 : null,
       commission: rec && rec.commission != null ? rec.commission : 0,
+      stock: availableMap[p.code] != null ? availableMap[p.code] : null,
     };
   });
   res.json(result);
@@ -380,6 +390,46 @@ app.post('/api/debts/settle', authMiddleware, (req, res) => {
 
   res.json({ success: true });
 });
+
+// ===== STOCK (остатки из 1С) =====
+db.defaults({ stock: [] }).write();
+
+app.post('/api/stock/sync', (req, res) => {
+  const { items, secret } = req.body;
+  if (secret !== '1c_zhaiyk_2025') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  db.set('stock', items).write();
+  db.set('stockSyncedAt', new Date().toISOString()).write();
+  res.json({ success: true, count: items.length });
+});
+
+// Считает реально доступный остаток: то, что прислала 1С, минус то, что уже "разобрали"
+// заявками на сайте после последней синхронизации (кроме отменённых/отозванных/возвращённых)
+function computeAvailableStock() {
+  const stock = db.get('stock').value();
+  const syncedAt = db.get('stockSyncedAt').value() || '1970-01-01T00:00:00.000Z';
+  const stockMap = {};
+  stock.forEach(s => { stockMap[s.code] = s.qty; });
+
+  const reservedMap = {};
+  const orders = db.get('orders').value();
+  orders.forEach(o => {
+    if (['cancelled', 'revoked', 'returned'].includes(o.status)) return;
+    if (!(o.created_at > syncedAt)) return;
+    const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
+    items.forEach(it => {
+      if (!it.code) return;
+      reservedMap[it.code] = (reservedMap[it.code] || 0) + (Number(it.qty) || 0);
+    });
+  });
+
+  const availableMap = {};
+  Object.keys(stockMap).forEach(code => {
+    availableMap[code] = Math.max(0, stockMap[code] - (reservedMap[code] || 0));
+  });
+  return availableMap;
+}
 
 app.get('/{*path}', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
