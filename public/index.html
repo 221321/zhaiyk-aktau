@@ -244,6 +244,8 @@ function SalesCabinet({ user, token, onLogout }) {
   const [lines, setLines] = useState([newLine()]);
 
   const [clients, setClients] = useState([]);
+  const [clientSearchText, setClientSearchText] = useState("");
+  const [showClientDrop, setShowClientDrop] = useState(false);
   useEffect(() => {
     fetch('/api/clients').then(r=>r.json()).then(setClients).catch(()=>{});
   }, []);
@@ -257,6 +259,7 @@ function SalesCabinet({ user, token, onLogout }) {
     name: p.display_name || p.name,
     price: p.price || 0,
     priceOptions: [p.price1, p.price2, p.price3].filter(v => v !== null && v !== undefined),
+    commission: p.commission || 0,
     unit: p.unit || 'кг',
     group: p.group || '',
     code: p.code
@@ -277,7 +280,7 @@ function SalesCabinet({ user, token, onLogout }) {
   const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
   const removeLine = (uid) => setLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
   const addLine = () => setLines(ls=>[...ls,newLine()]);
-  const selectProduct = (uid,prod) => updateLine(uid,{productId:prod.id,name:prod.name,price:"",search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[]});
+  const selectProduct = (uid,prod) => updateLine(uid,{productId:prod.id,name:prod.name,price:"",search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0});
 
   const filledLines = lines.filter(l=>l.name&&Number(l.qty)>0&&Number(l.price)>0);
   const total = filledLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
@@ -285,10 +288,10 @@ function SalesCabinet({ user, token, onLogout }) {
   const handleSubmit = async () => {
     if (!clientId||filledLines.length===0||!timeSlot) return;
     const client = clients.find(c=>c.code===clientId);
-    const items = filledLines.map(l=>({id:l.productId,name:l.name,qty:Number(l.qty),price:Number(l.price)}));
+    const items = filledLines.map(l=>({id:l.productId,name:l.name,qty:Number(l.qty),price:Number(l.price),commission:l.commission||0}));
     try {
       await apiCall('POST','/api/orders',{clientName:client.name,address:client.address||'',timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment,contactName,contactPhone,contactBin});
-      setLines([newLine()]); setClientId(""); setTimeSlot(""); setComment(""); setContactName(""); setContactPhone(""); setContactBin("");
+      setLines([newLine()]); setClientId(""); setClientSearchText(""); setTimeSlot(""); setComment(""); setContactName(""); setContactPhone(""); setContactBin("");
       setSubmitted(true); setTab("orders"); loadOrders();
       setTimeout(()=>setSubmitted(false),4000);
     } catch(e) { alert(e.message); }
@@ -344,10 +347,29 @@ function SalesCabinet({ user, token, onLogout }) {
           <div style={S.card}>
             <div style={S.formGroup}>
               <label style={S.label}>Контрагент {clients.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:11}}>({clients.length} из 1С)</span>}</label>
-              <select style={S.select} value={clientId} onChange={e=>setClientId(e.target.value)}>
-                <option value="">— Выберите контрагента —</option>
-                {clients.map(c=><option key={c.code} value={c.code}>{c.name}</option>)}
-              </select>
+              <div style={{position:"relative"}}>
+                <input
+                  style={S.input}
+                  placeholder="Начните вводить название..."
+                  value={clientSearchText}
+                  onChange={e=>{setClientSearchText(e.target.value); setClientId(""); setShowClientDrop(true);}}
+                  onFocus={()=>setShowClientDrop(true)}
+                  onBlur={()=>setTimeout(()=>setShowClientDrop(false),180)}
+                />
+                {showClientDrop&&(()=>{
+                  const matched=clientSearchText.length>0?clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())):clients.slice(0,50);
+                  return matched.length>0&&(
+                    <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:220,overflowY:"auto"}}>
+                      {matched.map(c=>(
+                        <div key={c.code} onMouseDown={()=>{setClientId(c.code);setClientSearchText(c.name);setShowClientDrop(false);}} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13}}>
+                          <div style={{fontWeight:600}}>{c.name}</div>
+                          {c.address&&<div style={{fontSize:11,color:C.textFaint}}>📍 {c.address}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
               {clientId&&clients.find(c=>c.code===clientId)?.address&&<p style={{margin:"6px 0 0",fontSize:12,color:C.textSub}}>📍 {clients.find(c=>c.code===clientId)?.address}</p>}
             </div>
             <div style={S.formGroup}>
@@ -530,6 +552,10 @@ function AdminCabinet({ user, onLogout }) {
   const [savingClientCode, setSavingClientCode] = useState(null);
   const [editingClientCodes, setEditingClientCodes] = useState({});
 
+  const todayStr = new Date().toISOString().slice(0,10);
+  const [dateFrom, setDateFrom] = useState(todayStr);
+  const [dateTo, setDateTo] = useState(todayStr);
+
   const loadClients = useCallback(async () => {
     try {
       const data = await fetch('/api/clients').then(r => r.json());
@@ -589,6 +615,7 @@ function AdminCabinet({ user, onLogout }) {
     const price1 = getField(p, 'price1');
     const price2 = getField(p, 'price2');
     const price3 = getField(p, 'price3');
+    const commission = getField(p, 'commission');
     setSavingCode(code);
     try {
       await apiCall('POST', '/api/product-aliases', {
@@ -596,6 +623,7 @@ function AdminCabinet({ user, onLogout }) {
         price1: price1 === '' ? null : Number(price1),
         price2: price2 === '' ? null : Number(price2),
         price3: price3 === '' ? null : Number(price3),
+        commission: commission === '' ? 0 : Number(commission),
       });
       await loadProducts();
       setEditingCodes(e => { const n = {...e}; delete n[code]; return n; });
@@ -611,17 +639,38 @@ function AdminCabinet({ user, onLogout }) {
   };
 
   const filtered = orders.filter(o=>filter==="all"||o.status===filter);
+  const periodOrders = orders.filter(o=>o.date>=dateFrom&&o.date<=dateTo);
   const stats = {
-    total:orders.length,
-    delivered:orders.filter(o=>o.status==="delivered").length,
-    inTransit:orders.filter(o=>o.status==="in_transit").length,
-    cancelled:orders.filter(o=>o.status==="cancelled").length,
-    returned:orders.filter(o=>o.status==="returned").length,
-    revenue:orders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.total||0),0),
-    cashTotal:orders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_cash||0),0),
-    qrTotal:orders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_qr||0),0),
-    debtTotal:orders.reduce((s,o)=>s+(o.payment_debt||0),0),
+    total:periodOrders.length,
+    delivered:periodOrders.filter(o=>o.status==="delivered").length,
+    inTransit:periodOrders.filter(o=>o.status==="in_transit").length,
+    cancelled:periodOrders.filter(o=>o.status==="cancelled").length,
+    returned:periodOrders.filter(o=>o.status==="returned").length,
+    revenue:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.total||0),0),
+    cashTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_cash||0),0),
+    qrTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_qr||0),0),
+    debtTotal:periodOrders.reduce((s,o)=>s+(o.payment_debt||0),0),
   };
+  const [expandedSales, setExpandedSales] = useState({});
+  const salesBreakdown = {};
+  periodOrders.filter(o=>o.status==="delivered").forEach(o=>{
+    const key = o.sales_id;
+    if(!salesBreakdown[key]) salesBreakdown[key] = { name: o.sales_name, revenue: 0, items: [] };
+    salesBreakdown[key].revenue += (o.total||0);
+    const orderItems = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
+    orderItems.forEach(it=>{
+      salesBreakdown[key].items.push({
+        name: it.name,
+        qty: it.qty,
+        price: it.price,
+        commission: it.commission||0,
+        bonus: (Number(it.qty)||0)*(Number(it.price)||0)*(Number(it.commission)||0)/100
+      });
+    });
+  });
+  const salesList = Object.entries(salesBreakdown).map(([id,v])=>({
+    id, ...v, totalBonus: v.items.reduce((s,it)=>s+it.bonus,0)
+  })).sort((a,b)=>b.revenue-a.revenue);
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"],["delivered","Доставлено"],["cancelled","Не доставлено"],["returned","Возврат"]];
 
   return (
@@ -642,6 +691,16 @@ function AdminCabinet({ user, onLogout }) {
         </>}
         {tab==="report"&&<>
           <p style={S.sectionTitle}>Отчёт</p>
+          <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:120}}>
+              <label style={{...S.label,marginBottom:4}}>С</label>
+              <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
+            </div>
+            <div style={{flex:1,minWidth:120}}>
+              <label style={{...S.label,marginBottom:4}}>По</label>
+              <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
+            </div>
+          </div>
           <div style={S.statsRow}>
             <div style={S.statCard(C.navy)}><p style={S.statNum}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
             <div style={S.statCard(C.green)}><p style={S.statNum}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
@@ -661,6 +720,36 @@ function AdminCabinet({ user, onLogout }) {
               ))}
             </div>
           </div>
+          <p style={{...S.sectionTitle,fontSize:14,marginTop:8}}>По торговым представителям</p>
+          {salesList.length===0?<div style={{textAlign:"center",padding:"32px 0",color:C.textFaint}}>Нет доставленных заявок за этот период</div>:
+            salesList.map(s=>(
+              <div key={s.id} style={S.card}>
+                <div style={{...S.row,cursor:"pointer"}} onClick={()=>setExpandedSales(e=>({...e,[s.id]:!e[s.id]}))}>
+                  <div>
+                    <p style={S.cardTitle}>{s.name}</p>
+                    <p style={S.cardSub}>{s.items.length} поз. продано</p>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <p style={{margin:0,fontWeight:800,color:C.navy}}>{s.revenue.toLocaleString()} ₸</p>
+                    <p style={{margin:0,fontSize:11,color:C.textFaint}}>{expandedSales[s.id]?"▲ Свернуть":"▼ Подробнее"}</p>
+                  </div>
+                </div>
+                {expandedSales[s.id]&&(
+                  <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                    {s.items.map((it,i)=>(
+                      <div key={i} style={{...S.row,marginBottom:6,fontSize:12,alignItems:"flex-start"}}>
+                        <span style={{color:C.textMid,flex:1}}>{it.name} <span style={{color:C.textFaint}}>×{it.qty}</span></span>
+                        <span style={{color:C.textSub,textAlign:"right"}}>{it.commission}% = <strong style={{color:C.green}}>{it.bonus.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</strong></span>
+                      </div>
+                    ))}
+                    <div style={{...S.row,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,fontWeight:700}}>
+                      <span style={{fontSize:13,color:C.textMid}}>Итого бонус</span>
+                      <span style={{fontSize:15,color:C.green}}>{s.totalBonus.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+          ))}
         </>}
         {tab==="aliases"&&<>
           <p style={S.sectionTitle}>Псевдонимы товаров</p>
@@ -712,6 +801,14 @@ function AdminCabinet({ user, onLogout }) {
                     disabled={locked}
                     value={getField(p,'price3')}
                     onChange={e=>updateField(p.code,'price3',e.target.value)}
+                  />
+                  <input
+                    style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text,maxWidth:70}}
+                    placeholder="% ком."
+                    type="number"
+                    disabled={locked}
+                    value={getField(p,'commission')}
+                    onChange={e=>updateField(p.code,'commission',e.target.value)}
                   />
                   <button
                     style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingCode===p.code?0.5:1, width:"auto", whiteSpace:"nowrap"}}
