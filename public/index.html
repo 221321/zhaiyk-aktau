@@ -241,6 +241,73 @@ function DebtsPanel() {
   );
 }
 
+const COMPANY_INFO = {
+  name: 'ИП ЖАЙЫК АКТАУ',
+  address: 'Уральск Г.А., Уральск, МИКРОРАЙОН ЖЕҢІС, дом 8/1, кв/офис 73',
+  bin: '491219400991',
+  bank: 'АО "Kaspi Bank"',
+  bik: 'CASPKZKA',
+  account: 'KZ33722S000046085888',
+};
+
+function printWaybill(order) {
+  const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
+  const rows = items.map((it,i)=>`
+    <tr>
+      <td style="text-align:center">${i+1}</td>
+      <td>${it.name}</td>
+      <td style="text-align:center">${it.qty}</td>
+      <td style="text-align:right">${Number(it.price).toLocaleString()}</td>
+      <td style="text-align:right">${(Number(it.qty)*Number(it.price)).toLocaleString()}</td>
+    </tr>`).join('');
+  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Накладная №${order.id}</title>
+  <style>
+    body{font-family:Arial, sans-serif; font-size:13px; padding:24px; color:#111; max-width:720px; margin:0 auto;}
+    h1{font-size:16px; text-align:center; margin:0 0 4px;}
+    .sub{text-align:center; font-size:12px; margin-bottom:20px; color:#444;}
+    table{width:100%; border-collapse:collapse; margin:16px 0;}
+    th,td{border:1px solid #333; padding:6px 8px; font-size:12px;}
+    th{background:#f0f0f0;}
+    .block{margin-bottom:14px; line-height:1.5;}
+    .total{text-align:right; font-weight:bold; font-size:14px; margin-top:10px;}
+    .sign{margin-top:50px; display:flex; justify-content:space-between; gap:20px;}
+    .sign div{flex:1; border-top:1px solid #333; padding-top:4px; text-align:center; font-size:12px;}
+    .btnbar{text-align:center; margin-bottom:20px;}
+    @media print { .btnbar{display:none;} }
+  </style>
+  </head><body>
+    <div class="btnbar"><button onclick="window.print()" style="padding:10px 20px;font-size:14px;cursor:pointer;">Печать</button></div>
+    <h1>НАКЛАДНАЯ №${order.id} от ${order.date}</h1>
+    <div class="sub">на отпуск запасов</div>
+    <div class="block">
+      <b>Отправитель:</b> ${COMPANY_INFO.name}<br>
+      Адрес: ${COMPANY_INFO.address}<br>
+      БИН: ${COMPANY_INFO.bin}, Банк: ${COMPANY_INFO.bank}, БИК: ${COMPANY_INFO.bik}<br>
+      Счёт: ${COMPANY_INFO.account}
+    </div>
+    <div class="block">
+      <b>Получатель:</b> ${order.client_name||''}<br>
+      ${order.address?('Адрес доставки: '+order.address+'<br>'):''}
+      ${order.contact_name?('Контактное лицо: '+order.contact_name+'<br>'):''}
+      ${order.contact_phone?('Телефон: '+order.contact_phone+'<br>'):''}
+      ${order.contact_bin?('БИН: '+order.contact_bin+'<br>'):''}
+    </div>
+    <div class="block"><b>Время доставки:</b> ${order.time_slot||''} &nbsp;·&nbsp; <b>Торговый представитель:</b> ${order.sales_name||''}</div>
+    <table>
+      <tr><th>№</th><th>Наименование</th><th>Кол-во</th><th>Цена, ₸</th><th>Сумма, ₸</th></tr>
+      ${rows}
+    </table>
+    <div class="total">Итого: ${(order.total||0).toLocaleString()} ₸</div>
+    <div class="sign">
+      <div>Отпустил (водитель)${order.driver_name?': '+order.driver_name:''}</div>
+      <div>Запасы получил (клиент)</div>
+    </div>
+  </body></html>`;
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+}
+
 function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment||'{}') : (order.payment||{cash:order.payment_cash||0,qr:order.payment_qr||0,debt:order.payment_debt||0});
@@ -254,6 +321,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <StatusBadge status={order.status}/>
+            <button style={S.btnSecondary} onClick={()=>printWaybill(order)} title="Печать накладной">🖨</button>
             <button style={S.btnSecondary} onClick={onClose}>✕</button>
           </div>
         </div>
@@ -348,7 +416,8 @@ function SalesCabinet({ user, token, onLogout }) {
     commission: p.commission || 0,
     unit: p.unit || 'кг',
     group: p.group || '',
-    code: p.code
+    code: p.code,
+    stock: p.stock
   }))))
   .catch(() => {});
   }, []);
@@ -366,7 +435,10 @@ function SalesCabinet({ user, token, onLogout }) {
   const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
   const removeLine = (uid) => setLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
   const addLine = () => setLines(ls=>[...ls,newLine()]);
-  const selectProduct = (uid,prod) => updateLine(uid,{productId:prod.id,code:prod.code,name:prod.name,price:"",search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0});
+  const selectProduct = (uid,prod) => {
+    if (prod.stock !== null && prod.stock !== undefined && prod.stock <= 0) return;
+    updateLine(uid,{productId:prod.id,code:prod.code,name:prod.name,price:"",search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock});
+  };
 
   const filledLines = lines.filter(l=>l.name&&Number(l.qty)>0&&Number(l.price)>0);
   const total = filledLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
@@ -543,17 +615,23 @@ function SalesCabinet({ user, token, onLogout }) {
                       />
                       {line.showDrop&&matched.length>0&&(
                         <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:180,overflowY:"auto"}}>
-                          {matched.map(p=>(
-                            <div key={p.id} onMouseDown={()=>selectProduct(line.uid,p)} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13}}>
+                          {matched.map(p=>{
+                            const outOfStock = p.stock !== null && p.stock !== undefined && p.stock <= 0;
+                            return (
+                            <div key={p.id} onMouseDown={()=>selectProduct(line.uid,p)} style={{padding:"9px 12px",cursor:outOfStock?"not-allowed":"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13,opacity:outOfStock?0.5:1,background:outOfStock?C.surface:C.white}}>
                               <div style={{fontWeight:600}}>{p.name}</div>
-                              <div style={{fontSize:11,color:C.textFaint}}>{p.price>0?p.price.toLocaleString()+' ₸ / ':''}{p.unit}{p.group?' · '+p.group:''}</div>
+                              <div style={{fontSize:11,color:outOfStock?C.red:C.textFaint}}>{p.price>0?p.price.toLocaleString()+' ₸ / ':''}{p.unit}{p.group?' · '+p.group:''}{p.stock!==null&&p.stock!==undefined?(outOfStock?' · Нет в наличии':' · Остаток: '+p.stock):''}</div>
                             </div>
-                          ))}
+                          )})}
                         </div>
                       )}
                     </div>
-                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"center"}} placeholder="кол" value={line.qty} type="number" min="1"
-                      onChange={e=>updateLine(line.uid,{qty:e.target.value})}
+                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"center"}} placeholder="кол" value={line.qty} type="number" min="1" max={line.stock!=null?line.stock:undefined}
+                      onChange={e=>{
+                        let v = e.target.value;
+                        if (line.stock!=null && Number(v) > line.stock) v = String(line.stock);
+                        updateLine(line.uid,{qty:v});
+                      }}
                       onFocus={e=>e.target.select()}
                     />
                     <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"right",background:(line.priceOptions&&line.priceOptions.length>0)?C.surface:C.white,color:(line.priceOptions&&line.priceOptions.length>0)?C.textSub:C.text}} placeholder="цена" value={line.price} type="number"
@@ -563,6 +641,7 @@ function SalesCabinet({ user, token, onLogout }) {
                     />
                     <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
                   </div>
+                  {line.stock!=null&&<div style={{fontSize:11,color:C.textFaint,marginTop:2}}>На складе: {line.stock} {}</div>}
                   {lineTotal&&<div style={{textAlign:"right",fontSize:11,color:C.textSub,marginTop:2,paddingRight:34}}>= <strong style={{color:C.navy}}>{lineTotal.toLocaleString()} ₸</strong></div>}
                   {line.priceOptions&&line.priceOptions.length>0&&(
                     <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
