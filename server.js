@@ -104,6 +104,15 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   const validStatuses = ['new', 'in_transit', 'delivered', 'cancelled', 'returned', 'revoked'];
   if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Неверный статус' });
   const orderId = parseInt(req.params.id);
+  const orderBefore = db.get('orders').find({ id: orderId }).value();
+  if (!orderBefore) return res.status(404).json({ error: 'Заявка не найдена' });
+
+  if (status === 'delivered') {
+    if (!payment || (Number(payment.cash) || 0) + (Number(payment.qr) || 0) + (Number(payment.debt) || 0) <= 0) {
+      return res.status(400).json({ error: 'Укажите способ оплаты (нал/QR/долг) перед подтверждением доставки' });
+    }
+  }
+
   const patch = { status };
   if (['delivered', 'cancelled', 'returned'].includes(status) && req.user.role === 'driver') {
     patch.driver_id = req.user.id;
