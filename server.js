@@ -72,6 +72,7 @@ app.get('/api/orders', authMiddleware, (req, res) => {
 app.post('/api/orders', authMiddleware, (req, res) => {
   const { clientName, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone, contactBin } = req.body;
   const id = db.get('nextOrderId').value();
+  const commissionTotal = (items || []).reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0) * (Number(it.commission) || 0) / 100, 0);
   const order = {
     id,
     sales_id: req.user.id,
@@ -90,6 +91,7 @@ app.post('/api/orders', authMiddleware, (req, res) => {
     contact_name: contactName || '',
     contact_phone: contactPhone || '',
     contact_bin: contactBin || '',
+    commission_total: commissionTotal,
     created_at: new Date().toISOString()
   };
   db.get('orders').push(order).write();
@@ -155,6 +157,7 @@ app.get('/api/products', (req, res) => {
       price1: rec && rec.price1 != null ? rec.price1 : null,
       price2: rec && rec.price2 != null ? rec.price2 : null,
       price3: rec && rec.price3 != null ? rec.price3 : null,
+      commission: rec && rec.commission != null ? rec.commission : 0,
     };
   });
   res.json(result);
@@ -181,13 +184,14 @@ app.post('/api/product-aliases', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const { code, alias, price1, price2, price3 } = req.body;
+  const { code, alias, price1, price2, price3, commission } = req.body;
   if (!code) return res.status(400).json({ error: 'Не передан код товара' });
 
   const patch = { alias };
   if (price1 !== undefined) patch.price1 = price1;
   if (price2 !== undefined) patch.price2 = price2;
   if (price3 !== undefined) patch.price3 = price3;
+  if (commission !== undefined) patch.commission = commission;
 
   const existing = db.get('productAliases').find({ code }).value();
   if (existing) {
