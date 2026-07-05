@@ -330,6 +330,12 @@ function SalesCabinet({ user, token, onLogout }) {
     fetch('/api/clients').then(r=>r.json()).then(setClients).catch(()=>{});
   }, []);
 
+  const [debts, setDebts] = useState([]);
+  useEffect(() => {
+    apiCall('GET','/api/debts').then(setDebts).catch(()=>{});
+  }, []);
+  const selectedClientDebt = clientId ? debts.filter(d=>d.client_name===clients.find(c=>c.code===clientId)?.name && d.overdue).reduce((s,d)=>s+d.remaining,0) : 0;
+
   const [products, setProducts] = useState([]);
   useEffect(() => {
     fetch('/api/products')
@@ -496,6 +502,7 @@ function SalesCabinet({ user, token, onLogout }) {
                 })()}
               </div>
               {clientId&&clients.find(c=>c.code===clientId)?.address&&<p style={{margin:"6px 0 0",fontSize:12,color:C.textSub}}>📍 {clients.find(c=>c.code===clientId)?.address}</p>}
+              {selectedClientDebt>0&&<div style={{marginTop:8,padding:"10px 12px",background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:8,fontSize:12,color:C.red,fontWeight:600}}>⚠️ У контрагента непогашенный долг более 7 дней: {selectedClientDebt.toLocaleString()} ₸</div>}
             </div>
             <div style={S.formGroup}>
               <label style={S.label}>Контактное лицо (необязательно)</label>
@@ -627,6 +634,20 @@ function DriverCabinet({ user, onLogout }) {
   const myReturned = myDoneAll.filter(o=>o.status==="returned");
   const doneShown = doneFilter==="delivered"?myDelivered:doneFilter==="cancelled"?myCancelled:doneFilter==="returned"?myReturned:myDoneAll;
 
+  const [expandedMyClients, setExpandedMyClients] = useState({});
+  const myCashTotal = myDelivered.reduce((s,o)=>s+(o.payment_cash||0),0);
+  const myQrTotal = myDelivered.reduce((s,o)=>s+(o.payment_qr||0),0);
+  const myDebtTotal = myDelivered.reduce((s,o)=>s+(o.payment_debt||0),0);
+  const myClientBreakdown = {};
+  myDelivered.forEach(o=>{
+    const key = o.client_name;
+    if(!myClientBreakdown[key]) myClientBreakdown[key] = { name:o.client_name, cash:0, qr:0, debt:0 };
+    myClientBreakdown[key].cash += (o.payment_cash||0);
+    myClientBreakdown[key].qr += (o.payment_qr||0);
+    myClientBreakdown[key].debt += (o.payment_debt||0);
+  });
+  const myClientList = Object.values(myClientBreakdown).sort((a,b)=>(b.cash+b.qr+b.debt)-(a.cash+a.qr+a.debt));
+
   const QUEUE_FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"]];
   const DONE_FILTERS=[["all","Все"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"]];
 
@@ -692,10 +713,45 @@ function DriverCabinet({ user, onLogout }) {
             ))
           }
         </>}
-        {tab==="debts"&&<DebtsPanel/>}
+        {tab==="cashbox"&&<>
+          <p style={S.sectionTitle}>Касса за сегодня</p>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
+            <div style={{background:C.cashGreen,borderRadius:8,padding:"10px"}}>
+              <p style={{margin:"0 0 2px",fontSize:10,color:"#15803D",fontWeight:600}}>НАЛИЧКА</p>
+              <p style={{margin:0,fontSize:15,fontWeight:800,color:"#15803D"}}>{myCashTotal.toLocaleString()} ₸</p>
+            </div>
+            <div style={{background:C.qrBlue,borderRadius:8,padding:"10px"}}>
+              <p style={{margin:"0 0 2px",fontSize:10,color:"#1D4ED8",fontWeight:600}}>QR</p>
+              <p style={{margin:0,fontSize:15,fontWeight:800,color:"#1D4ED8"}}>{myQrTotal.toLocaleString()} ₸</p>
+            </div>
+            <div style={{background:C.debtAmber,borderRadius:8,padding:"10px"}}>
+              <p style={{margin:"0 0 2px",fontSize:10,color:"#92400E",fontWeight:600}}>ДОЛГ</p>
+              <p style={{margin:0,fontSize:15,fontWeight:800,color:"#92400E"}}>{myDebtTotal.toLocaleString()} ₸</p>
+            </div>
+          </div>
+          {myClientList.length>0&&<>
+            <p style={{...S.sectionTitle,fontSize:14}}>По точкам сегодня</p>
+            {myClientList.map((c,i)=>(
+              <div key={i} style={S.card}>
+                <div style={{...S.row,cursor:"pointer"}} onClick={()=>setExpandedMyClients(e=>({...e,[i]:!e[i]}))}>
+                  <p style={S.cardTitle}>{c.name}</p>
+                  <p style={{margin:0,fontSize:11,color:C.textFaint}}>{expandedMyClients[i]?"▲":"▼"}</p>
+                </div>
+                {expandedMyClients[i]&&(
+                  <div style={{marginTop:8,display:"flex",gap:8}}>
+                    <span style={{fontSize:12,color:"#15803D"}}>Нал: {c.cash.toLocaleString()} ₸</span>
+                    <span style={{fontSize:12,color:"#1D4ED8"}}>QR: {c.qr.toLocaleString()} ₸</span>
+                    <span style={{fontSize:12,color:"#92400E"}}>Долг: {c.debt.toLocaleString()} ₸</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </>}
+          <div style={{marginTop:20}}><DebtsPanel/></div>
+        </>}
       </div>
       <div style={S.nav}>
-        {[["queue","📋","Очередь"],["done","✅","Закрытые"],["debts","💰","Должники"]].map(([k,ic,lb])=>(
+        {[["queue","📋","Очередь"],["done","✅","Закрытые"],["cashbox","💰","Касса"]].map(([k,ic,lb])=>(
           <button key={k} style={{...S.navBtn(tab===k),flex:1}} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
