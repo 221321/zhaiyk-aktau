@@ -781,6 +781,47 @@ function AdminCabinet({ user, onLogout }) {
   const [dateFrom, setDateFrom] = useState(todayStr);
   const [dateTo, setDateTo] = useState(todayStr);
 
+  const [employees, setEmployees] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [empSearch, setEmpSearch] = useState("");
+  const [empForm, setEmpForm] = useState({});
+  const [savingEmp, setSavingEmp] = useState(null);
+  const [togglingUser, setTogglingUser] = useState(null);
+
+  const loadEmployees = useCallback(async () => {
+    try { setEmployees(await apiCall('GET','/api/employees')); } catch(e) {}
+  }, []);
+  const loadUsers = useCallback(async () => {
+    try { setUsers(await apiCall('GET','/api/users')); } catch(e) {}
+  }, []);
+  useEffect(() => { loadEmployees(); loadUsers(); }, []);
+
+  const ROLE_OPTIONS = [["sales","Торговый представитель"],["driver","Водитель"],["manager","Менеджер"],["admin","Администратор"]];
+
+  const updateEmpForm = (code, field, value) => setEmpForm(f => ({...f, [code]: {...f[code], [field]: value}}));
+
+  const createEmpAccount = async (emp) => {
+    const form = empForm[emp.code] || {};
+    if (!form.login || !form.password || !form.role) { alert('Заполните логин, пароль и роль'); return; }
+    if (form.password.length < 4) { alert('Пароль минимум 4 символа'); return; }
+    setSavingEmp(emp.code);
+    try {
+      await apiCall('POST','/api/users', { login: form.login, password: form.password, name: emp.name, role: form.role, region: form.region||'', employee_code: emp.code });
+      await loadEmployees(); await loadUsers();
+      setEmpForm(f => ({...f, [emp.code]: {}}));
+    } catch(e) { alert(e.message); }
+    setSavingEmp(null);
+  };
+
+  const toggleUser = async (u) => {
+    setTogglingUser(u.id);
+    try {
+      await apiCall('PUT', `/api/users/${u.id}/toggle`, {});
+      await loadUsers();
+    } catch(e) { alert(e.message); }
+    setTogglingUser(null);
+  };
+
   const loadClients = useCallback(async () => {
     try {
       const data = await fetch('/api/clients').then(r => r.json());
@@ -1109,9 +1150,55 @@ function AdminCabinet({ user, onLogout }) {
           )})}
           {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
         </>}
+        {tab==="employees"&&<>
+          <p style={S.sectionTitle}>Сотрудники</p>
+          <p style={{fontSize:12,color:C.textSub,marginTop:-8,marginBottom:12}}>
+            ФИО приходит из 1С. Для новых сотрудников задай роль, логин и пароль — появится рабочий вход на сайт.
+          </p>
+          <input
+            style={{...S.input,marginBottom:16}}
+            placeholder="Поиск по ФИО или коду..."
+            value={empSearch}
+            onChange={e=>setEmpSearch(e.target.value)}
+          />
+          <p style={{...S.sectionTitle,fontSize:14}}>Без учётной записи</p>
+          {employees.filter(e=>!e.has_account&&(!empSearch||e.name.toLowerCase().includes(empSearch.toLowerCase())||(e.code||'').includes(empSearch))).map(emp=>(
+            <div key={emp.code} style={{...S.card,padding:10,marginBottom:6}}>
+              <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {emp.code}</div>
+              <div style={{fontSize:13,fontWeight:600,marginBottom:8,color:C.textMid}}>{emp.name}</div>
+              <select style={{...S.select,padding:"7px 8px",fontSize:12,marginBottom:6}} value={(empForm[emp.code]||{}).role||''} onChange={e=>updateEmpForm(emp.code,'role',e.target.value)}>
+                <option value="">— Роль —</option>
+                {ROLE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+              </select>
+              <div style={{display:"flex",gap:6}}>
+                <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Логин" value={(empForm[emp.code]||{}).login||''} onChange={e=>updateEmpForm(emp.code,'login',e.target.value)}/>
+                <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Пароль" value={(empForm[emp.code]||{}).password||''} onChange={e=>updateEmpForm(emp.code,'password',e.target.value)}/>
+                <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,width:"auto",whiteSpace:"nowrap",opacity:savingEmp===emp.code?0.5:1}} disabled={savingEmp===emp.code} onClick={()=>createEmpAccount(emp)}>Создать</button>
+              </div>
+            </div>
+          ))}
+          {employees.filter(e=>!e.has_account).length===0&&<div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:13}}>Все сотрудники из 1С уже с аккаунтами</div>}
+
+          <p style={{...S.sectionTitle,fontSize:14,marginTop:20}}>Учётные записи</p>
+          {users.map(u=>(
+            <div key={u.id} style={{...S.card,padding:10,marginBottom:6,opacity:u.active?1:0.55}}>
+              <div style={S.row}>
+                <div>
+                  <p style={S.cardTitle}>{u.name} {!u.active&&<span style={{color:C.red,fontSize:11,fontWeight:700}}>· ОТКЛЮЧЁН</span>}</p>
+                  <p style={S.cardSub}>{u.login} · {ROLE_OPTIONS.find(([v])=>v===u.role)?.[1]||u.role}</p>
+                </div>
+                <button
+                  style={{...S.btnSecondary,opacity:togglingUser===u.id?0.5:1}}
+                  disabled={togglingUser===u.id}
+                  onClick={()=>toggleUser(u)}
+                >{u.active?"Отключить":"Включить"}</button>
+              </div>
+            </div>
+          ))}
+        </>}
       </div>
       <div style={S.nav}>
-        {[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"]].map(([k,ic,lb])=>(
+        {[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["employees","👤","Сотр."]].map(([k,ic,lb])=>(
           <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
@@ -1134,7 +1221,9 @@ function App() {
     if (token) {
       try {
         const parts = token.split('.');
-        const payload = JSON.parse(atob(parts[1]));
+        const base64 = parts[1].replace(/-/g,'+').replace(/_/g,'/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+        const payload = JSON.parse(jsonPayload);
         if (payload.exp * 1000 > Date.now()) {
           setUser({ id: payload.id, name: payload.name, role: payload.role, region: payload.region });
         } else {
