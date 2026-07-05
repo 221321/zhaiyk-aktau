@@ -53,6 +53,9 @@ app.post('/api/login', (req, res) => {
   if (!user || !bcrypt.compareSync(password, user.password)) {
     return res.status(401).json({ error: 'Неверный логин или пароль' });
   }
+  if (user.active === false) {
+    return res.status(403).json({ error: 'Доступ отключён. Обратитесь к администратору' });
+  }
   const token = jwt.sign(
     { id: user.id, login: user.login, name: user.name, role: user.role, region: user.region },
     JWT_SECRET, { expiresIn: '7d' }
@@ -129,11 +132,14 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
 });
 
 // ===== USERS =====
+// миграция: у старых пользователей проставляем active:true, если поля не было
+db.get('users').forEach(u => { if (u.active === undefined) u.active = true; }).write();
+
 app.get('/api/users', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const users = db.get('users').map(u => ({ id: u.id, login: u.login, name: u.name, role: u.role, region: u.region })).value();
+  const users = db.get('users').map(u => ({ id: u.id, login: u.login, name: u.name, role: u.role, region: u.region, active: u.active !== false, employee_code: u.employee_code || null })).value();
   res.json(users);
 });
 
@@ -141,20 +147,56 @@ app.post('/api/users', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const { login, password, name, role, region } = req.body;
+  const { login, password, name, role, region, employee_code } = req.body;
+  if (!login || !password || !name || !role) return res.status(400).json({ error: 'Заполните все поля' });
+  if (password.length < 4) return res.status(400).json({ error: 'Пароль должен быть не короче 4 символов' });
   const exists = db.get('users').find({ login }).value();
   if (exists) return res.status(400).json({ error: 'Логин уже занят' });
   const id = db.get('nextUserId').value();
-  const user = { id, login, password: bcrypt.hashSync(password, 10), name, role, region: region || '' };
+  const user = { id, login, password: bcrypt.hashSync(password, 10), name, role, region: region || '', active: true, employee_code: employee_code || null };
   db.get('users').push(user).write();
   db.set('nextUserId', id + 1).write();
-  res.json({ id, login, name, role, region });
+  res.json({ id, login, name, role, region, active: true, employee_code: employee_code || null });
+});
+
+app.put('/api/users/:id/toggle', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const id = parseInt(req.params.id);
+  const user = db.get('users').find({ id }).value();
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  const newActive = !(user.active !== false);
+  db.get('users').find({ id }).assign({ active: newActive }).write();
+  res.json({ success: true, active: newActive });
 });
 
 app.delete('/api/users/:id', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   db.get('users').remove({ id: parseInt(req.params.id) }).write();
   res.json({ success: true });
+});
+
+// ===== EMPLOYEES (Физлица из 1С) =====
+db.defaults({ employees: [] }).write();
+
+app.get('/api/employees', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const employees = db.get('employees').value();
+  const users = db.get('users').value();
+  const linkedCodes = new Set(users.map(u => u.employee_code).filter(Boolean));
+  res.json(employees.map(e => ({ ...e, has_account: linkedCodes.has(e.code) })));
+});
+
+app.post('/api/employees/sync', (req, res) => {
+  const { items, secret } = req.body;
+  if (secret !== '1c_zhaiyk_2025') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  db.set('employees', items).write();
+  res.json({ success: true, count: items.length });
 });
 
 // ===== PRODUCTS (Номенклатура из 1С) =====
