@@ -570,12 +570,16 @@ function SalesCabinet({ user, token, onLogout }) {
   };
 
   const todayStr = new Date().toISOString().slice(0,10);
+  const [salesDateFrom, setSalesDateFrom] = useState(todayStr);
+  const [salesDateTo, setSalesDateTo] = useState(todayStr);
   const visibleOrders = orders.filter(o=>o.status==="new"||o.status==="in_transit"||(["cancelled","returned"].includes(o.status)&&o.date===todayStr));
   const stats = {total:visibleOrders.length,delivered:visibleOrders.filter(o=>o.status==="delivered").length,inTransit:visibleOrders.filter(o=>o.status==="in_transit").length,new:visibleOrders.filter(o=>o.status==="new").length};
-  const todaySales = orders.filter(o=>o.status==="delivered"&&o.date===todayStr).reduce((s,o)=>s+(o.total||0),0);
+  const periodDeliveredOrders = orders.filter(o=>o.status==="delivered"&&o.date>=salesDateFrom&&o.date<=salesDateTo);
+  const todaySales = periodDeliveredOrders.reduce((s,o)=>s+(o.total||0),0);
+  const [showSalesList, setShowSalesList] = useState(false);
   const [expandedClients, setExpandedClients] = useState({});
   const clientBreakdown = {};
-  orders.filter(o=>o.status==="delivered"&&o.date===todayStr).forEach(o=>{
+  periodDeliveredOrders.forEach(o=>{
     const key = o.client_name;
     if(!clientBreakdown[key]) clientBreakdown[key] = { name:o.client_name, revenue:0, items:[] };
     clientBreakdown[key].revenue += (o.total||0);
@@ -617,11 +621,25 @@ function SalesCabinet({ user, token, onLogout }) {
               <div style={S.statCard(C.accent)}><p style={S.statNum}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
             </div>
             <div style={S.revenueCard}>
-              <p style={{margin:"0 0 4px",fontSize:11,opacity:0.5,fontWeight:600,textTransform:"uppercase"}}>Продажи сегодня</p>
+              <p style={{margin:"0 0 4px",fontSize:11,opacity:0.5,fontWeight:600,textTransform:"uppercase"}}>Продажи за период</p>
               <p style={{margin:0,fontSize:26,fontWeight:800}}>{todaySales.toLocaleString()} ₸</p>
             </div>
-            {clientList.length>0&&<>
-              <p style={{...S.sectionTitle,fontSize:14,marginTop:16}}>Продано сегодня</p>
+            <div style={{display:"flex",gap:8,marginTop:12,marginBottom:4,alignItems:"center",flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:120}}>
+                <label style={{...S.label,marginBottom:4}}>С</label>
+                <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={salesDateFrom} onChange={e=>setSalesDateFrom(e.target.value)}/>
+              </div>
+              <div style={{flex:1,minWidth:120}}>
+                <label style={{...S.label,marginBottom:4}}>По</label>
+                <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={salesDateTo} onChange={e=>setSalesDateTo(e.target.value)}/>
+              </div>
+            </div>
+            <div style={{...S.row,cursor:"pointer",marginTop:12,marginBottom:showSalesList?8:0}} onClick={()=>setShowSalesList(s=>!s)}>
+              <p style={{...S.sectionTitle,fontSize:14,margin:0}}>Продано за период</p>
+              <p style={{margin:0,fontSize:12,color:C.textFaint}}>{showSalesList?"▲ Свернуть":"▼ Показать"}</p>
+            </div>
+            {showSalesList&&clientList.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>Нет доставленных заявок за этот период</div>}
+            {showSalesList&&clientList.length>0&&<>
               {clientList.map((c,i)=>(
                 <div key={i} style={S.card}>
                   <div style={{...S.row,cursor:"pointer"}} onClick={()=>setExpandedClients(e=>({...e,[i]:!e[i]}))}>
