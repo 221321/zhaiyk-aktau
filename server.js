@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3001;
 const JWT_SECRET = 'zhaiyk_aktau_secret_2025';
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // База данных (JSON файл)
@@ -393,6 +393,14 @@ app.post('/api/debts/settle', authMiddleware, (req, res) => {
   }).write();
 
   res.json({ success: true });
+});
+
+// Полная история погашений долгов — для выгрузки в 1С (просто данные, без проводок)
+app.get('/api/debt-settlements', authMiddleware, (req, res) => {
+  if (!['admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('debtSettlements').value());
 });
 
 // ===== STOCK (остатки из 1С) =====
