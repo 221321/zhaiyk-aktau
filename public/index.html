@@ -570,7 +570,7 @@ function SalesCabinet({ user, token, onLogout }) {
   };
 
   const todayStr = new Date().toISOString().slice(0,10);
-  const visibleOrders = orders.filter(o=>o.status==="new"||o.status==="in_transit"||(["delivered","cancelled","returned"].includes(o.status)&&o.date===todayStr));
+  const visibleOrders = orders.filter(o=>o.status==="new"||o.status==="in_transit"||(["cancelled","returned"].includes(o.status)&&o.date===todayStr));
   const stats = {total:visibleOrders.length,delivered:visibleOrders.filter(o=>o.status==="delivered").length,inTransit:visibleOrders.filter(o=>o.status==="in_transit").length,new:visibleOrders.filter(o=>o.status==="new").length};
   const todaySales = orders.filter(o=>o.status==="delivered"&&o.date===todayStr).reduce((s,o)=>s+(o.total||0),0);
   const [expandedClients, setExpandedClients] = useState({});
