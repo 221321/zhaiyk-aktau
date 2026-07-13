@@ -9,9 +9,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap&subset=cyrillic" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; background: #F8F9FB; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #F5F3F0; }
 input, select, textarea, button { font-family: inherit; }
 </style>
 </head>
@@ -25,50 +28,50 @@ const API = '';
 const TIME_SLOTS = ["До обеда (09:00 – 14:00)", "После обеда (14:00 – 19:00)"];
 
 const SL = { new: "Ожидает", in_transit: "В пути", delivered: "Доставлено", cancelled: "Отказ при получении", returned: "Возврат", revoked: "Отозвана" };
-const SC = { new: "#2563EB", in_transit: "#D97706", delivered: "#16A34A", cancelled: "#DC2626", returned: "#7C3AED", revoked: "#6B7280" };
-const SB = { new: "#EFF6FF", in_transit: "#FFFBEB", delivered: "#F0FDF4", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6" };
+const SC = { new: "#DA1A10", in_transit: "#D97706", delivered: "#16A34A", cancelled: "#DC2626", returned: "#7C3AED", revoked: "#6B7280" };
+const SB = { new: "#FCEBEA", in_transit: "#FFFBEB", delivered: "#F0FDF4", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6" };
 
 const C = {
-  navy:"#1B2B4B", accent:"#2563EB", white:"#FFFFFF", surface:"#F8F9FB",
-  border:"#E4E7EC", text:"#111827", textMid:"#374151", textSub:"#6B7280", textFaint:"#9CA3AF",
-  green:"#16A34A", amber:"#D97706", red:"#DC2626",
+  navy:"#1C1917", accent:"#DA1A10", white:"#FFFFFF", surface:"#F5F3F0",
+  border:"#E7E3DE", text:"#1C1917", textMid:"#44403C", textSub:"#79716B", textFaint:"#A8A29E",
+  green:"#15803D", amber:"#B45309", red:"#DC2626",
   cashGreen:"#DCFCE7", qrBlue:"#DBEAFE", debtAmber:"#FEF3C7",
 };
 
 const S = {
-  app: { fontFamily:"inherit", minHeight:"100vh", background:C.surface, color:C.text, fontSize:14 },
+  app: { fontFamily:"inherit", minHeight:"100vh", background:C.surface, color:C.text, fontSize:15 },
   loginWrap: { minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:24 },
   loginCard: { background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:"44px 36px", width:"100%", maxWidth:380, boxShadow:"0 4px 24px rgba(0,0,0,0.07)" },
-  logoTitle: { fontSize:22, fontWeight:700, color:C.navy, margin:"0 0 4px" },
+  logoTitle: { fontSize:24, fontWeight:800, color:C.navy, margin:"0 0 4px" },
   logoSub: { fontSize:13, color:C.textSub, margin:"0 0 32px" },
   label: { display:"block", fontSize:12, fontWeight:600, color:C.textMid, marginBottom:6, letterSpacing:"0.04em", textTransform:"uppercase" },
-  input: { width:"100%", padding:"11px 13px", border:`1.5px solid ${C.border}`, borderRadius:8, fontSize:14, outline:"none", boxSizing:"border-box", background:C.white, color:C.text },
-  btnPrimary: { width:"100%", padding:"12px", background:C.navy, color:C.white, border:"none", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer", marginTop:4 },
+  input: { width:"100%", padding:"13px 14px", border:`1.5px solid ${C.border}`, borderRadius:10, fontSize:16, outline:"none", boxSizing:"border-box", background:C.white, color:C.text },
+  btnPrimary: { width:"100%", padding:"14px", background:C.accent, color:C.white, border:"none", borderRadius:10, fontSize:16, fontWeight:700, cursor:"pointer", marginTop:4 },
   errorBox: { background:"#FEF2F2", color:C.red, border:"1px solid #FECACA", padding:"10px 13px", borderRadius:8, fontSize:13, marginBottom:16 },
   header: { background:C.navy, color:C.white, padding:"0 20px", height:56, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100 },
-  headerMark: { background:"rgba(255,255,255,0.12)", borderRadius:6, padding:"3px 8px", fontSize:11, fontWeight:700, letterSpacing:"0.08em", color:"rgba(255,255,255,0.7)", marginBottom:2 },
-  headerSub: { fontSize:11, color:"rgba(255,255,255,0.5)" },
+  headerMark: { fontSize:15, fontWeight:800, letterSpacing:"0.01em", color:"#FFFFFF", marginBottom:1 },
+  headerSub: { fontSize:11.5, color:"rgba(255,255,255,0.6)" },
   logoutBtn: { background:"transparent", border:"1px solid rgba(255,255,255,0.2)", color:"rgba(255,255,255,0.7)", padding:"5px 12px", borderRadius:6, cursor:"pointer", fontSize:12 },
   page: { padding:"20px 16px 80px", maxWidth:480, margin:"0 auto" },
   card: { background:C.white, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", marginBottom:10 },
-  cardTitle: { fontSize:14, fontWeight:600, color:C.text, margin:"0 0 3px" },
-  cardSub: { fontSize:12, color:C.textSub, margin:0 },
-  badge: (s) => ({ display:"inline-block", padding:"2px 9px", borderRadius:4, fontSize:11, fontWeight:600, color:SC[s], background:SB[s], border:`1px solid ${SC[s]}30` }),
+  cardTitle: { fontSize:16, fontWeight:700, color:C.text, margin:"0 0 3px" },
+  cardSub: { fontSize:13, color:C.textSub, margin:0 },
+  badge: (s) => ({ display:"inline-block", padding:"3px 11px", borderRadius:99, fontSize:12, fontWeight:700, color:SC[s], background:SB[s], border:`1px solid ${SC[s]}30` }),
   statsRow: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 },
   statCard: (a) => ({ background:C.white, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", borderTop:`3px solid ${a}` }),
-  statNum: { fontSize:26, fontWeight:800, color:C.navy, margin:"0 0 2px" },
-  statLabel: { fontSize:11, color:C.textSub, margin:0, fontWeight:500 },
+  statNum: { fontSize:28, fontWeight:800, color:C.navy, margin:"0 0 2px" },
+  statLabel: { fontSize:12, color:C.textSub, margin:0, fontWeight:500 },
   nav: { position:"fixed", bottom:0, left:0, right:0, background:C.white, borderTop:`1px solid ${C.border}`, display:"flex", zIndex:100 },
-  navBtn: (a) => ({ flex:1, padding:"10px 0 8px", border:"none", background:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3, color:a?C.navy:C.textFaint, borderTop:a?`2px solid ${C.navy}`:"2px solid transparent" }),
-  navIcon: { fontSize:20 },
-  navLabel: (a) => ({ fontSize:10, fontWeight:a?700:400 }),
+  navBtn: (a) => ({ flex:1, padding:"12px 0 10px", border:"none", background:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3, color:a?C.accent:C.textFaint, borderTop:a?`2.5px solid ${C.accent}`:"2.5px solid transparent" }),
+  navIcon: { fontSize:22 },
+  navLabel: (a) => ({ fontSize:11, fontWeight:a?700:500 }),
   formGroup: { marginBottom:16 },
-  select: { width:"100%", padding:"11px 13px", border:`1.5px solid ${C.border}`, borderRadius:8, fontSize:14, outline:"none", boxSizing:"border-box", background:C.white },
+  select: { width:"100%", padding:"13px 14px", border:`1.5px solid ${C.border}`, borderRadius:10, fontSize:16, outline:"none", boxSizing:"border-box", background:C.white },
   textarea: { width:"100%", padding:"11px 13px", border:`1.5px solid ${C.border}`, borderRadius:8, fontSize:13, outline:"none", boxSizing:"border-box", resize:"vertical", minHeight:70, background:C.white },
-  btnSuccess: { width:"100%", padding:"12px", background:C.green, color:C.white, border:"none", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer" },
-  btnDanger: { width:"100%", padding:"12px", background:C.white, color:C.red, border:`1.5px solid ${C.red}`, borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer", marginTop:8 },
+  btnSuccess: { width:"100%", padding:"14px", background:C.green, color:C.white, border:"none", borderRadius:10, fontSize:16, fontWeight:700, cursor:"pointer" },
+  btnDanger: { width:"100%", padding:"14px", background:C.white, color:C.red, border:`1.5px solid ${C.red}`, borderRadius:10, fontSize:15, fontWeight:600, cursor:"pointer", marginTop:8 },
   btnSecondary: { padding:"7px 14px", background:C.surface, color:C.textMid, border:`1px solid ${C.border}`, borderRadius:7, fontSize:13, cursor:"pointer" },
-  btnOutline: { width:"100%", padding:"12px", background:C.white, color:C.navy, border:`1.5px solid ${C.navy}`, borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer", marginTop:8 },
+  btnOutline: { width:"100%", padding:"14px", background:C.white, color:C.navy, border:`1.5px solid ${C.navy}`, borderRadius:10, fontSize:15, fontWeight:600, cursor:"pointer", marginTop:8 },
   divider: { border:"none", borderTop:`1px solid ${C.border}`, margin:"14px 0" },
   sectionTitle: { fontSize:16, fontWeight:700, color:C.navy, margin:"0 0 14px" },
   row: { display:"flex", alignItems:"center", justifyContent:"space-between" },
@@ -314,7 +317,7 @@ function printWaybill(order) {
   <style>${WAYBILL_STYLE}</style>
   </head><body>
     <div class="btnbar">
-      <button onclick="window.print()" style="background:#1B2B4B;">🖨 Печать</button>
+      <button onclick="window.print()" style="background:#1C1917;">🖨 Печать</button>
     </div>
     ${buildWaybillInnerHtml(order)}
   </body></html>`;
@@ -1464,8 +1467,9 @@ function App() {
   if (!user) return (
     <div style={S.loginWrap}>
       <div style={S.loginCard}>
-        <h1 style={S.logoTitle}>ЖАЙЫК АКТАУ</h1>
-        <p style={S.logoSub}>Система управления заявками</p>
+        <img src="/icon-192.png" alt="" style={{width:76,height:76,display:"block",margin:"0 auto 14px"}}/>
+        <h1 style={{...S.logoTitle,textAlign:"center"}}>Жайық Ақтау</h1>
+        <p style={{...S.logoSub,textAlign:"center"}}>құс өнімі · система заявок</p>
         {error&&<div style={S.errorBox}>{error}</div>}
         <div style={S.formGroup}><label style={S.label}>Логин</label><input style={S.input} value={login} onChange={e=>setLogin(e.target.value)} placeholder="Введите логин"/></div>
         <div style={{...S.formGroup,marginBottom:20}}><label style={S.label}>Пароль</label><input style={S.input} type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Введите пароль" onKeyDown={e=>e.key==="Enter"&&handleLogin()}/></div>
@@ -1477,9 +1481,12 @@ function App() {
   return (
     <div style={S.app}>
       <div style={S.header}>
-        <div>
-          <div style={S.headerMark}>ЖАЙЫК АКТАУ</div>
-          <div style={S.headerSub}>{user.name} · {ROLE_LABEL[user.role]}</div>
+        <div style={{display:"flex",alignItems:"center",gap:11}}>
+          <img src="/icon-192.png" alt="" style={{width:36,height:36,flexShrink:0}}/>
+          <div>
+            <div style={S.headerMark}>Жайық Ақтау</div>
+            <div style={S.headerSub}>{user.name} · {ROLE_LABEL[user.role]}</div>
+          </div>
         </div>
         <button style={S.logoutBtn} onClick={handleLogout}>Выйти</button>
       </div>
