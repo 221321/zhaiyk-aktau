@@ -600,6 +600,7 @@ function SalesCabinet({ user, token, onLogout }) {
       await apiCall('POST','/api/orders',{clientName:client.name,clientCode:client.code,address:client.address||'',timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment,contactName,contactPhone});
       setLines([newLine()]); setClientId(""); setClientSearchText(""); setTimeSlot(""); setComment(""); setContactName(""); setContactPhone("");
       setSubmitted(true); setTab("orders"); loadOrders();
+      fetch('/api/clients').then(r=>r.json()).then(setClients).catch(()=>{});
       setTimeout(()=>setSubmitted(false),4000);
     } catch(e) { alert(e.message); }
   };
