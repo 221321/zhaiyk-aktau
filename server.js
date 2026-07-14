@@ -75,6 +75,10 @@ app.get('/api/orders', authMiddleware, (req, res) => {
 app.post('/api/orders', authMiddleware, (req, res) => {
   const { clientName, clientCode, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone } = req.body;
 
+  if (!contactName || !contactName.trim() || !contactPhone || !contactPhone.trim()) {
+    return res.status(400).json({ error: 'Укажите ФИО и телефон контактного лица' });
+  }
+
   const availableMap = computeAvailableStock();
   for (const it of (items || [])) {
     if (!it.code) continue;
