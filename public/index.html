@@ -11,11 +11,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap&subset=cyrillic" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap&subset=cyrillic" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #F5F3F0; }
 input, select, textarea, button { font-family: inherit; }
+tr.rowh:hover { background: #FAF9F7; }
 </style>
 </head>
 <body>
@@ -24,42 +25,45 @@ input, select, textarea, button { font-family: inherit; }
 const { useState, useEffect, useCallback } = React;
 
 const API = '';
+const FH = "'Manrope', sans-serif"; /* шрифт заголовков и цифр */
 
 const TIME_SLOTS = ["До обеда (09:00 – 14:00)", "После обеда (14:00 – 19:00)"];
 
 const SL = { new: "Ожидает", in_transit: "В пути", delivered: "Доставлено", cancelled: "Отказ при получении", returned: "Возврат", revoked: "Отозвана" };
-const SC = { new: "#DA1A10", in_transit: "#D97706", delivered: "#16A34A", cancelled: "#DC2626", returned: "#7C3AED", revoked: "#6B7280" };
-const SB = { new: "#FCEBEA", in_transit: "#FFFBEB", delivered: "#F0FDF4", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6" };
+const SC = { new: "#DA1A10", in_transit: "#B45309", delivered: "#15803D", cancelled: "#DC2626", returned: "#7C3AED", revoked: "#6B7280" };
+const SB = { new: "#FCEBEA", in_transit: "#FBF3E6", delivered: "#EAF5EE", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6" };
 
 const C = {
-  navy:"#1C1917", accent:"#DA1A10", white:"#FFFFFF", surface:"#F5F3F0",
+  navy:"#1C1917", accent:"#DA1A10", accentDark:"#B31510", redSoft:"#FCEBEA",
+  white:"#FFFFFF", surface:"#F5F3F0",
   border:"#E7E3DE", text:"#1C1917", textMid:"#44403C", textSub:"#79716B", textFaint:"#A8A29E",
   green:"#15803D", amber:"#B45309", red:"#DC2626",
   cashGreen:"#DCFCE7", qrBlue:"#DBEAFE", debtAmber:"#FEF3C7",
 };
+const R = 14;
 
 const S = {
   app: { fontFamily:"inherit", minHeight:"100vh", background:C.surface, color:C.text, fontSize:15 },
   loginWrap: { minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:24, background:C.surface },
-  loginCard: { background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:"44px 36px", width:"100%", maxWidth:380, boxShadow:"0 4px 24px rgba(0,0,0,0.07)" },
-  logoTitle: { fontSize:24, fontWeight:800, color:C.navy, margin:"0 0 4px" },
-  logoSub: { fontSize:13, color:C.textSub, margin:"0 0 32px" },
+  loginCard: { background:C.white, border:`1px solid ${C.border}`, borderRadius:16, padding:"44px 36px", width:"100%", maxWidth:380, boxShadow:"0 4px 24px rgba(28,25,23,0.07)" },
+  logoTitle: { fontFamily:FH, fontSize:26, fontWeight:800, color:C.navy, margin:"0 0 4px", letterSpacing:"-0.01em" },
+  logoSub: { fontSize:11, color:C.accent, margin:"0 0 32px", fontWeight:700, letterSpacing:"0.14em", textTransform:"uppercase" },
   label: { display:"block", fontSize:12, fontWeight:600, color:C.textMid, marginBottom:6, letterSpacing:"0.04em", textTransform:"uppercase" },
   input: { width:"100%", padding:"13px 14px", border:`1.5px solid ${C.border}`, borderRadius:10, fontSize:16, outline:"none", boxSizing:"border-box", background:C.white, color:C.text },
-  btnPrimary: { width:"100%", padding:"14px", background:C.accent, color:C.white, border:"none", borderRadius:10, fontSize:16, fontWeight:700, cursor:"pointer", marginTop:4 },
+  btnPrimary: { width:"100%", padding:"15px", background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontSize:16, fontWeight:800, cursor:"pointer", marginTop:4, boxShadow:"0 6px 18px rgba(218,26,16,0.28)" },
   errorBox: { background:"#FEF2F2", color:C.red, border:"1px solid #FECACA", padding:"10px 13px", borderRadius:8, fontSize:13, marginBottom:16 },
-  header: { background:C.surface, color:C.text, padding:"0 20px", height:56, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100, borderBottom:`1px solid ${C.border}` },
-  headerMark: { fontSize:15, fontWeight:800, letterSpacing:"0.01em", color:C.navy, marginBottom:1 },
-  headerSub: { fontSize:11.5, color:C.textSub },
-  logoutBtn: { background:"transparent", border:`1px solid ${C.border}`, color:C.textMid, padding:"5px 12px", borderRadius:6, cursor:"pointer", fontSize:12 },
-  page: { padding:"20px 16px 80px", maxWidth:480, margin:"0 auto" },
-  card: { background:C.white, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", marginBottom:10 },
-  cardTitle: { fontSize:16, fontWeight:700, color:C.text, margin:"0 0 3px" },
+  header: { background:C.white, color:C.text, padding:"0 18px", height:62, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100, borderBottom:`1px solid ${C.border}` },
+  headerMark: { fontFamily:FH, fontSize:17, fontWeight:800, letterSpacing:"-0.01em", color:C.navy, lineHeight:1.1 },
+  headerSub: { fontSize:10, color:C.accent, fontWeight:700, letterSpacing:"0.14em", textTransform:"uppercase", marginTop:2 },
+  logoutBtn: { background:"transparent", border:"none", color:C.accent, padding:0, cursor:"pointer", fontSize:12, fontWeight:600 },
+  page: { padding:"20px 16px 80px", maxWidth:520, margin:"0 auto" },
+  card: { background:C.white, border:`1px solid ${C.border}`, borderRadius:R, padding:"14px 16px", marginBottom:10 },
+  cardTitle: { fontFamily:FH, fontSize:16, fontWeight:800, color:C.text, margin:"0 0 3px" },
   cardSub: { fontSize:13, color:C.textSub, margin:0 },
-  badge: (s) => ({ display:"inline-block", padding:"3px 11px", borderRadius:99, fontSize:12, fontWeight:700, color:SC[s], background:SB[s], border:`1px solid ${SC[s]}30` }),
+  badge: (s) => ({ display:"inline-block", padding:"4px 11px", borderRadius:99, fontSize:12, fontWeight:700, color:SC[s], background:SB[s] }),
   statsRow: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 },
-  statCard: (a) => ({ background:C.white, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", borderTop:`3px solid ${a}` }),
-  statNum: { fontSize:28, fontWeight:800, color:C.navy, margin:"0 0 2px" },
+  statCard: (a) => ({ background:C.white, border:`1px solid ${C.border}`, borderRadius:R, padding:"12px 14px 10px" }),
+  statNum: (a) => ({ fontFamily:FH, fontSize:26, fontWeight:800, color:a||C.navy, margin:"0 0 2px", fontVariantNumeric:"tabular-nums" }),
   statLabel: { fontSize:12, color:C.textSub, margin:0, fontWeight:500 },
   nav: { position:"fixed", bottom:0, left:0, right:0, background:C.white, borderTop:`1px solid ${C.border}`, display:"flex", zIndex:100 },
   navBtn: (a) => ({ flex:1, padding:"12px 0 10px", border:"none", background:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3, color:a?C.accent:C.textFaint, borderTop:a?`2.5px solid ${C.accent}`:"2.5px solid transparent" }),
@@ -68,17 +72,40 @@ const S = {
   formGroup: { marginBottom:16 },
   select: { width:"100%", padding:"13px 14px", border:`1.5px solid ${C.border}`, borderRadius:10, fontSize:16, outline:"none", boxSizing:"border-box", background:C.white },
   textarea: { width:"100%", padding:"11px 13px", border:`1.5px solid ${C.border}`, borderRadius:8, fontSize:13, outline:"none", boxSizing:"border-box", resize:"vertical", minHeight:70, background:C.white },
-  btnSuccess: { width:"100%", padding:"14px", background:C.green, color:C.white, border:"none", borderRadius:10, fontSize:16, fontWeight:700, cursor:"pointer" },
-  btnDanger: { width:"100%", padding:"14px", background:C.white, color:C.red, border:`1.5px solid ${C.red}`, borderRadius:10, fontSize:15, fontWeight:600, cursor:"pointer", marginTop:8 },
-  btnSecondary: { padding:"7px 14px", background:C.surface, color:C.textMid, border:`1px solid ${C.border}`, borderRadius:7, fontSize:13, cursor:"pointer" },
-  btnOutline: { width:"100%", padding:"14px", background:C.white, color:C.navy, border:`1.5px solid ${C.navy}`, borderRadius:10, fontSize:15, fontWeight:600, cursor:"pointer", marginTop:8 },
+  btnSuccess: { width:"100%", padding:"15px", background:C.green, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontSize:16, fontWeight:800, cursor:"pointer" },
+  btnDanger: { width:"100%", padding:"14px", background:C.white, color:C.red, border:`1.5px solid ${C.red}`, borderRadius:R, fontSize:15, fontWeight:600, cursor:"pointer", marginTop:8 },
+  btnSecondary: { padding:"7px 14px", background:C.surface, color:C.textMid, border:`1px solid ${C.border}`, borderRadius:8, fontSize:13, cursor:"pointer" },
+  btnOutline: { width:"100%", padding:"14px", background:C.white, color:C.navy, border:`1.5px solid ${C.navy}`, borderRadius:R, fontSize:15, fontWeight:600, cursor:"pointer", marginTop:8 },
   divider: { border:"none", borderTop:`1px solid ${C.border}`, margin:"14px 0" },
-  sectionTitle: { fontSize:16, fontWeight:700, color:C.navy, margin:"0 0 14px" },
+  sectionTitle: { fontFamily:FH, fontSize:17, fontWeight:800, color:C.navy, margin:"0 0 14px" },
   row: { display:"flex", alignItems:"center", justifyContent:"space-between" },
-  alertSuccess: { background:"#F0FDF4", color:C.green, border:"1px solid #BBF7D0", padding:"11px 14px", borderRadius:8, fontSize:13, fontWeight:600, marginBottom:16 },
-  revenueCard: { background:C.navy, color:C.white, borderRadius:10, padding:"18px 16px", marginBottom:12 },
+  alertSuccess: { background:"#EAF5EE", color:C.green, border:"1px solid #BBF7D0", padding:"11px 14px", borderRadius:10, fontSize:13, fontWeight:600, marginBottom:16 },
+  revenueCard: { background:C.white, border:`1px solid ${C.border}`, borderRadius:R, padding:"16px", marginBottom:12 },
+  revenueLabel: { margin:"0 0 4px", fontSize:11, color:C.textSub, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" },
+  revenueNum: { fontFamily:FH, margin:0, fontSize:28, fontWeight:800, color:C.accent, fontVariantNumeric:"tabular-nums" },
+  bigCreate: { display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", minHeight:56, background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontWeight:800, fontSize:17, cursor:"pointer", boxShadow:"0 6px 18px rgba(218,26,16,0.28)", marginBottom:16 },
+  bigCreatePlus: { width:26, height:26, borderRadius:"50%", background:"rgba(255,255,255,0.22)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, fontWeight:700, lineHeight:1 },
+  // десктоп: сайдбар менеджера
+  side: { width:240, flexShrink:0, background:C.navy, color:"#fff", padding:"26px 20px", display:"flex", flexDirection:"column", position:"sticky", top:0, height:"100vh" },
+  sideLink: (a) => ({ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", marginBottom:4, borderRadius:10, color:a?"#fff":"#C9C5C0", background:a?C.accent:"transparent", textDecoration:"none", fontSize:14, fontWeight:a?700:500, cursor:"pointer", border:"none", width:"100%", textAlign:"left" }),
+  main: { flex:1, padding:"34px 42px", minWidth:0 },
+  h1: { fontFamily:FH, fontSize:24, fontWeight:800, letterSpacing:"-0.01em", color:C.navy, margin:0 },
+  h1sub: { color:C.textSub, fontSize:14, marginTop:4 },
+  th: { textAlign:"left", fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textSub, fontWeight:700, padding:"13px 18px", background:"#FAF9F7", borderBottom:`1px solid ${C.border}` },
+  td: { padding:"14px 18px", borderBottom:`1px solid ${C.border}`, fontSize:14, verticalAlign:"middle" },
   loadingWrap: { display:"flex", alignItems:"center", justifyContent:"center", padding:"48px 0", color:C.textFaint },
 };
+
+function useIsDesktop() {
+  const [d, setD] = useState(() => window.matchMedia('(min-width: 900px)').matches);
+  useEffect(() => {
+    const m = window.matchMedia('(min-width: 900px)');
+    const h = (e) => setD(e.matches);
+    if (m.addEventListener) m.addEventListener('change', h); else m.addListener(h);
+    return () => { if (m.removeEventListener) m.removeEventListener('change', h); else m.removeListener(h); };
+  }, []);
+  return d;
+}
 
 function getToken() { return localStorage.getItem('token'); }
 function setToken(t) { localStorage.setItem('token', t); }
@@ -96,6 +123,19 @@ async function apiCall(method, path, body) {
   return data;
 }
 
+function Brand({light, size}) {
+  const s = size || 42;
+  return (
+    <div style={{display:"flex", alignItems:"center", gap:11}}>
+      <img src="/icon-192.png" alt="" style={{width:s, height:s, flexShrink:0}}/>
+      <div>
+        <div style={{...S.headerMark, color: light ? "#fff" : C.navy}}>Жайық Ақтау</div>
+        <div style={{...S.headerSub, color: light ? "#F1AAA6" : C.accent}}>құс өнімі</div>
+      </div>
+    </div>
+  );
+}
+
 function StatusBadge({status}) {
   return <span style={S.badge(status)}>{SL[status]||status}</span>;
 }
@@ -106,25 +146,25 @@ function PaymentTags({payment}) {
   if (payment.cash>0) tags.push({label:`Нал: ${payment.cash.toLocaleString()} ₸`, bg:C.cashGreen, color:"#15803D"});
   if (payment.qr>0)   tags.push({label:`QR: ${payment.qr.toLocaleString()} ₸`,   bg:C.qrBlue,   color:"#1D4ED8"});
   if (payment.debt>0) tags.push({label:`Долг: ${payment.debt.toLocaleString()} ₸`, bg:C.debtAmber, color:"#92400E"});
-  return <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>{tags.map((t,i)=><span key={i} style={{fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:4,background:t.bg,color:t.color}}>{t.label}</span>)}</div>;
+  return <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>{tags.map((t,i)=><span key={i} style={{fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:5,background:t.bg,color:t.color,whiteSpace:"nowrap"}}>{t.label}</span>)}</div>;
 }
 
 function OrderCard({order, onOpen, onEdit}) {
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment||'{}') : (order.payment||{cash:order.payment_cash||0,qr:order.payment_qr||0,debt:order.payment_debt||0});
   return (
-    <div style={{...S.card, borderLeft:`3px solid ${SC[order.status]||'#999'}`}}>
+    <div style={{...S.card, borderLeft:`4px solid ${SC[order.status]||'#999'}`}}>
       <div style={{...S.row, cursor:"pointer"}} onClick={()=>onOpen(order)}>
         <div style={{flex:1,marginRight:10}}>
-          <p style={S.cardTitle}>#{order.id} · {order.client_name||order.clientName}</p>
+          <p style={S.cardTitle}>№ {order.id} · {order.client_name||order.clientName}</p>
           <p style={S.cardSub}>{order.address} · {order.time_slot||order.timeSlot}</p>
         </div>
         <StatusBadge status={order.status}/>
       </div>
-      <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}>{items.length} поз. · <span style={{fontWeight:700,color:C.text}}>{(order.total||0).toLocaleString()} ₸</span></p>
+      <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}>Позиций: <b style={{color:C.text}}>{items.length}</b> · Сумма: <b style={{color:C.text,fontFamily:FH,fontVariantNumeric:"tabular-nums"}}>{(order.total||0).toLocaleString()} ₸</b></p>
       <PaymentTags payment={payment}/>
       {onEdit && order.status==="new" && (
-        <button onClick={e=>{e.stopPropagation();onEdit(order);}} style={{marginTop:8,padding:"6px 14px",background:"#EEF2F8",color:C.navy,border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>✏️ Редактировать</button>
+        <button onClick={e=>{e.stopPropagation();onEdit(order);}} style={{marginTop:8,padding:"6px 14px",background:C.surface,color:C.navy,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer"}}>✏️ Редактировать</button>
       )}
     </div>
   );
@@ -175,11 +215,11 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
           <span style={{fontSize:14,fontWeight:600,color:payType.debt?"#92400E":C.textMid}}>📋 Долг {payType.debt&&`(${remainder.toLocaleString()} ₸ — остаток посчитан сам)`}</span>
         </div>
       </div>
-      <div style={{padding:"12px 14px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,marginBottom:14}}>
-        <div style={{...S.row,marginBottom:6}}><span style={{fontSize:12,color:C.textSub}}>Сумма заявки</span><span style={{fontWeight:700}}>{total.toLocaleString()} ₸</span></div>
+      <div style={{padding:"12px 14px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,marginBottom:14}}>
+        <div style={{...S.row,marginBottom:6}}><span style={{fontSize:12,color:C.textSub}}>Сумма заявки</span><span style={{fontWeight:700,fontFamily:FH}}>{total.toLocaleString()} ₸</span></div>
         <div style={{...S.row,paddingTop:6,borderTop:`1px solid ${C.border}`}}>
           <span style={{fontSize:13,fontWeight:700,color:debtAmount>0?"#92400E":(remainder>0?C.red:C.green)}}>{debtAmount>0?"📋 Долг":(remainder>0?"⚠️ Не хватает суммы":"✅ Полностью оплачено")}</span>
-          {(debtAmount>0||remainder>0)&&<span style={{fontWeight:800,fontSize:15,color:debtAmount>0?"#92400E":C.red}}>{(debtAmount>0?debtAmount:remainder).toLocaleString()} ₸</span>}
+          {(debtAmount>0||remainder>0)&&<span style={{fontWeight:800,fontSize:15,fontFamily:FH,color:debtAmount>0?"#92400E":C.red}}>{(debtAmount>0?debtAmount:remainder).toLocaleString()} ₸</span>}
         </div>
       </div>
       <button style={{...S.btnSuccess,opacity:canConfirm?1:0.4,cursor:canConfirm?"pointer":"not-allowed"}} disabled={!canConfirm} onClick={()=>onUpdateStatus(order.id,"delivered",{cash:cashPaid,qr:qrPaid,debt:debtAmount})}>✅ Подтвердить доставку</button>
@@ -223,13 +263,13 @@ function DebtsPanel() {
       <p style={S.sectionTitle}>Должники</p>
       {loadingDebts?<div style={S.loadingWrap}>Загрузка...</div>:debts.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Долгов нет</div>:
         debts.map(d=>(
-          <div key={d.order_id} style={{...S.card, borderLeft: d.overdue?`3px solid ${C.red}`:"3px solid #F59E0B", background: d.overdue?"#FEF2F2":C.white}}>
+          <div key={d.order_id} style={{...S.card, borderLeft: d.overdue?`4px solid ${C.red}`:"4px solid #F59E0B", background: d.overdue?"#FEF2F2":C.white}}>
             <div style={S.row}>
               <div>
                 <p style={S.cardTitle}>{d.client_name} {d.overdue&&<span style={{color:C.red,fontSize:11,fontWeight:700}}>· ПРОСРОЧЕН</span>}</p>
-                <p style={{...S.cardSub,color:d.overdue?"#B91C1C":C.textSub}}>#{d.order_id} · {d.date}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
+                <p style={{...S.cardSub,color:d.overdue?"#B91C1C":C.textSub}}>№ {d.order_id} · {d.date}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
               </div>
-              <p style={{margin:0,fontWeight:800,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
+              <p style={{margin:0,fontWeight:800,fontFamily:FH,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
             </div>
             <div style={{display:"flex",gap:6,marginTop:10}}>
               <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder={`До ${d.remaining}`} value={settleAmounts[d.order_id]||''} onFocus={e=>e.target.select()} onChange={e=>setSettleAmounts(a=>({...a,[d.order_id]:e.target.value}))}/>
@@ -237,7 +277,7 @@ function DebtsPanel() {
                 <option value="cash">Нал</option>
                 <option value="qr">Безнал</option>
               </select>
-              <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,width:"auto",whiteSpace:"nowrap",opacity:savingId===d.order_id?0.5:1}} disabled={savingId===d.order_id} onClick={()=>settle(d)}>Погасить</button>
+              <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,width:"auto",whiteSpace:"nowrap",marginTop:0,boxShadow:"none",opacity:savingId===d.order_id?0.5:1}} disabled={savingId===d.order_id} onClick={()=>settle(d)}>Погасить</button>
             </div>
           </div>
         ))
@@ -419,12 +459,12 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment||'{}') : (order.payment||{cash:order.payment_cash||0,qr:order.payment_qr||0,debt:order.payment_debt||0});
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(17,24,39,0.45)",zIndex:200,overflowY:"auto"}}>
-      <div style={{background:C.white,margin:"16px",borderRadius:12,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
+    <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
+      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
         <div style={{...S.row,marginBottom:14}}>
           <div>
             <p style={{margin:0,fontSize:11,color:C.textFaint,fontWeight:600,textTransform:"uppercase"}}>Заявка</p>
-            <p style={{margin:0,fontSize:18,fontWeight:700,color:C.navy}}>#{order.id}</p>
+            <p style={{margin:0,fontSize:18,fontWeight:800,fontFamily:FH,color:C.navy}}>№ {order.id}</p>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <StatusBadge status={order.status}/>
@@ -432,11 +472,11 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
           </div>
         </div>
         <div style={{display:"flex",gap:8,marginBottom:14}}>
-          <button style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>printWaybill(order)}>🖨 Печать накладной</button>
-          <button style={{flex:1,padding:"11px",background:"#25D366",color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>shareWaybillPdf(order)}>📲 Отправить PDF</button>
+          <button style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>printWaybill(order)}>🖨 Печать накладной</button>
+          <button style={{flex:1,padding:"11px",background:"#25D366",color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>shareWaybillPdf(order)}>📲 Отправить PDF</button>
         </div>
         <hr style={S.divider}/>
-        {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.contact_bin?[["БИН",order.contact_bin]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
+        {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.driver_name?[["Водитель",order.driver_name]]:[]),...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.contact_bin?[["БИН",order.contact_bin]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
           <div key={k} style={{...S.row,marginBottom:8,alignItems:"flex-start"}}>
             <span style={{fontSize:12,color:C.textFaint,fontWeight:600,minWidth:90,textTransform:"uppercase"}}>{k}</span>
             <span style={{fontSize:13,color:C.text,textAlign:"right",flex:1}}>{v}</span>
@@ -453,7 +493,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
         <hr style={S.divider}/>
         <div style={{...S.row,fontSize:15,fontWeight:700,marginBottom:10}}>
           <span style={{color:C.textMid}}>Итого</span>
-          <span style={{color:C.navy}}>{(order.total||0).toLocaleString()} ₸</span>
+          <span style={{color:C.navy,fontFamily:FH,fontWeight:800}}>{(order.total||0).toLocaleString()} ₸</span>
         </div>
         <p style={{margin:"0 0 8px",fontSize:12,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>Оплата</p>
         <PaymentTags payment={payment}/>
@@ -595,10 +635,10 @@ function SalesCabinet({ user, token, onLogout }) {
     <div style={{paddingBottom:72}}>
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdateStatus} currentUser={user}/>}
       {editOrder&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(17,24,39,0.45)",zIndex:200,overflowY:"auto"}}>
-          <div style={{background:"#fff",margin:"16px",borderRadius:12,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto"}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
+          <div style={{background:"#fff",margin:"16px",borderRadius:16,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto"}}>
             <div style={{...S.row,marginBottom:16}}>
-              <p style={{margin:0,fontSize:17,fontWeight:700,color:C.navy}}>Редактирование #{editOrder.id}</p>
+              <p style={{margin:0,fontSize:17,fontWeight:800,fontFamily:FH,color:C.navy}}>Редактирование № {editOrder.id}</p>
               <button style={S.btnSecondary} onClick={()=>setEditOrder(null)}>✕</button>
             </div>
             <p style={{fontSize:13,color:C.textSub,marginBottom:16}}>Для редактирования отзовите заявку и создайте новую</p>
@@ -614,18 +654,18 @@ function SalesCabinet({ user, token, onLogout }) {
       )}
       <div style={S.page}>
         {tab==="orders"&&<>
-          <p style={S.sectionTitle}>Мои заявки</p>
+          <button style={S.bigCreate} onClick={()=>setTab("new")}><span style={S.bigCreatePlus}>+</span> Создать заявку</button>
           {submitted&&<div style={S.alertSuccess}>Заявка успешно создана!</div>}
           {loading?<div style={S.loadingWrap}>Загрузка...</div>:<>
             <div style={S.statsRow}>
-              <div style={S.statCard(C.navy)}><p style={S.statNum}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
-              <div style={S.statCard(C.green)}><p style={S.statNum}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
-              <div style={S.statCard(C.amber)}><p style={S.statNum}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
-              <div style={S.statCard(C.accent)}><p style={S.statNum}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
+              <div style={S.statCard()}><p style={S.statNum()}>{stats.total}</p><p style={S.statLabel}>Всего заявок</p></div>
+              <div style={S.statCard()}><p style={S.statNum(C.green)}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
+              <div style={S.statCard()}><p style={S.statNum(C.amber)}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
+              <div style={S.statCard()}><p style={S.statNum(C.accent)}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
             </div>
             <div style={S.revenueCard}>
-              <p style={{margin:"0 0 4px",fontSize:11,opacity:0.5,fontWeight:600,textTransform:"uppercase"}}>Продажи за период</p>
-              <p style={{margin:0,fontSize:26,fontWeight:800}}>{todaySales.toLocaleString()} ₸</p>
+              <p style={S.revenueLabel}>Продажи за период</p>
+              <p style={S.revenueNum}>{todaySales.toLocaleString()} ₸</p>
             </div>
             <div style={{display:"flex",gap:8,marginTop:12,marginBottom:4,alignItems:"center",flexWrap:"wrap"}}>
               <div style={{flex:1,minWidth:120}}>
@@ -638,7 +678,7 @@ function SalesCabinet({ user, token, onLogout }) {
               </div>
             </div>
             <div style={{...S.row,cursor:"pointer",marginTop:12,marginBottom:showSalesList?8:0}} onClick={()=>setShowSalesList(s=>!s)}>
-              <p style={{...S.sectionTitle,fontSize:14,margin:0}}>Продано за период</p>
+              <p style={{...S.sectionTitle,fontSize:15,margin:0}}>Продано за период</p>
               <p style={{margin:0,fontSize:12,color:C.textFaint}}>{showSalesList?"▲ Свернуть":"▼ Показать"}</p>
             </div>
             {showSalesList&&clientList.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>Нет доставленных заявок за этот период</div>}
@@ -651,7 +691,7 @@ function SalesCabinet({ user, token, onLogout }) {
                       <p style={S.cardSub}>{c.items.length} поз.</p>
                     </div>
                     <div style={{textAlign:"right"}}>
-                      <p style={{margin:0,fontWeight:800,color:C.navy}}>{c.revenue.toLocaleString()} ₸</p>
+                      <p style={{margin:0,fontWeight:800,fontFamily:FH,color:C.navy}}>{c.revenue.toLocaleString()} ₸</p>
                       <p style={{margin:0,fontSize:11,color:C.textFaint}}>{expandedClients[i]?"▲ Свернуть":"▼ Подробнее"}</p>
                     </div>
                   </div>
@@ -668,7 +708,7 @@ function SalesCabinet({ user, token, onLogout }) {
                 </div>
               ))}
             </>}
-            <p style={{...S.sectionTitle,fontSize:14,marginTop:16}}>Список заявок</p>
+            <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>Мои заявки</p>
             {visibleOrders.length===0?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заявок пока нет</p></div>
               :visibleOrders.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder} onEdit={o.status==="new"?setEditOrder:null}/>)}
           </>}
@@ -714,7 +754,7 @@ function SalesCabinet({ user, token, onLogout }) {
               <label style={S.label}>Время доставки</label>
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 {TIME_SLOTS.map(slot=>(
-                  <button key={slot} onClick={()=>setTimeSlot(slot)} style={{padding:"12px",borderRadius:8,border:`1.5px solid ${timeSlot===slot?C.navy:C.border}`,background:timeSlot===slot?C.navy:C.white,color:timeSlot===slot?C.white:C.textMid,fontSize:14,fontWeight:500,cursor:"pointer",textAlign:"left"}}>{slot}</button>
+                  <button key={slot} onClick={()=>setTimeSlot(slot)} style={{padding:"12px",borderRadius:10,border:`1.5px solid ${timeSlot===slot?C.navy:C.border}`,background:timeSlot===slot?C.navy:C.white,color:timeSlot===slot?C.white:C.textMid,fontSize:14,fontWeight:500,cursor:"pointer",textAlign:"left"}}>{slot}</button>
                 ))}
               </div>
             </div>
@@ -724,7 +764,7 @@ function SalesCabinet({ user, token, onLogout }) {
               <label style={S.label}>
                 Номенклатура {products.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:11}}>({products.length} поз. из 1С)</span>}
               </label>
-              <button onClick={addLine} style={{background:C.navy,color:C.white,border:"none",borderRadius:6,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Строка</button>
+              <button onClick={addLine} style={{background:C.navy,color:C.white,border:"none",borderRadius:8,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Строка</button>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,marginBottom:6}}>
               {["Наименование","Кол-во","Цена ₸",""].map((h,i)=><div key={i} style={{fontSize:10,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
@@ -767,21 +807,21 @@ function SalesCabinet({ user, token, onLogout }) {
                       onChange={e=>updateLine(line.uid,{price:e.target.value})}
                       onFocus={e=>e.target.select()}
                     />
-                    <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
+                    <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
                   </div>
                   {line.stock!=null&&<div style={{fontSize:11,color:C.textFaint,marginTop:2}}>На складе: {line.stock} {}</div>}
                   {lineTotal&&<div style={{textAlign:"right",fontSize:11,color:C.textSub,marginTop:2,paddingRight:34}}>= <strong style={{color:C.navy}}>{lineTotal.toLocaleString()} ₸</strong></div>}
                   {line.priceOptions&&line.priceOptions.length>0&&(
                     <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
                       {line.priceOptions.map((pr,i)=>(
-                        <button key={i} onClick={()=>updateLine(line.uid,{price:pr})} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${Number(line.price)===pr?C.navy:C.border}`,background:Number(line.price)===pr?C.navy:C.white,color:Number(line.price)===pr?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>{pr.toLocaleString()} ₸</button>
+                        <button key={i} onClick={()=>updateLine(line.uid,{price:pr})} style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${Number(line.price)===pr?C.navy:C.border}`,background:Number(line.price)===pr?C.navy:C.white,color:Number(line.price)===pr?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>{pr.toLocaleString()} ₸</button>
                       ))}
                     </div>
                   )}
                 </div>
               );
             })}
-            {filledLines.length>0&&<><hr style={{...S.divider,marginTop:8}}/><div style={S.row}><span style={{fontSize:13,color:C.textSub}}>Итого</span><span style={{fontSize:16,fontWeight:800,color:C.navy}}>{total.toLocaleString()} ₸</span></div></>}
+            {filledLines.length>0&&<><hr style={{...S.divider,marginTop:8}}/><div style={S.row}><span style={{fontSize:13,color:C.textSub}}>Итого</span><span style={{fontSize:17,fontWeight:800,fontFamily:FH,color:C.navy}}>{total.toLocaleString()} ₸</span></div></>}
           </div>
           <div style={S.card}>
             <div style={S.formGroup}>
@@ -864,58 +904,58 @@ function DriverCabinet({ user, onLogout }) {
       <div style={S.page}>
         {tab==="queue"&&<>
           <div style={S.statsRow}>
-            <div style={S.statCard(C.accent)}><p style={S.statNum}>{queueNew.length}</p><p style={S.statLabel}>Ожидают</p></div>
-            <div style={S.statCard(C.amber)}><p style={S.statNum}>{queueActive.length}</p><p style={S.statLabel}>В пути</p></div>
+            <div style={S.statCard()}><p style={S.statNum(C.accent)}>{queueNew.length}</p><p style={S.statLabel}>Ожидают</p></div>
+            <div style={S.statCard()}><p style={S.statNum(C.amber)}>{queueActive.length}</p><p style={S.statLabel}>В пути</p></div>
           </div>
           <p style={S.sectionTitle}>Очередь</p>
           <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
             {QUEUE_FILTERS.map(([k,lb])=>(
-              <button key={k} onClick={()=>setQueueFilter(k)} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${queueFilter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:queueFilter===k?C.navy:C.white,color:queueFilter===k?C.white:C.textMid}}>{lb}</button>
+              <button key={k} onClick={()=>setQueueFilter(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${queueFilter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:queueFilter===k?C.navy:C.white,color:queueFilter===k?C.white:C.textMid}}>{lb}</button>
             ))}
           </div>
           {loading?<div style={S.loadingWrap}>Загрузка...</div>:queueShown.length===0
             ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>🚗</div><p>Нет заявок</p></div>
             :queueShown.map(o=>(
-              <div key={o.id} style={{...S.card,cursor:"pointer",borderLeft:`3px solid ${SC[o.status]||'#999'}`}} onClick={()=>setSelectedOrder(o)}>
+              <div key={o.id} style={{...S.card,cursor:"pointer",borderLeft:`4px solid ${SC[o.status]||'#999'}`}} onClick={()=>setSelectedOrder(o)}>
                 <div style={S.row}>
                   <div style={{flex:1,marginRight:10}}>
-                    <p style={S.cardTitle}>#{o.id} · {o.client_name}</p>
+                    <p style={S.cardTitle}>№ {o.id} · {o.client_name}</p>
                     <p style={S.cardSub}>{o.address}</p>
                     <p style={{...S.cardSub,marginTop:2}}>🕐 {o.time_slot} · {o.sales_name}</p>
                   </div>
                   <StatusBadge status={o.status}/>
                 </div>
-                <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}><span style={{fontWeight:700,color:C.text}}>{(o.total||0).toLocaleString()} ₸</span></p>
-                {o.status==="new"&&<button onClick={e=>{e.stopPropagation();handleUpdate(o.id,"in_transit",null);}} style={{marginTop:10,width:"100%",padding:"9px",background:C.navy,color:C.white,border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>🚚 Взять в доставку</button>}
+                <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}>Сумма: <b style={{color:C.text,fontFamily:FH}}>{(o.total||0).toLocaleString()} ₸</b></p>
+                {o.status==="new"&&<button onClick={e=>{e.stopPropagation();handleUpdate(o.id,"in_transit",null);}} style={{marginTop:10,width:"100%",padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>🚚 Взять в доставку</button>}
               </div>
             ))
           }
         </>}
         {tab==="done"&&<>
-          <div style={S.statsRow}>
-            <div style={S.statCard(C.green)}><p style={S.statNum}>{myDelivered.length}</p><p style={S.statLabel}>Доставлено</p></div>
-            <div style={S.statCard(C.red)}><p style={S.statNum}>{myCancelled.length}</p><p style={S.statLabel}>Отказ</p></div>
-            <div style={S.statCard("#7C3AED")}><p style={S.statNum}>{myReturned.length}</p><p style={S.statLabel}>Возврат</p></div>
+          <div style={{...S.statsRow,gridTemplateColumns:"1fr 1fr 1fr"}}>
+            <div style={S.statCard()}><p style={S.statNum(C.green)}>{myDelivered.length}</p><p style={S.statLabel}>Доставлено</p></div>
+            <div style={S.statCard()}><p style={S.statNum(C.red)}>{myCancelled.length}</p><p style={S.statLabel}>Отказ</p></div>
+            <div style={S.statCard()}><p style={S.statNum("#7C3AED")}>{myReturned.length}</p><p style={S.statLabel}>Возврат</p></div>
           </div>
           <p style={S.sectionTitle}>Закрытые сегодня</p>
           <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
             {DONE_FILTERS.map(([k,lb])=>(
-              <button key={k} onClick={()=>setDoneFilter(k)} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${doneFilter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:doneFilter===k?C.navy:C.white,color:doneFilter===k?C.white:C.textMid}}>{lb}</button>
+              <button key={k} onClick={()=>setDoneFilter(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${doneFilter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:doneFilter===k?C.navy:C.white,color:doneFilter===k?C.white:C.textMid}}>{lb}</button>
             ))}
           </div>
           {loading?<div style={S.loadingWrap}>Загрузка...</div>:doneShown.length===0
             ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📭</div><p>Сегодня ничего не закрыто</p></div>
             :doneShown.map(o=>(
-              <div key={o.id} style={{...S.card,cursor:"pointer",borderLeft:`3px solid ${SC[o.status]||'#999'}`}} onClick={()=>setSelectedOrder(o)}>
+              <div key={o.id} style={{...S.card,cursor:"pointer",borderLeft:`4px solid ${SC[o.status]||'#999'}`}} onClick={()=>setSelectedOrder(o)}>
                 <div style={S.row}>
                   <div style={{flex:1,marginRight:10}}>
-                    <p style={S.cardTitle}>#{o.id} · {o.client_name}</p>
+                    <p style={S.cardTitle}>№ {o.id} · {o.client_name}</p>
                     <p style={S.cardSub}>{o.address}</p>
                     <p style={{...S.cardSub,marginTop:2}}>🕐 {o.time_slot} · {o.sales_name}</p>
                   </div>
                   <StatusBadge status={o.status}/>
                 </div>
-                <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}><span style={{fontWeight:700,color:C.text}}>{(o.total||0).toLocaleString()} ₸</span></p>
+                <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}>Сумма: <b style={{color:C.text,fontFamily:FH}}>{(o.total||0).toLocaleString()} ₸</b></p>
               </div>
             ))
           }
@@ -923,22 +963,22 @@ function DriverCabinet({ user, onLogout }) {
         {tab==="cashbox"&&<>
           <p style={S.sectionTitle}>Касса за сегодня</p>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
-            <div style={{background:C.cashGreen,borderRadius:8,padding:"10px"}}>
+            <div style={{background:C.cashGreen,borderRadius:10,padding:"10px"}}>
               <p style={{margin:"0 0 2px",fontSize:10,color:"#15803D",fontWeight:600}}>НАЛИЧКА</p>
-              <p style={{margin:0,fontSize:15,fontWeight:800,color:"#15803D"}}>{myCashTotal.toLocaleString()} ₸</p>
+              <p style={{margin:0,fontSize:15,fontWeight:800,fontFamily:FH,color:"#15803D"}}>{myCashTotal.toLocaleString()} ₸</p>
             </div>
-            <div style={{background:C.qrBlue,borderRadius:8,padding:"10px"}}>
+            <div style={{background:C.qrBlue,borderRadius:10,padding:"10px"}}>
               <p style={{margin:"0 0 2px",fontSize:10,color:"#1D4ED8",fontWeight:600}}>QR</p>
-              <p style={{margin:0,fontSize:15,fontWeight:800,color:"#1D4ED8"}}>{myQrTotal.toLocaleString()} ₸</p>
+              <p style={{margin:0,fontSize:15,fontWeight:800,fontFamily:FH,color:"#1D4ED8"}}>{myQrTotal.toLocaleString()} ₸</p>
             </div>
-            <div style={{background:C.debtAmber,borderRadius:8,padding:"10px"}}>
+            <div style={{background:C.debtAmber,borderRadius:10,padding:"10px"}}>
               <p style={{margin:"0 0 2px",fontSize:10,color:"#92400E",fontWeight:600}}>ДОЛГ</p>
-              <p style={{margin:0,fontSize:15,fontWeight:800,color:"#92400E"}}>{myDebtTotal.toLocaleString()} ₸</p>
+              <p style={{margin:0,fontSize:15,fontWeight:800,fontFamily:FH,color:"#92400E"}}>{myDebtTotal.toLocaleString()} ₸</p>
             </div>
           </div>
           {myClientList.length>0&&<>
             <div style={{...S.row,cursor:"pointer",marginBottom:8}} onClick={()=>setShowMyClients(s=>!s)}>
-              <p style={{...S.sectionTitle,fontSize:14,margin:0}}>По точкам сегодня</p>
+              <p style={{...S.sectionTitle,fontSize:15,margin:0}}>По точкам сегодня</p>
               <p style={{margin:0,fontSize:12,color:C.textFaint}}>{showMyClients?"▲ Свернуть":"▼ Показать"}</p>
             </div>
             {showMyClients&&myClientList.map((c,i)=>(
@@ -966,9 +1006,10 @@ function DriverCabinet({ user, onLogout }) {
   );
 }
 
-function AdminCabinet({ user, onLogout }) {
+function AdminCabinet({ user, onLogout, desktop }) {
   const [tab, setTab] = useState("all");
   const [filter, setFilter] = useState("all");
+  const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -1111,7 +1152,15 @@ function AdminCabinet({ user, onLogout }) {
     } catch(e) { alert(e.message); }
   };
 
-  const filtered = orders.filter(o=>filter==="all"||o.status===filter);
+  const q = orderSearch.trim().toLowerCase();
+  const filtered = orders
+    .filter(o=>filter==="all"||o.status===filter)
+    .filter(o=>!q
+      || String(o.id).includes(q)
+      || (o.client_name||'').toLowerCase().includes(q)
+      || (o.sales_name||'').toLowerCase().includes(q)
+      || (o.driver_name||'').toLowerCase().includes(q)
+      || (o.address||'').toLowerCase().includes(q));
   const periodOrders = orders.filter(o=>o.date>=dateFrom&&o.date<=dateTo);
   const stats = {
     total:periodOrders.length,
@@ -1160,55 +1209,111 @@ function AdminCabinet({ user, onLogout }) {
   const driverCashList = Object.values(cashByDriver).sort((a,b)=>b.cash-a.cash);
 
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
+  const TABS=[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["employees","👤","Сотрудники"]];
+  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",employees:"Сотрудники"};
 
-  return (
-    <div style={{paddingBottom:72}}>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
-      <div style={S.page}>
-        {tab==="all"&&<>
-          <p style={S.sectionTitle}>Все заявки</p>
-          <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
-            {FILTERS.map(([k,lb])=>(
-              <button key={k} onClick={()=>setFilter(k)} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${filter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:filter===k?C.navy:C.white,color:filter===k?C.white:C.textMid}}>{lb}</button>
+  const dateRangeInputs = (
+    <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap",maxWidth:420}}>
+      <div style={{flex:1,minWidth:120}}>
+        <label style={{...S.label,marginBottom:4}}>С</label>
+        <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
+      </div>
+      <div style={{flex:1,minWidth:120}}>
+        <label style={{...S.label,marginBottom:4}}>По</label>
+        <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
+      </div>
+    </div>
+  );
+
+  const filterChips = (
+    <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+      {FILTERS.map(([k,lb])=>(
+        <button key={k} onClick={()=>setFilter(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${filter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:filter===k?C.navy:C.white,color:filter===k?C.white:C.textMid}}>{lb}</button>
+      ))}
+    </div>
+  );
+
+  const searchInput = (
+    <input
+      style={{...S.input, maxWidth: desktop?360:"100%", marginBottom:12}}
+      placeholder="Поиск по номеру, клиенту, торговому…"
+      value={orderSearch}
+      onChange={e=>setOrderSearch(e.target.value)}
+    />
+  );
+
+  const ordersTable = (
+    <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden"}}>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead>
+            <tr>{["№","Клиент","Торговый","Взял на доставку","Сумма","Оплата","Статус"].map((h,i)=><th key={i} style={S.th}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {filtered.map(o=>{
+              const payment = {cash:o.payment_cash||0,qr:o.payment_qr||0,debt:o.payment_debt||0};
+              return (
+                <tr key={o.id} className="rowh" onClick={()=>setSelectedOrder(o)} style={{cursor:"pointer"}}>
+                  <td style={{...S.td,fontFamily:FH,fontWeight:800}}>{o.id}</td>
+                  <td style={S.td}>
+                    <div style={{fontWeight:600}}>{o.client_name}</div>
+                    <div style={{fontSize:12,color:C.textSub}}>{o.address}{o.time_slot?' · '+o.time_slot:''}</div>
+                  </td>
+                  <td style={S.td}>{o.sales_name}</td>
+                  <td style={S.td}>{o.driver_name || <span style={{color:C.textSub,fontStyle:"italic",fontSize:13}}>не назначен</span>}</td>
+                  <td style={{...S.td,fontFamily:FH,fontWeight:800,whiteSpace:"nowrap"}}>{(o.total||0).toLocaleString()} ₸</td>
+                  <td style={S.td}><PaymentTags payment={payment}/></td>
+                  <td style={S.td}><StatusBadge status={o.status}/></td>
+                </tr>
+              );
+            })}
+            {filtered.length===0&&(
+              <tr><td colSpan="7" style={{...S.td,textAlign:"center",color:C.textFaint,padding:"40px 0"}}>Заявок нет</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const content = (
+    <>
+      {tab==="all"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Все заявки</p>}
+        {searchInput}
+        {filterChips}
+        {loading?<div style={S.loadingWrap}>Загрузка...</div>
+          :desktop
+            ? ordersTable
+            : (filtered.length===0
+              ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заявок нет</p></div>
+              :filtered.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder}/>))
+        }
+      </>}
+      {tab==="report"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Отчёт</p>}
+        {dateRangeInputs}
+        <div style={{...S.statsRow, gridTemplateColumns: desktop?"repeat(5, minmax(0,1fr))":"1fr 1fr", maxWidth: desktop?900:"none"}}>
+          <div style={S.statCard()}><p style={S.statNum()}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
+          <div style={S.statCard()}><p style={S.statNum(C.green)}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
+          <div style={S.statCard()}><p style={S.statNum(C.amber)}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
+          <div style={S.statCard()}><p style={S.statNum(C.red)}>{stats.cancelled}</p><p style={S.statLabel}>Не доставлено</p></div>
+          <div style={S.statCard()}><p style={S.statNum("#7C3AED")}>{stats.returned}</p><p style={S.statLabel}>Возвратов</p></div>
+        </div>
+        <div style={{...S.revenueCard, maxWidth: desktop?560:"none"}}>
+          <p style={S.revenueLabel}>Общая выручка</p>
+          <p style={{...S.revenueNum, marginBottom:14}}>{stats.revenue.toLocaleString()} ₸</p>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            {[{label:"Наличка",val:stats.cashTotal,bg:C.cashGreen,col:"#15803D"},{label:"QR код",val:stats.qrTotal,bg:C.qrBlue,col:"#1D4ED8"},{label:"Долг",val:stats.debtTotal,bg:C.debtAmber,col:"#92400E"}].map(({label,val,bg,col})=>(
+              <div key={label} style={{background:bg,borderRadius:10,padding:"10px 8px"}}>
+                <p style={{margin:"0 0 2px",fontSize:10,color:col,fontWeight:700}}>{label.toUpperCase()}</p>
+                <p style={{margin:0,fontSize:13,fontWeight:800,fontFamily:FH,color:col}}>{(val||0).toLocaleString()} ₸</p>
+              </div>
             ))}
           </div>
-          {loading?<div style={S.loadingWrap}>Загрузка...</div>:filtered.length===0
-            ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заявок нет</p></div>
-            :filtered.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder}/>)
-          }
-        </>}
-        {tab==="report"&&<>
-          <p style={S.sectionTitle}>Отчёт</p>
-          <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
-            <div style={{flex:1,minWidth:120}}>
-              <label style={{...S.label,marginBottom:4}}>С</label>
-              <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
-            </div>
-            <div style={{flex:1,minWidth:120}}>
-              <label style={{...S.label,marginBottom:4}}>По</label>
-              <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
-            </div>
-          </div>
-          <div style={S.statsRow}>
-            <div style={S.statCard(C.navy)}><p style={S.statNum}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
-            <div style={S.statCard(C.green)}><p style={S.statNum}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
-            <div style={S.statCard(C.amber)}><p style={S.statNum}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
-            <div style={S.statCard(C.red)}><p style={S.statNum}>{stats.cancelled}</p><p style={S.statLabel}>Не доставлено</p></div>
-            <div style={S.statCard("#7C3AED")}><p style={S.statNum}>{stats.returned}</p><p style={S.statLabel}>Возвратов</p></div>
-          </div>
-          <div style={S.revenueCard}>
-            <p style={{margin:"0 0 4px",fontSize:11,opacity:0.5,fontWeight:600,textTransform:"uppercase"}}>Общая выручка</p>
-            <p style={{margin:"0 0 14px",fontSize:26,fontWeight:800}}>{stats.revenue.toLocaleString()} ₸</p>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-              {[{label:"Наличка",val:stats.cashTotal},{label:"QR код",val:stats.qrTotal},{label:"Долг",val:stats.debtTotal}].map(({label,val})=>(
-                <div key={label} style={{background:"rgba(255,255,255,0.1)",borderRadius:8,padding:"10px 8px"}}>
-                  <p style={{margin:"0 0 2px",fontSize:10,opacity:0.7,fontWeight:600}}>{label.toUpperCase()}</p>
-                  <p style={{margin:0,fontSize:13,fontWeight:800}}>{(val||0).toLocaleString()} ₸</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <p style={{...S.sectionTitle,fontSize:14,marginTop:8}}>По торговым представителям</p>
+        </div>
+        <div style={{maxWidth: desktop?560:"none"}}>
+          <p style={{...S.sectionTitle,fontSize:15,marginTop:8}}>По торговым представителям</p>
           {salesList.length===0?<div style={{textAlign:"center",padding:"32px 0",color:C.textFaint}}>Нет доставленных заявок за этот период</div>:
             salesList.map(s=>(
               <div key={s.id} style={S.card}>
@@ -1218,7 +1323,7 @@ function AdminCabinet({ user, onLogout }) {
                     <p style={S.cardSub}>{s.items.length} поз. продано</p>
                   </div>
                   <div style={{textAlign:"right"}}>
-                    <p style={{margin:0,fontWeight:800,color:C.navy}}>{s.revenue.toLocaleString()} ₸</p>
+                    <p style={{margin:0,fontWeight:800,fontFamily:FH,color:C.navy}}>{s.revenue.toLocaleString()} ₸</p>
                     <p style={{margin:0,fontSize:11,color:C.textFaint}}>{expandedSales[s.id]?"▲ Свернуть":"▼ Подробнее"}</p>
                   </div>
                 </div>
@@ -1232,52 +1337,47 @@ function AdminCabinet({ user, onLogout }) {
                     ))}
                     <div style={{...S.row,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,fontWeight:700}}>
                       <span style={{fontSize:13,color:C.textMid}}>Итого бонус</span>
-                      <span style={{fontSize:15,color:C.green}}>{s.totalBonus.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</span>
+                      <span style={{fontSize:15,fontFamily:FH,fontWeight:800,color:C.green}}>{s.totalBonus.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</span>
                     </div>
                   </div>
                 )}
               </div>
           ))}
-        </>}
-        {tab==="cashbox"&&<>
-          <p style={S.sectionTitle}>Касса</p>
-          <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
-            <div style={{flex:1,minWidth:120}}>
-              <label style={{...S.label,marginBottom:4}}>С</label>
-              <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
-            </div>
-            <div style={{flex:1,minWidth:120}}>
-              <label style={{...S.label,marginBottom:4}}>По</label>
-              <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
-            </div>
-          </div>
-          <p style={{...S.sectionTitle,fontSize:14}}>Сдача кассы по водителям</p>
+        </div>
+      </>}
+      {tab==="cashbox"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Касса</p>}
+        {dateRangeInputs}
+        <div style={{maxWidth: desktop?560:"none"}}>
+          <p style={{...S.sectionTitle,fontSize:15}}>Сдача кассы по водителям</p>
           {driverCashList.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Нет закрытых водителями заявок за период</div>:
             driverCashList.map((d,i)=>(
               <div key={i} style={S.card}>
                 <p style={S.cardTitle}>{d.name}</p>
                 <p style={S.cardSub}>{d.orders} заявок доставлено</p>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:10}}>
-                  <div style={{background:C.cashGreen,borderRadius:8,padding:"8px 10px"}}>
-                    <p style={{margin:"0 0 2px",fontSize:10,color:"#15803D",fontWeight:600}}>НАЛИЧКА</p>
-                    <p style={{margin:0,fontSize:14,fontWeight:800,color:"#15803D"}}>{d.cash.toLocaleString()} ₸</p>
+                  <div style={{background:C.cashGreen,borderRadius:10,padding:"8px 10px"}}>
+                    <p style={{margin:"0 0 2px",fontSize:10,color:"#15803D",fontWeight:700}}>НАЛИЧКА</p>
+                    <p style={{margin:0,fontSize:14,fontWeight:800,fontFamily:FH,color:"#15803D"}}>{d.cash.toLocaleString()} ₸</p>
                   </div>
-                  <div style={{background:C.qrBlue,borderRadius:8,padding:"8px 10px"}}>
-                    <p style={{margin:"0 0 2px",fontSize:10,color:"#1D4ED8",fontWeight:600}}>QR</p>
-                    <p style={{margin:0,fontSize:14,fontWeight:800,color:"#1D4ED8"}}>{d.qr.toLocaleString()} ₸</p>
+                  <div style={{background:C.qrBlue,borderRadius:10,padding:"8px 10px"}}>
+                    <p style={{margin:"0 0 2px",fontSize:10,color:"#1D4ED8",fontWeight:700}}>QR</p>
+                    <p style={{margin:0,fontSize:14,fontWeight:800,fontFamily:FH,color:"#1D4ED8"}}>{d.qr.toLocaleString()} ₸</p>
                   </div>
-                  <div style={{background:C.debtAmber,borderRadius:8,padding:"8px 10px"}}>
-                    <p style={{margin:"0 0 2px",fontSize:10,color:"#92400E",fontWeight:600}}>ДОЛГ</p>
-                    <p style={{margin:0,fontSize:14,fontWeight:800,color:"#92400E"}}>{d.debt.toLocaleString()} ₸</p>
+                  <div style={{background:C.debtAmber,borderRadius:10,padding:"8px 10px"}}>
+                    <p style={{margin:"0 0 2px",fontSize:10,color:"#92400E",fontWeight:700}}>ДОЛГ</p>
+                    <p style={{margin:0,fontSize:14,fontWeight:800,fontFamily:FH,color:"#92400E"}}>{d.debt.toLocaleString()} ₸</p>
                   </div>
                 </div>
               </div>
           ))}
           <div style={{marginTop:20}}><DebtsPanel/></div>
-        </>}
-        {tab==="aliases"&&<>
-          <p style={S.sectionTitle}>Псевдонимы товаров</p>
-          <p style={{fontSize:12,color:C.textSub,marginTop:-8,marginBottom:12}}>
+        </div>
+      </>}
+      {tab==="aliases"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Псевдонимы товаров</p>}
+        <div style={{maxWidth: desktop?720:"none"}}>
+          <p style={{fontSize:12,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
             Название из 1С меняется от поставки к поставке — задай здесь постоянное имя, которое увидят торгпреды.
           </p>
           <input
@@ -1345,7 +1445,7 @@ function AdminCabinet({ user, onLogout }) {
                     <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:12,fontWeight:700,color:locked?C.textFaint:"#92400E",pointerEvents:"none"}}>%</span>
                   </div>
                   <button
-                    style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, opacity: savingCode===p.code?0.5:1, width:"auto", whiteSpace:"nowrap"}}
+                    style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, marginTop:0, boxShadow:"none", opacity: savingCode===p.code?0.5:1, width:"auto", whiteSpace:"nowrap"}}
                     disabled={savingCode===p.code}
                     onClick={()=>{
                       if (locked) { setEditingCodes(e=>({...e,[p.code]:true})); }
@@ -1356,10 +1456,12 @@ function AdminCabinet({ user, onLogout }) {
               </div>
           )})}
           {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
-        </>}
-        {tab==="employees"&&<>
-          <p style={S.sectionTitle}>Сотрудники</p>
-          <p style={{fontSize:12,color:C.textSub,marginTop:-8,marginBottom:12}}>
+        </div>
+      </>}
+      {tab==="employees"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Сотрудники</p>}
+        <div style={{maxWidth: desktop?560:"none"}}>
+          <p style={{fontSize:12,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
             ФИО приходит из 1С. Для новых сотрудников задай роль, логин и пароль — появится рабочий вход на сайт.
           </p>
           <input
@@ -1368,7 +1470,7 @@ function AdminCabinet({ user, onLogout }) {
             value={empSearch}
             onChange={e=>setEmpSearch(e.target.value)}
           />
-          <p style={{...S.sectionTitle,fontSize:14}}>Без учётной записи</p>
+          <p style={{...S.sectionTitle,fontSize:15}}>Без учётной записи</p>
           {employees.filter(e=>!e.has_account&&(!empSearch||e.name.toLowerCase().includes(empSearch.toLowerCase())||(e.code||'').includes(empSearch))).map(emp=>(
             <div key={emp.code} style={{...S.card,padding:10,marginBottom:6}}>
               <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {emp.code}</div>
@@ -1380,13 +1482,13 @@ function AdminCabinet({ user, onLogout }) {
               <div style={{display:"flex",gap:6}}>
                 <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Логин" value={(empForm[emp.code]||{}).login||''} onChange={e=>updateEmpForm(emp.code,'login',e.target.value)}/>
                 <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Пароль" value={(empForm[emp.code]||{}).password||''} onChange={e=>updateEmpForm(emp.code,'password',e.target.value)}/>
-                <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,width:"auto",whiteSpace:"nowrap",opacity:savingEmp===emp.code?0.5:1}} disabled={savingEmp===emp.code} onClick={()=>createEmpAccount(emp)}>Создать</button>
+                <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap",opacity:savingEmp===emp.code?0.5:1}} disabled={savingEmp===emp.code} onClick={()=>createEmpAccount(emp)}>Создать</button>
               </div>
             </div>
           ))}
           {employees.filter(e=>!e.has_account).length===0&&<div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:13}}>Все сотрудники из 1С уже с аккаунтами</div>}
 
-          <p style={{...S.sectionTitle,fontSize:14,marginTop:20}}>Учётные записи</p>
+          <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>Учётные записи</p>
           {users.map(u=>(
             <div key={u.id} style={{...S.card,padding:10,marginBottom:6,opacity:u.active?1:0.55}}>
               <div style={S.row}>
@@ -1402,7 +1504,45 @@ function AdminCabinet({ user, onLogout }) {
               </div>
             </div>
           ))}
-        </>}
+        </div>
+      </>}
+    </>
+  );
+
+  const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", admin:"Администратор", manager:"Менеджер" };
+
+  if (desktop) {
+    return (
+      <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
+        <aside style={S.side}>
+          <div style={{marginBottom:34}}><Brand light size={44}/></div>
+          <nav style={{flex:1}}>
+            {TABS.map(([k,ic,lb])=>(
+              <button key={k} style={S.sideLink(tab===k)} onClick={()=>setTab(k)}>
+                <span style={{fontSize:16}}>{ic}</span>{lb}
+              </button>
+            ))}
+          </nav>
+          <div style={{fontSize:12,color:"#8B8681",lineHeight:1.6}}>
+            {ROLE_LABEL[user.role]} · {user.name}<br/>
+            <button style={{background:"transparent",border:"1px solid rgba(255,255,255,0.2)",color:"rgba(255,255,255,0.75)",padding:"6px 14px",borderRadius:8,cursor:"pointer",fontSize:12,marginTop:8}} onClick={onLogout}>Выйти</button>
+          </div>
+        </aside>
+        <main style={S.main}>
+          <h1 style={S.h1}>{TAB_TITLES[tab]}</h1>
+          <div style={{...S.h1sub, marginBottom:22}}>{new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'})}</div>
+          {content}
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{paddingBottom:72}}>
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
+      <div style={S.page}>
+        {content}
       </div>
       <div style={S.nav}>
         {[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["employees","👤","Сотр."]].map(([k,ic,lb])=>(
@@ -1422,6 +1562,7 @@ function App() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
+  const isDesktop = useIsDesktop();
 
   useEffect(() => {
     const token = getToken();
@@ -1459,8 +1600,8 @@ function App() {
   const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", admin:"Администратор", manager:"Менеджер" };
 
   if (checking) return (
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#F8F9FB"}}>
-      <div style={{fontSize:14,color:"#6B7280"}}>Загрузка...</div>
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.surface}}>
+      <div style={{fontSize:14,color:C.textSub}}>Загрузка...</div>
     </div>
   );
 
@@ -1478,21 +1619,27 @@ function App() {
     </div>
   );
 
+  // менеджер/админ на большом экране — версия с сайдбаром
+  if ((user.role==="admin"||user.role==="manager") && isDesktop) {
+    return (
+      <div style={S.app}>
+        <AdminCabinet user={user} onLogout={handleLogout} desktop={true}/>
+      </div>
+    );
+  }
+
   return (
     <div style={S.app}>
       <div style={S.header}>
-        <div style={{display:"flex",alignItems:"center",gap:11}}>
-          <img src="/icon-192.png" alt="" style={{width:36,height:36,flexShrink:0}}/>
-          <div>
-            <div style={S.headerMark}>Жайық Ақтау</div>
-            <div style={S.headerSub}>{user.name} · {ROLE_LABEL[user.role]}</div>
-          </div>
+        <Brand size={40}/>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text}}>{user.name}</div>
+          <div style={{fontSize:11,color:C.textSub}}>{ROLE_LABEL[user.role]} · <button style={S.logoutBtn} onClick={handleLogout}>Выйти</button></div>
         </div>
-        <button style={S.logoutBtn} onClick={handleLogout}>Выйти</button>
       </div>
       {user.role==="sales"&&<SalesCabinet user={user} onLogout={handleLogout}/>}
       {user.role==="driver"&&<DriverCabinet user={user} onLogout={handleLogout}/>}
-      {(user.role==="admin"||user.role==="manager")&&<AdminCabinet user={user} onLogout={handleLogout}/>}
+      {(user.role==="admin"||user.role==="manager")&&<AdminCabinet user={user} onLogout={handleLogout} desktop={false}/>}
     </div>
   );
 }
