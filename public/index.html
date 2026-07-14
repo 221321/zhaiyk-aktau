@@ -593,7 +593,7 @@ function SalesCabinet({ user, token, onLogout }) {
   const total = filledLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
 
   const handleSubmit = async () => {
-    if (!clientId||filledLines.length===0||!timeSlot) return;
+    if (!clientId||filledLines.length===0||!timeSlot||!contactName.trim()||!contactPhone.trim()) return;
     const client = clients.find(c=>c.code===clientId);
     const items = filledLines.map(l=>({id:l.productId,code:l.code,name:l.name,qty:Number(l.qty),price:Number(l.price),commission:l.commission||0}));
     try {
@@ -747,7 +747,7 @@ function SalesCabinet({ user, token, onLogout }) {
               {selectedClientDebt>0&&<div style={{marginTop:8,padding:"10px 12px",background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:8,fontSize:12,color:C.red,fontWeight:600}}>⚠️ У контрагента непогашенный долг более 7 дней: {selectedClientDebt.toLocaleString()} ₸</div>}
             </div>
             <div style={S.formGroup}>
-              <label style={S.label}>Контактное лицо (необязательно)</label>
+              <label style={S.label}>Контактное лицо</label>
               <input style={{...S.input,marginBottom:8}} placeholder="ФИО" value={contactName} onChange={e=>setContactName(e.target.value)}/>
               <input style={S.input} placeholder="Телефон" value={contactPhone} onChange={e=>setContactPhone(e.target.value)}/>
             </div>
@@ -829,7 +829,7 @@ function SalesCabinet({ user, token, onLogout }) {
               <label style={S.label}>Комментарий</label>
               <textarea style={S.textarea} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Особые пожелания..."/>
             </div>
-            <button style={{...S.btnPrimary,opacity:(!clientId||filledLines.length===0||!timeSlot)?0.45:1}} onClick={handleSubmit} disabled={!clientId||filledLines.length===0||!timeSlot}>Отправить заявку</button>
+            <button style={{...S.btnPrimary,opacity:(!clientId||filledLines.length===0||!timeSlot||!contactName.trim()||!contactPhone.trim())?0.45:1}} onClick={handleSubmit} disabled={!clientId||filledLines.length===0||!timeSlot||!contactName.trim()||!contactPhone.trim()}>Отправить заявку</button>
                   </div>
         </>}
       </div>
