@@ -73,7 +73,7 @@ app.get('/api/orders', authMiddleware, (req, res) => {
 });
 
 app.post('/api/orders', authMiddleware, (req, res) => {
-  const { clientName, clientCode, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone, contactBin } = req.body;
+  const { clientName, clientCode, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone } = req.body;
 
   const availableMap = computeAvailableStock();
   for (const it of (items || [])) {
@@ -104,13 +104,27 @@ app.post('/api/orders', authMiddleware, (req, res) => {
     comment: comment || '',
     contact_name: contactName || '',
     contact_phone: contactPhone || '',
-    contact_bin: contactBin || '',
     commission_total: commissionTotal,
     created_at: new Date().toISOString(),
     realized_in_1c: false
   };
   db.get('orders').push(order).write();
   db.set('nextOrderId', id + 1).write();
+
+  // Запоминаем контактное лицо для этого клиента, чтобы в следующий раз
+  // оно подставилось само (пока торговый его вручную не изменит)
+  if (clientCode && (contactName || contactPhone)) {
+    const existingContact = db.get('clientContacts').find({ code: clientCode }).value();
+    if (existingContact) {
+      db.get('clientContacts').find({ code: clientCode }).assign({
+        name: contactName || existingContact.name,
+        phone: contactPhone || existingContact.phone
+      }).write();
+    } else {
+      db.get('clientContacts').push({ code: clientCode, name: contactName || '', phone: contactPhone || '' }).write();
+    }
+  }
+
   res.json(order);
 });
 
@@ -278,21 +292,27 @@ app.post('/api/product-aliases', authMiddleware, (req, res) => {
 });
 
 // ===== CLIENTS (Контрагенты из 1С) =====
-db.defaults({ clients: [], clientAddresses: [] }).write();
+db.defaults({ clients: [], clientAddresses: [], clientContacts: [] }).write();
 
 app.get('/api/clients', (req, res) => {
   const clients = db.get('clients').value();
   const addrs = db.get('clientAddresses').value();
+  const contacts = db.get('clientContacts').value();
   const addrMap = {};
   addrs.forEach(a => { addrMap[a.code] = a; });
+  const contactMap = {};
+  contacts.forEach(c => { contactMap[c.code] = c; });
 
   const result = clients.map(c => {
     const rec = addrMap[c.code];
     const hasAddress = !!(rec && rec.address && rec.address.trim());
+    const contact = contactMap[c.code];
     return {
       ...c,
       address: hasAddress ? rec.address : (c.address || ''),
-      has_address: hasAddress
+      has_address: hasAddress,
+      contact_name: contact ? contact.name : '',
+      contact_phone: contact ? contact.phone : ''
     };
   });
   res.json(result);
@@ -326,6 +346,30 @@ app.post('/api/client-addresses', authMiddleware, (req, res) => {
     db.get('clientAddresses').find({ code }).assign({ address }).write();
   } else {
     db.get('clientAddresses').push({ code, address }).write();
+  }
+  res.json({ success: true });
+});
+
+// ===== CLIENT CONTACTS (контактное лицо клиента, для админа — ручное редактирование) =====
+app.get('/api/client-contacts', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('clientContacts').value());
+});
+
+app.post('/api/client-contacts', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { code, name, phone } = req.body;
+  if (!code) return res.status(400).json({ error: 'Не передан код контрагента' });
+
+  const existing = db.get('clientContacts').find({ code }).value();
+  if (existing) {
+    db.get('clientContacts').find({ code }).assign({ name, phone }).write();
+  } else {
+    db.get('clientContacts').push({ code, name, phone }).write();
   }
   res.json({ success: true });
 });
