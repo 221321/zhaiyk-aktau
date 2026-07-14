@@ -82,7 +82,7 @@ const S = {
   alertSuccess: { background:"#EAF5EE", color:C.green, border:"1px solid #BBF7D0", padding:"11px 14px", borderRadius:10, fontSize:13, fontWeight:600, marginBottom:16 },
   revenueCard: { background:C.white, border:`1px solid ${C.border}`, borderRadius:R, padding:"16px", marginBottom:12 },
   revenueLabel: { margin:"0 0 4px", fontSize:11, color:C.textSub, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" },
-  revenueNum: { fontFamily:FH, margin:0, fontSize:28, fontWeight:800, color:C.navy, fontVariantNumeric:"tabular-nums" },
+  revenueNum: { fontFamily:FH, margin:0, fontSize:28, fontWeight:800, color:C.accent, fontVariantNumeric:"tabular-nums" },
   bigCreate: { display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", minHeight:56, background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontWeight:800, fontSize:17, cursor:"pointer", boxShadow:"0 6px 18px rgba(218,26,16,0.28)", marginBottom:16 },
   bigCreatePlus: { width:26, height:26, borderRadius:"50%", background:"rgba(255,255,255,0.22)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, fontWeight:700, lineHeight:1 },
   // десктоп: сайдбар менеджера
@@ -315,7 +315,7 @@ function buildWaybillInnerHtml(order) {
     <h1>НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ<br><span style="font-weight:400;font-size:12px">Форма З-2 · № ${order.id} от ${order.date}</span></h1>
     <div class="headrow">
       <div><div class="label">ОРГАНИЗАЦИЯ — ОТПРАВИТЕЛЬ</div>${COMPANY_INFO.name}</div>
-      <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${order.client_name||''}${order.contact_bin?('<br>БИН: '+order.contact_bin):''}</div>
+      <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${order.client_name||''}</div>
       <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name||''}</div>
       <div><div class="label">АДРЕС ДОСТАВКИ</div>${order.address||''}${order.contact_phone?('<br>Тел: '+order.contact_phone):''}</div>
     </div>
@@ -476,7 +476,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, currentUser }) {
           <button style={{flex:1,padding:"11px",background:"#25D366",color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>shareWaybillPdf(order)}>📲 Отправить PDF</button>
         </div>
         <hr style={S.divider}/>
-        {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.driver_name?[["Водитель",order.driver_name]]:[]),...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.contact_bin?[["БИН",order.contact_bin]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
+        {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.driver_name?[["Водитель",order.driver_name]]:[]),...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
           <div key={k} style={{...S.row,marginBottom:8,alignItems:"flex-start"}}>
             <span style={{fontSize:12,color:C.textFaint,fontWeight:600,minWidth:90,textTransform:"uppercase"}}>{k}</span>
             <span style={{fontSize:13,color:C.text,textAlign:"right",flex:1}}>{v}</span>
@@ -536,7 +536,6 @@ function SalesCabinet({ user, token, onLogout }) {
   const [comment, setComment] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
-  const [contactBin, setContactBin] = useState("");
   const [editOrder, setEditOrder] = useState(null);
   const newLine = () => ({uid:Math.random(),productId:null,name:"",qty:"",price:"",search:"",showDrop:false});
   const [lines, setLines] = useState([newLine()]);
@@ -598,8 +597,8 @@ function SalesCabinet({ user, token, onLogout }) {
     const client = clients.find(c=>c.code===clientId);
     const items = filledLines.map(l=>({id:l.productId,code:l.code,name:l.name,qty:Number(l.qty),price:Number(l.price),commission:l.commission||0}));
     try {
-      await apiCall('POST','/api/orders',{clientName:client.name,clientCode:client.code,address:client.address||'',timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment,contactName,contactPhone,contactBin});
-      setLines([newLine()]); setClientId(""); setClientSearchText(""); setTimeSlot(""); setComment(""); setContactName(""); setContactPhone(""); setContactBin("");
+      await apiCall('POST','/api/orders',{clientName:client.name,clientCode:client.code,address:client.address||'',timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment,contactName,contactPhone});
+      setLines([newLine()]); setClientId(""); setClientSearchText(""); setTimeSlot(""); setComment(""); setContactName(""); setContactPhone("");
       setSubmitted(true); setTab("orders"); loadOrders();
       setTimeout(()=>setSubmitted(false),4000);
     } catch(e) { alert(e.message); }
@@ -661,7 +660,7 @@ function SalesCabinet({ user, token, onLogout }) {
               <div style={S.statCard()}><p style={S.statNum()}>{stats.total}</p><p style={S.statLabel}>Всего заявок</p></div>
               <div style={S.statCard()}><p style={S.statNum(C.green)}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
               <div style={S.statCard()}><p style={S.statNum(C.amber)}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
-              <div style={S.statCard()}><p style={S.statNum()}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
+              <div style={S.statCard()}><p style={S.statNum(C.accent)}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
             </div>
             <div style={S.revenueCard}>
               <p style={S.revenueLabel}>Продажи за период</p>
@@ -735,7 +734,7 @@ function SalesCabinet({ user, token, onLogout }) {
                   return matched.length>0&&(
                     <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:220,overflowY:"auto"}}>
                       {matched.map(c=>(
-                        <div key={c.code} onMouseDown={()=>{setClientId(c.code);setClientSearchText(c.name);setShowClientDrop(false);}} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13}}>
+                        <div key={c.code} onMouseDown={()=>{setClientId(c.code);setClientSearchText(c.name);setShowClientDrop(false);setContactName(c.contact_name||'');setContactPhone(c.contact_phone||'');}} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13}}>
                           <div style={{fontWeight:600}}>{c.name}</div>
                           {c.address&&<div style={{fontSize:11,color:C.textFaint}}>📍 {c.address}</div>}
                         </div>
@@ -750,8 +749,7 @@ function SalesCabinet({ user, token, onLogout }) {
             <div style={S.formGroup}>
               <label style={S.label}>Контактное лицо (необязательно)</label>
               <input style={{...S.input,marginBottom:8}} placeholder="ФИО" value={contactName} onChange={e=>setContactName(e.target.value)}/>
-              <input style={{...S.input,marginBottom:8}} placeholder="Телефон" value={contactPhone} onChange={e=>setContactPhone(e.target.value)}/>
-              <input style={S.input} placeholder="БИН" value={contactBin} onChange={e=>setContactBin(e.target.value)}/>
+              <input style={S.input} placeholder="Телефон" value={contactPhone} onChange={e=>setContactPhone(e.target.value)}/>
             </div>
             <div style={S.formGroup}>
               <label style={S.label}>Время доставки</label>
