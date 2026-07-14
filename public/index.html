@@ -931,6 +931,28 @@ function DriverCabinet({ user, onLogout }) {
   const QUEUE_FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"]];
   const DONE_FILTERS=[["all","Все"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"]];
 
+  const driverDateFilter = (
+    <div style={{marginBottom:16}}>
+      <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+        {[["day","День"],["week","Неделя"],["month","Месяц"],["custom","Свободный отбор"]].map(([k,lb])=>(
+          <button key={k} onClick={()=>applyDriverPreset(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${driverPreset===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:driverPreset===k?C.navy:C.white,color:driverPreset===k?C.white:C.textMid}}>{lb}</button>
+        ))}
+      </div>
+      {driverPreset==="custom"&&(
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:120}}>
+            <label style={{...S.label,marginBottom:4}}>С</label>
+            <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={driverDateFrom} onChange={e=>setDriverDateFrom(e.target.value)}/>
+          </div>
+          <div style={{flex:1,minWidth:120}}>
+            <label style={{...S.label,marginBottom:4}}>По</label>
+            <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={driverDateTo} onChange={e=>setDriverDateTo(e.target.value)}/>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div style={{paddingBottom:72}}>
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
@@ -970,14 +992,15 @@ function DriverCabinet({ user, onLogout }) {
             <div style={S.statCard()}><p style={S.statNum(C.red)}>{myCancelled.length}</p><p style={S.statLabel}>Отказ</p></div>
             <div style={S.statCard()}><p style={S.statNum("#7C3AED")}>{myReturned.length}</p><p style={S.statLabel}>Возврат</p></div>
           </div>
-          <p style={S.sectionTitle}>Закрытые сегодня</p>
+          <p style={S.sectionTitle}>Закрытые заявки</p>
+          {driverDateFilter}
           <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
             {DONE_FILTERS.map(([k,lb])=>(
               <button key={k} onClick={()=>setDoneFilter(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${doneFilter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:doneFilter===k?C.navy:C.white,color:doneFilter===k?C.white:C.textMid}}>{lb}</button>
             ))}
           </div>
           {loading?<div style={S.loadingWrap}>Загрузка...</div>:doneShown.length===0
-            ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📭</div><p>Сегодня ничего не закрыто</p></div>
+            ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📭</div><p>Ничего не закрыто за этот период</p></div>
             :doneShown.map(o=>(
               <div key={o.id} style={{...S.card,cursor:"pointer",borderLeft:`4px solid ${SC[o.status]||'#999'}`}} onClick={()=>setSelectedOrder(o)}>
                 <div style={S.row}>
@@ -994,7 +1017,8 @@ function DriverCabinet({ user, onLogout }) {
           }
         </>}
         {tab==="cashbox"&&<>
-          <p style={S.sectionTitle}>Касса за сегодня</p>
+          <p style={S.sectionTitle}>Касса за период</p>
+          {driverDateFilter}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
             <div style={{background:C.cashGreen,borderRadius:10,padding:"10px"}}>
               <p style={{margin:"0 0 2px",fontSize:10,color:"#15803D",fontWeight:600}}>НАЛИЧКА</p>
@@ -1011,7 +1035,7 @@ function DriverCabinet({ user, onLogout }) {
           </div>
           {myClientList.length>0&&<>
             <div style={{...S.row,cursor:"pointer",marginBottom:8}} onClick={()=>setShowMyClients(s=>!s)}>
-              <p style={{...S.sectionTitle,fontSize:15,margin:0}}>По точкам сегодня</p>
+              <p style={{...S.sectionTitle,fontSize:15,margin:0}}>По точкам за период</p>
               <p style={{margin:0,fontSize:12,color:C.textFaint}}>{showMyClients?"▲ Свернуть":"▼ Показать"}</p>
             </div>
             {showMyClients&&myClientList.map((c,i)=>(
