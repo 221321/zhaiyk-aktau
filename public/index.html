@@ -1107,6 +1107,19 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const todayStr = new Date().toISOString().slice(0,10);
   const [dateFrom, setDateFrom] = useState(todayStr);
   const [dateTo, setDateTo] = useState(todayStr);
+  const [adminPreset, setAdminPreset] = useState("day");
+
+  const applyAdminPreset = (preset) => {
+    const now = new Date();
+    let from = new Date(now);
+    if (preset === "week") from.setDate(now.getDate() - 6);
+    else if (preset === "month") from.setDate(now.getDate() - 29);
+    setAdminPreset(preset);
+    if (preset !== "custom") {
+      setDateFrom(from.toISOString().slice(0,10));
+      setDateTo(todayStr);
+    }
+  };
 
   const [employees, setEmployees] = useState([]);
   const [users, setUsers] = useState([]);
@@ -1292,15 +1305,24 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",employees:"Сотрудники"};
 
   const dateRangeInputs = (
-    <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap",maxWidth:420}}>
-      <div style={{flex:1,minWidth:120}}>
-        <label style={{...S.label,marginBottom:4}}>С</label>
-        <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
+    <div style={{marginBottom:16,maxWidth:420}}>
+      <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+        {[["day","День"],["week","Неделя"],["month","Месяц"],["custom","Свободный отбор"]].map(([k,lb])=>(
+          <button key={k} onClick={()=>applyAdminPreset(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${adminPreset===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:adminPreset===k?C.navy:C.white,color:adminPreset===k?C.white:C.textMid}}>{lb}</button>
+        ))}
       </div>
-      <div style={{flex:1,minWidth:120}}>
-        <label style={{...S.label,marginBottom:4}}>По</label>
-        <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
-      </div>
+      {adminPreset==="custom"&&(
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:120}}>
+            <label style={{...S.label,marginBottom:4}}>С</label>
+            <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
+          </div>
+          <div style={{flex:1,minWidth:120}}>
+            <label style={{...S.label,marginBottom:4}}>По</label>
+            <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
+          </div>
+        </div>
+      )}
     </div>
   );
 
