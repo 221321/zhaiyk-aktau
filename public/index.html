@@ -40,7 +40,7 @@ const C = {
 
 const S = {
   app: { fontFamily:"inherit", minHeight:"100vh", background:C.surface, color:C.text, fontSize:15 },
-  loginWrap: { minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:24 },
+  loginWrap: { minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:24, background:C.surface },
   loginCard: { background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:"44px 36px", width:"100%", maxWidth:380, boxShadow:"0 4px 24px rgba(0,0,0,0.07)" },
   logoTitle: { fontSize:24, fontWeight:800, color:C.navy, margin:"0 0 4px" },
   logoSub: { fontSize:13, color:C.textSub, margin:"0 0 32px" },
@@ -51,7 +51,7 @@ const S = {
   header: { background:C.surface, color:C.text, padding:"0 20px", height:56, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100, borderBottom:`1px solid ${C.border}` },
   headerMark: { fontSize:15, fontWeight:800, letterSpacing:"0.01em", color:C.navy, marginBottom:1 },
   headerSub: { fontSize:11.5, color:C.textSub },
-  logoutBtn: { background:"transparent", border:"1px solid rgba(255,255,255,0.2)", color:"rgba(255,255,255,0.7)", padding:"5px 12px", borderRadius:6, cursor:"pointer", fontSize:12 },
+  logoutBtn: { background:"transparent", border:`1px solid ${C.border}`, color:C.textMid, padding:"5px 12px", borderRadius:6, cursor:"pointer", fontSize:12 },
   page: { padding:"20px 16px 80px", maxWidth:480, margin:"0 auto" },
   card: { background:C.white, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", marginBottom:10 },
   cardTitle: { fontSize:16, fontWeight:700, color:C.text, margin:"0 0 3px" },
