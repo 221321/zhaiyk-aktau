@@ -82,7 +82,7 @@ const S = {
   alertSuccess: { background:"#EAF5EE", color:C.green, border:"1px solid #BBF7D0", padding:"11px 14px", borderRadius:10, fontSize:13, fontWeight:600, marginBottom:16 },
   revenueCard: { background:C.white, border:`1px solid ${C.border}`, borderRadius:R, padding:"16px", marginBottom:12 },
   revenueLabel: { margin:"0 0 4px", fontSize:11, color:C.textSub, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" },
-  revenueNum: { fontFamily:FH, margin:0, fontSize:28, fontWeight:800, color:C.accent, fontVariantNumeric:"tabular-nums" },
+  revenueNum: { fontFamily:FH, margin:0, fontSize:28, fontWeight:800, color:C.navy, fontVariantNumeric:"tabular-nums" },
   bigCreate: { display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", minHeight:56, background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontWeight:800, fontSize:17, cursor:"pointer", boxShadow:"0 6px 18px rgba(218,26,16,0.28)", marginBottom:16 },
   bigCreatePlus: { width:26, height:26, borderRadius:"50%", background:"rgba(255,255,255,0.22)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, fontWeight:700, lineHeight:1 },
   // десктоп: сайдбар менеджера
@@ -661,7 +661,7 @@ function SalesCabinet({ user, token, onLogout }) {
               <div style={S.statCard()}><p style={S.statNum()}>{stats.total}</p><p style={S.statLabel}>Всего заявок</p></div>
               <div style={S.statCard()}><p style={S.statNum(C.green)}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
               <div style={S.statCard()}><p style={S.statNum(C.amber)}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
-              <div style={S.statCard()}><p style={S.statNum(C.accent)}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
+              <div style={S.statCard()}><p style={S.statNum()}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
             </div>
             <div style={S.revenueCard}>
               <p style={S.revenueLabel}>Продажи за период</p>
