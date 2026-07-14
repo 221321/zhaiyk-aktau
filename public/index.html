@@ -714,7 +714,10 @@ function SalesCabinet({ user, token, onLogout }) {
           </>}
         </>}
         {tab==="new"&&<>
-          <p style={S.sectionTitle}>Новая заявка</p>
+          <div style={{...S.row,marginBottom:14}}>
+            <p style={{...S.sectionTitle,margin:0}}>Новая заявка</p>
+            <button style={S.btnSecondary} onClick={()=>setTab("orders")}>← Назад</button>
+          </div>
           <div style={S.card}>
             <div style={S.formGroup}>
               <label style={S.label}>Контрагент {clients.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:11}}>({clients.length} из 1С)</span>}</label>
@@ -832,14 +835,6 @@ function SalesCabinet({ user, token, onLogout }) {
           </div>
         </>}
       </div>
-      <div style={S.nav}>
-        {[["orders","📋","Заявки"],["new","✍","Создать"]].map(([k,ic,lb])=>(
-          <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
-            <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
 
