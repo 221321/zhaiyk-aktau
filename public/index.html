@@ -86,8 +86,8 @@ const S = {
   bigCreate: { display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", minHeight:56, background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontWeight:800, fontSize:17, cursor:"pointer", boxShadow:"0 6px 18px rgba(218,26,16,0.28)", marginBottom:16 },
   bigCreatePlus: { width:26, height:26, borderRadius:"50%", background:"rgba(255,255,255,0.22)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, fontWeight:700, lineHeight:1 },
   // десктоп: сайдбар менеджера
-  side: { width:240, flexShrink:0, background:C.navy, color:"#fff", padding:"26px 20px", display:"flex", flexDirection:"column", position:"sticky", top:0, height:"100vh" },
-  sideLink: (a) => ({ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", marginBottom:4, borderRadius:10, color:a?"#fff":"#C9C5C0", background:a?C.accent:"transparent", textDecoration:"none", fontSize:14, fontWeight:a?700:500, cursor:"pointer", border:"none", width:"100%", textAlign:"left" }),
+  side: { width:240, flexShrink:0, background:C.white, color:C.text, padding:"26px 20px", display:"flex", flexDirection:"column", position:"sticky", top:0, height:"100vh", borderRight:`1px solid ${C.border}` },
+  sideLink: (a) => ({ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", marginBottom:4, borderRadius:10, color:a?"#fff":C.textMid, background:a?C.accent:"transparent", textDecoration:"none", fontSize:14, fontWeight:a?700:500, cursor:"pointer", border:"none", width:"100%", textAlign:"left" }),
   main: { flex:1, padding:"34px 42px", minWidth:0 },
   h1: { fontFamily:FH, fontSize:24, fontWeight:800, letterSpacing:"-0.01em", color:C.navy, margin:0 },
   h1sub: { color:C.textSub, fontSize:14, marginTop:4 },
@@ -1516,7 +1516,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
         {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
         <aside style={S.side}>
-          <div style={{marginBottom:34}}><Brand light size={44}/></div>
+          <div style={{marginBottom:34}}><Brand size={44}/></div>
           <nav style={{flex:1}}>
             {TABS.map(([k,ic,lb])=>(
               <button key={k} style={S.sideLink(tab===k)} onClick={()=>setTab(k)}>
@@ -1526,7 +1526,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
           </nav>
           <div style={{fontSize:12,color:"#8B8681",lineHeight:1.6}}>
             {ROLE_LABEL[user.role]} · {user.name}<br/>
-            <button style={{background:"transparent",border:"1px solid rgba(255,255,255,0.2)",color:"rgba(255,255,255,0.75)",padding:"6px 14px",borderRadius:8,cursor:"pointer",fontSize:12,marginTop:8}} onClick={onLogout}>Выйти</button>
+            <button style={{background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,padding:"6px 14px",borderRadius:8,cursor:"pointer",fontSize:12,marginTop:8}} onClick={onLogout}>Выйти</button>
           </div>
         </aside>
         <main style={S.main}>
