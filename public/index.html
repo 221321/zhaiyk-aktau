@@ -832,9 +832,10 @@ function SalesCabinet({ user, token, onLogout }) {
               <textarea style={S.textarea} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Особые пожелания..."/>
             </div>
             <button style={{...S.btnPrimary,opacity:(!clientId||filledLines.length===0||!timeSlot)?0.45:1}} onClick={handleSubmit} disabled={!clientId||filledLines.length===0||!timeSlot}>Отправить заявку</button>
-          </div>
+                  </div>
         </>}
       </div>
+    </div>
   );
 }
 
