@@ -887,13 +887,28 @@ function DriverCabinet({ user, onLogout }) {
   };
 
   const todayStr = new Date().toISOString().slice(0,10);
+  const [driverDateFrom, setDriverDateFrom] = useState(todayStr);
+  const [driverDateTo, setDriverDateTo] = useState(todayStr);
+  const [driverPreset, setDriverPreset] = useState("day");
+
+  const applyDriverPreset = (preset) => {
+    const now = new Date();
+    let from = new Date(now);
+    if (preset === "week") from.setDate(now.getDate() - 6);
+    else if (preset === "month") from.setDate(now.getDate() - 29);
+    setDriverPreset(preset);
+    if (preset !== "custom") {
+      setDriverDateFrom(from.toISOString().slice(0,10));
+      setDriverDateTo(todayStr);
+    }
+  };
 
   const queueAll = orders.filter(o=>o.status==="new"||o.status==="in_transit");
   const queueNew = orders.filter(o=>o.status==="new");
   const queueActive = orders.filter(o=>o.status==="in_transit");
   const queueShown = queueFilter==="new"?queueNew:queueFilter==="in_transit"?queueActive:queueAll;
 
-  const myDoneAll = orders.filter(o=>o.driver_id===user.id&&o.date===todayStr&&["delivered","cancelled","returned"].includes(o.status));
+  const myDoneAll = orders.filter(o=>o.driver_id===user.id&&o.date>=driverDateFrom&&o.date<=driverDateTo&&["delivered","cancelled","returned"].includes(o.status));
   const myDelivered = myDoneAll.filter(o=>o.status==="delivered");
   const myCancelled = myDoneAll.filter(o=>o.status==="cancelled");
   const myReturned = myDoneAll.filter(o=>o.status==="returned");
