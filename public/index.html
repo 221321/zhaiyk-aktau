@@ -723,13 +723,21 @@ function SalesCabinet({ user, token, onLogout }) {
               <label style={S.label}>Контрагент {clients.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:11}}>({clients.length} из 1С)</span>}</label>
               <div style={{position:"relative"}}>
                 <input
-                  style={S.input}
+                  style={{...S.input,paddingRight:clientSearchText?38:14}}
                   placeholder="Начните вводить название..."
                   value={clientSearchText}
                   onChange={e=>{setClientSearchText(e.target.value); setClientId(""); setShowClientDrop(true);}}
                   onFocus={()=>setShowClientDrop(true)}
                   onBlur={()=>setTimeout(()=>setShowClientDrop(false),180)}
                 />
+                {clientSearchText&&(
+                  <button
+                    type="button"
+                    onMouseDown={e=>e.preventDefault()}
+                    onClick={()=>{setClientSearchText("");setClientId("");setContactName("");setContactPhone("");}}
+                    style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:18,color:C.textFaint,padding:4,lineHeight:1}}
+                  >×</button>
+                )}
                 {showClientDrop&&(()=>{
                   const matched=clientSearchText.length>0?clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())):clients.slice(0,50);
                   return matched.length>0&&(
@@ -749,8 +757,18 @@ function SalesCabinet({ user, token, onLogout }) {
             </div>
             <div style={S.formGroup}>
               <label style={S.label}>Контактное лицо</label>
-              <input style={{...S.input,marginBottom:8}} placeholder="ФИО" value={contactName} onChange={e=>setContactName(e.target.value)}/>
-              <input style={S.input} placeholder="Телефон" value={contactPhone} onChange={e=>setContactPhone(e.target.value)}/>
+              <div style={{position:"relative",marginBottom:8}}>
+                <input style={{...S.input,paddingRight:contactName?38:14}} placeholder="ФИО" value={contactName} onChange={e=>setContactName(e.target.value)}/>
+                {contactName&&(
+                  <button type="button" onClick={()=>setContactName("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:18,color:C.textFaint,padding:4,lineHeight:1}}>×</button>
+                )}
+              </div>
+              <div style={{position:"relative"}}>
+                <input style={{...S.input,paddingRight:contactPhone?38:14}} placeholder="Телефон" value={contactPhone} onChange={e=>setContactPhone(e.target.value)}/>
+                {contactPhone&&(
+                  <button type="button" onClick={()=>setContactPhone("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:18,color:C.textFaint,padding:4,lineHeight:1}}>×</button>
+                )}
+              </div>
             </div>
             <div style={S.formGroup}>
               <label style={S.label}>Время доставки</label>
