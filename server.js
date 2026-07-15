@@ -255,6 +255,15 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   }
 });
 
+app.delete('/api/orders/:id', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Только администратор может удалять заявки' });
+  const orderId = parseInt(req.params.id);
+  const order = db.get('orders').find({ id: orderId }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+  db.get('orders').remove({ id: orderId }).write();
+  res.json({ success: true });
+});
+
 // ===== USERS =====
 // миграция: у старых пользователей проставляем active:true, если поля не было
 db.get('users').forEach(u => { if (u.active === undefined) u.active = true; }).write();
