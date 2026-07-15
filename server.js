@@ -243,6 +243,16 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     sendPushToRole('manager', payload);
     sendPushToRole('driver', payload, req.user.role === 'driver' ? req.user.id : null);
   }
+
+  if (status === 'in_transit') {
+    const payload = {
+      title: 'Заявка в пути',
+      body: `${order.client_name} взята в доставку`,
+      url: '/'
+    };
+    sendPushToRole('manager', payload);
+    sendPushToRole('driver', payload, req.user.role === 'driver' ? req.user.id : null);
+  }
 });
 
 // ===== USERS =====
