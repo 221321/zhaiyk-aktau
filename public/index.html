@@ -1736,6 +1736,9 @@ function App() {
         const payload = JSON.parse(jsonPayload);
         if (payload.exp * 1000 > Date.now()) {
           setUser({ id: payload.id, name: payload.name, role: payload.role, region: payload.region });
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            trySilentSubscribe();
+          }
         } else {
           removeToken();
         }
@@ -1752,6 +1755,9 @@ function App() {
       const data = await apiCall('POST', '/api/login', { login, password });
       setToken(data.token);
       setUser(data.user);
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        trySilentSubscribe();
+      }
     } catch(e) {
       setError(e.message);
     }
@@ -1764,6 +1770,15 @@ function App() {
     subscribeToPush().then((result) => {
       if (typeof Notification !== 'undefined') setPushStatus(Notification.permission);
       setPushMsg(result.ok ? 'Уведомления включены ✓' : 'Ошибка: ' + result.error);
+      setTimeout(() => setPushMsg(''), 6000);
+    });
+  };
+  const trySilentSubscribe = () => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    setPushMsg('Проверяем подписку...');
+    subscribeToPush().then((result) => {
+      setPushMsg(result.ok ? 'Подписка активна ✓' : 'Ошибка подписки: ' + result.error);
+      setTimeout(() => setPushMsg(''), 8000);
     });
   };
   const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", admin:"Администратор", manager:"Менеджер" };
@@ -1792,7 +1807,7 @@ function App() {
   if ((user.role==="admin"||user.role==="manager") && isDesktop) {
     return (
       <div style={S.app}>
-        {pushStatus==="default" && (
+        {(pushStatus==="default" || pushMsg) && (
           <div style={{background:C.accent,color:"#fff",padding:"10px 16px",fontSize:13}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
               <span>Включите уведомления, чтобы не пропускать новые заявки</span>
@@ -1813,7 +1828,7 @@ function App() {
 
   return (
     <div style={S.app}>
-      {pushStatus==="default" && (
+      {(pushStatus==="default" || pushMsg) && (
         <div style={{background:C.accent,color:"#fff",padding:"10px 16px",fontSize:13}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
             <span>Включите уведомления о заявках</span>
