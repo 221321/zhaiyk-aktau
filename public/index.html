@@ -129,6 +129,47 @@ async function apiCall(method, path, body) {
   return data;
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+async function subscribeToPush() {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return;
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const { publicKey } = await apiCall('GET', '/api/push/vapid-public-key');
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey)
+      });
+    }
+    await apiCall('POST', '/api/push/subscribe', { subscription: sub });
+  } catch (e) {
+    console.error('Push subscribe failed:', e);
+  }
+}
+
+async function unsubscribeFromPush() {
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await apiCall('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint });
+      await sub.unsubscribe();
+    }
+  } catch (e) {
+    console.error('Push unsubscribe failed:', e);
+  }
+}
+
 function Brand({light, size}) {
   const s = size || 42;
   return (
@@ -1681,6 +1722,7 @@ function App() {
         const payload = JSON.parse(jsonPayload);
         if (payload.exp * 1000 > Date.now()) {
           setUser({ id: payload.id, name: payload.name, role: payload.role, region: payload.region });
+          subscribeToPush();
         } else {
           removeToken();
         }
@@ -1697,13 +1739,14 @@ function App() {
       const data = await apiCall('POST', '/api/login', { login, password });
       setToken(data.token);
       setUser(data.user);
+      subscribeToPush();
     } catch(e) {
       setError(e.message);
     }
     setLoading(false);
   };
 
-  const handleLogout = () => { removeToken(); setUser(null); };
+  const handleLogout = () => { unsubscribeFromPush(); removeToken(); setUser(null); };
   const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", admin:"Администратор", manager:"Менеджер" };
 
   if (checking) return (
