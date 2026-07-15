@@ -1710,6 +1710,9 @@ function App() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [pushStatus, setPushStatus] = useState(
+    (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'
+  );
   const isDesktop = useIsDesktop();
 
   useEffect(() => {
@@ -1722,7 +1725,6 @@ function App() {
         const payload = JSON.parse(jsonPayload);
         if (payload.exp * 1000 > Date.now()) {
           setUser({ id: payload.id, name: payload.name, role: payload.role, region: payload.region });
-          subscribeToPush();
         } else {
           removeToken();
         }
@@ -1739,7 +1741,6 @@ function App() {
       const data = await apiCall('POST', '/api/login', { login, password });
       setToken(data.token);
       setUser(data.user);
-      subscribeToPush();
     } catch(e) {
       setError(e.message);
     }
@@ -1747,6 +1748,11 @@ function App() {
   };
 
   const handleLogout = () => { unsubscribeFromPush(); removeToken(); setUser(null); };
+  const enablePush = () => {
+    subscribeToPush().then(() => {
+      if (typeof Notification !== 'undefined') setPushStatus(Notification.permission);
+    });
+  };
   const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", admin:"Администратор", manager:"Менеджер" };
 
   if (checking) return (
@@ -1773,6 +1779,12 @@ function App() {
   if ((user.role==="admin"||user.role==="manager") && isDesktop) {
     return (
       <div style={S.app}>
+        {pushStatus==="default" && (
+          <div style={{background:C.accent,color:"#fff",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,fontSize:13}}>
+            <span>Включите уведомления, чтобы не пропускать новые заявки</span>
+            <button onClick={enablePush} style={{background:"#fff",color:C.accent,border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Включить</button>
+          </div>
+        )}
         <AdminCabinet user={user} onLogout={handleLogout} desktop={true}/>
       </div>
     );
@@ -1780,6 +1792,12 @@ function App() {
 
   return (
     <div style={S.app}>
+      {pushStatus==="default" && (
+        <div style={{background:C.accent,color:"#fff",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,fontSize:13}}>
+          <span>Включите уведомления о заявках</span>
+          <button onClick={enablePush} style={{background:"#fff",color:C.accent,border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Включить</button>
+        </div>
+      )}
       <div style={S.header}>
         <Brand size={40}/>
         <div style={{textAlign:"right"}}>
