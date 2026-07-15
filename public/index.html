@@ -1314,6 +1314,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
       setSelectedOrder(null); loadOrders();
     } catch(e) { alert(e.message); }
   };
+
+  const q = orderSearch.trim().toLowerCase();
   const filtered = orders
     .filter(o=>filter==="all"||o.status===filter)
     .filter(o=>!q
