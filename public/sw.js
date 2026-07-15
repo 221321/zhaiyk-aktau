@@ -1,4 +1,4 @@
-const CACHE_NAME = 'zhaiyk-v1';
+const CACHE_NAME = 'zhaiyk-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -66,19 +66,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Статика: сначала кэш, чтобы грузилось мгновенно, в фоне обновляем.
+  // Статика: сначала сеть — чтобы всегда видеть актуальную версию сразу после деплоя.
+  // Кэш используется только как запасной вариант при отсутствии сети.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const fetchPromise = fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || fetchPromise;
-    })
+    fetch(request)
+      .then((response) => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request))
   );
 });
