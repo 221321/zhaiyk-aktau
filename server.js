@@ -5,10 +5,16 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const low = require('lowdb');
 const FileSync = require('lowdb/adapters/FileSync');
+const webpush = require('web-push');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = 'zhaiyk_aktau_secret_2025';
+
+// ===== PUSH (web-push / VAPID) =====
+const VAPID_PUBLIC_KEY = 'BD0DnB9fdncg0KE7RyDuy4HjWbfS9yrFOz7hPPjFokzNsi5P7HzRoc-fBWQn2wjJ5Ku72gZEUSAiW98-ob4Oht8';
+const VAPID_PRIVATE_KEY = 'n09Cw7dPy2z7RI54fOhdwuDq-iMImbk81rUTEonJi04';
+webpush.setVapidDetails('mailto:admin@probuh.asia', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -29,7 +35,8 @@ db.defaults({
   ],
   orders: [],
   nextUserId: 6,
-  nextOrderId: 1
+  nextOrderId: 1,
+  pushSubscriptions: []
 }).write();
 
 console.log('✅ База данных готова');
@@ -43,6 +50,61 @@ function authMiddleware(req, res, next) {
     next();
   } catch {
     res.status(401).json({ error: 'Неверный токен' });
+  }
+}
+
+// ===== PUSH: подписки и отправка =====
+app.get('/api/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
+app.post('/api/push/subscribe', authMiddleware, (req, res) => {
+  const { subscription } = req.body;
+  if (!subscription || !subscription.endpoint) {
+    return res.status(400).json({ error: 'Некорректная подписка' });
+  }
+  const subs = db.get('pushSubscriptions');
+  const exists = subs.find({ endpoint: subscription.endpoint }).value();
+  if (exists) {
+    subs.find({ endpoint: subscription.endpoint }).assign({ user_id: req.user.id, subscription }).write();
+  } else {
+    subs.push({ endpoint: subscription.endpoint, user_id: req.user.id, subscription }).write();
+  }
+  res.json({ success: true });
+});
+
+app.post('/api/push/unsubscribe', authMiddleware, (req, res) => {
+  const { endpoint } = req.body;
+  if (endpoint) {
+    db.get('pushSubscriptions').remove({ endpoint }).write();
+  } else {
+    db.get('pushSubscriptions').remove({ user_id: req.user.id }).write();
+  }
+  res.json({ success: true });
+});
+
+// Отправляет push всем подпискам конкретного пользователя, чистит протухшие подписки
+async function sendPushToUser(userId, payload) {
+  const subs = db.get('pushSubscriptions').filter({ user_id: userId }).value();
+  for (const s of subs) {
+    try {
+      await webpush.sendNotification(s.subscription, JSON.stringify(payload));
+    } catch (err) {
+      if (err.statusCode === 404 || err.statusCode === 410) {
+        db.get('pushSubscriptions').remove({ endpoint: s.endpoint }).write();
+      } else {
+        console.error('Push error:', err.message);
+      }
+    }
+  }
+}
+
+// Отправляет push всем пользователям с указанной ролью (опционально исключая одного)
+async function sendPushToRole(role, payload, excludeUserId) {
+  const users = db.get('users').filter({ role }).value();
+  for (const u of users) {
+    if (excludeUserId && u.id === excludeUserId) continue;
+    await sendPushToUser(u.id, payload);
   }
 }
 
@@ -115,6 +177,17 @@ app.post('/api/orders', authMiddleware, (req, res) => {
   db.get('orders').push(order).write();
   db.set('nextOrderId', id + 1).write();
 
+  sendPushToRole('driver', {
+    title: 'Новая заявка',
+    body: `${order.client_name} · ${order.time_slot || ''}`,
+    url: '/'
+  });
+  sendPushToRole('manager', {
+    title: 'Новая заявка',
+    body: `${order.sales_name} создал заявку для ${order.client_name}`,
+    url: '/'
+  });
+
   // Запоминаем контактное лицо для этого клиента, чтобы в следующий раз
   // оно подставилось само (пока торговый его вручную не изменит)
   if (clientCode && (contactName || contactPhone)) {
@@ -159,6 +232,17 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   db.get('orders').find({ id: orderId }).assign(patch).write();
   const order = db.get('orders').find({ id: orderId }).value();
   res.json(order);
+
+  if (['delivered', 'cancelled', 'returned'].includes(status)) {
+    const STATUS_LABEL = { delivered: 'Доставлено', cancelled: 'Отказ при получении', returned: 'Возврат' };
+    const payload = {
+      title: 'Заявка закрыта',
+      body: `${order.client_name} · ${STATUS_LABEL[status]}`,
+      url: '/'
+    };
+    sendPushToRole('manager', payload);
+    sendPushToRole('driver', payload, req.user.role === 'driver' ? req.user.id : null);
+  }
 });
 
 // ===== USERS =====
