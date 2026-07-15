@@ -1785,6 +1785,11 @@ function App() {
             <button onClick={enablePush} style={{background:"#fff",color:C.accent,border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Включить</button>
           </div>
         )}
+        {pushStatus==="denied" && (
+          <div style={{background:"#78716C",color:"#fff",padding:"10px 16px",fontSize:12,lineHeight:1.4}}>
+            Уведомления заблокированы в настройках телефона. Зайдите в настройки уведомлений приложения "Жайык" в системе и разрешите их вручную.
+          </div>
+        )}
         <AdminCabinet user={user} onLogout={handleLogout} desktop={true}/>
       </div>
     );
@@ -1796,6 +1801,11 @@ function App() {
         <div style={{background:C.accent,color:"#fff",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,fontSize:13}}>
           <span>Включите уведомления о заявках</span>
           <button onClick={enablePush} style={{background:"#fff",color:C.accent,border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Включить</button>
+        </div>
+      )}
+      {pushStatus==="denied" && (
+        <div style={{background:"#78716C",color:"#fff",padding:"10px 16px",fontSize:12,lineHeight:1.4}}>
+          Уведомления заблокированы в настройках телефона. Зайдите в настройки уведомлений приложения "Жайык" в системе и разрешите их вручную.
         </div>
       )}
       <div style={S.header}>
