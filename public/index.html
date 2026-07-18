@@ -1202,17 +1202,17 @@ function AdminCabinet({ user, onLogout, desktop }) {
 
   const ROLE_OPTIONS = [["sales","Торговый представитель"],["driver","Водитель"],["manager","Менеджер"],["admin","Администратор"]];
 
-  const updateEmpForm = (code, field, value) => setEmpForm(f => ({...f, [code]: {...f[code], [field]: value}}));
+  const updateEmpForm = (formKey, field, value) => setEmpForm(f => ({...f, [formKey]: {...f[formKey], [field]: value}}));
 
-  const createEmpAccount = async (emp) => {
-    const form = empForm[emp.code] || {};
+  const createEmpAccount = async (emp, formKey) => {
+    const form = empForm[formKey] || {};
     if (!form.login || !form.password || !form.role) { alert('Заполните логин, пароль и роль'); return; }
     if (form.password.length < 4) { alert('Пароль минимум 4 символа'); return; }
-    setSavingEmp(emp.code);
+    setSavingEmp(formKey);
     try {
       await apiCall('POST','/api/users', { login: form.login, password: form.password, name: emp.name, role: form.role, region: form.region||'', employee_code: emp.code });
       await loadEmployees(); await loadUsers();
-      setEmpForm(f => ({...f, [emp.code]: {}}));
+      setEmpForm(f => ({...f, [formKey]: {}}));
     } catch(e) { alert(e.message); }
     setSavingEmp(null);
   };
@@ -1643,21 +1643,24 @@ function AdminCabinet({ user, onLogout, desktop }) {
             onChange={e=>setEmpSearch(e.target.value)}
           />
           <p style={{...S.sectionTitle,fontSize:15}}>Без учётной записи</p>
-          {employees.filter(e=>!e.has_account&&(!empSearch||e.name.toLowerCase().includes(empSearch.toLowerCase())||(e.code||'').includes(empSearch))).map(emp=>(
-            <div key={emp.code} style={{...S.card,padding:10,marginBottom:6}}>
+          {employees.filter(e=>!e.has_account&&(!empSearch||e.name.toLowerCase().includes(empSearch.toLowerCase())||(e.code||'').includes(empSearch))).map((emp,empIdx)=>{
+            const formKey = (emp.code||'nocode')+'_'+empIdx;
+            return (
+            <div key={formKey} style={{...S.card,padding:10,marginBottom:6}}>
               <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {emp.code}</div>
               <div style={{fontSize:13,fontWeight:600,marginBottom:8,color:C.textMid}}>{emp.name}</div>
-              <select style={{...S.select,padding:"7px 8px",fontSize:12,marginBottom:6}} value={(empForm[emp.code]||{}).role||''} onChange={e=>updateEmpForm(emp.code,'role',e.target.value)}>
+              <select style={{...S.select,padding:"7px 8px",fontSize:12,marginBottom:6}} value={(empForm[formKey]||{}).role||''} onChange={e=>updateEmpForm(formKey,'role',e.target.value)}>
                 <option value="">— Роль —</option>
                 {ROLE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
               </select>
               <div style={{display:"flex",gap:6}}>
-                <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Логин" value={(empForm[emp.code]||{}).login||''} onChange={e=>updateEmpForm(emp.code,'login',e.target.value)}/>
-                <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Пароль" value={(empForm[emp.code]||{}).password||''} onChange={e=>updateEmpForm(emp.code,'password',e.target.value)}/>
-                <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap",opacity:savingEmp===emp.code?0.5:1}} disabled={savingEmp===emp.code} onClick={()=>createEmpAccount(emp)}>Создать</button>
+                <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Логин" value={(empForm[formKey]||{}).login||''} onChange={e=>updateEmpForm(formKey,'login',e.target.value)}/>
+                <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Пароль" value={(empForm[formKey]||{}).password||''} onChange={e=>updateEmpForm(formKey,'password',e.target.value)}/>
+                <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap",opacity:savingEmp===formKey?0.5:1}} disabled={savingEmp===formKey} onClick={()=>createEmpAccount(emp,formKey)}>Создать</button>
               </div>
             </div>
-          ))}
+            );
+          })}
           {employees.filter(e=>!e.has_account).length===0&&<div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:13}}>Все сотрудники из 1С уже с аккаунтами</div>}
 
           <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>Учётные записи</p>
