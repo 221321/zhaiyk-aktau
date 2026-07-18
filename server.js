@@ -225,7 +225,7 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
 
   if (status === 'new') {
     if (orderBefore.status !== 'in_transit') {
-      return res.status(400).json({ error: 'Вернуть в очередь можно только заявку в статусе "В пути"' });
+      return res.status(400).json({ error: 'Вернуть в очередь можно только заявку в статусе "В работе"' });
     }
     const isOwner = req.user.role === 'driver' && orderBefore.driver_id === req.user.id;
     const isManager = req.user.role === 'admin' || req.user.role === 'manager';
