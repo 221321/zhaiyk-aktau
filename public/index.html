@@ -423,6 +423,60 @@ function printWaybill(order) {
   w.document.close();
 }
 
+function buildLoadingListHtml(orders, driverName) {
+  const totals = {};
+  orders.forEach(o=>{
+    const items = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
+    items.forEach(it=>{
+      const key = it.code || it.name;
+      if (!totals[key]) totals[key] = { name: it.name, code: it.code||'', qty: 0 };
+      totals[key].qty += Number(it.qty)||0;
+    });
+  });
+  const rows = Object.values(totals).sort((a,b)=>a.name.localeCompare(b.name)).map((it,i)=>`
+    <tr>
+      <td style="text-align:center">${i+1}</td>
+      <td>${it.name}</td>
+      <td style="text-align:center">${it.code}</td>
+      <td style="text-align:center">${it.qty}</td>
+      <td></td>
+      <td></td>
+    </tr>`).join('');
+  const now = new Date();
+  const orderNumbers = orders.map(o=>'№'+o.id).join(', ');
+  return `
+    <h1>ЗАГРУЗОЧНЫЙ ЛИСТ<br><span style="font-weight:400;font-size:12px">${now.toLocaleDateString('ru-RU')} · Водитель: ${driverName}</span></h1>
+    <div class="headrow">
+      <div><div class="label">ОРГАНИЗАЦИЯ</div>${COMPANY_INFO.name}</div>
+      <div><div class="label">ВОДИТЕЛЬ</div>${driverName}</div>
+      <div><div class="label">ЗАЯВОК В ПАРТИИ</div>${orders.length} шт (${orderNumbers})</div>
+    </div>
+    <table>
+      <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Кол-во к отгрузке</th><th>Вес, кг</th><th>Отметка склада</th></tr>
+      ${rows}
+    </table>
+    <div class="sign">
+      <p>Выдал (складовщик): <span class="signline">&nbsp;</span> подпись</p>
+      <p>Принял (водитель): <span class="signline">${driverName}</span> подпись</p>
+      <p>Дата/время выдачи: <span class="signline">&nbsp;</span></p>
+    </div>`;
+}
+
+function printLoadingList(orders, driverName) {
+  if (!orders.length) { alert('Нет заявок в статусе "В работе" для формирования листа'); return; }
+  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Загрузочный лист</title>
+  <style>${WAYBILL_STYLE}</style>
+  </head><body>
+    <div class="btnbar">
+      <button onclick="window.print()" style="background:#1C1917;">🖨 Печать</button>
+    </div>
+    ${buildLoadingListHtml(orders, driverName)}
+  </body></html>`;
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+}
+
 async function shareWaybillPdf(order) {
   if (!window.jspdf || !window.html2canvas) {
     alert('Модуль печати ещё загружается, попробуйте через пару секунд');
@@ -991,6 +1045,7 @@ function DriverCabinet({ user, onLogout }) {
   const queueAll = orders.filter(o=>o.status==="new"||o.status==="in_transit");
   const queueNew = orders.filter(o=>o.status==="new");
   const queueActive = orders.filter(o=>o.status==="in_transit");
+  const myActive = orders.filter(o=>o.status==="in_transit"&&o.driver_id===user.id);
 
   const myDoneAll = orders.filter(o=>o.driver_id===user.id&&o.date>=driverDateFrom&&o.date<=driverDateTo&&["delivered","cancelled","returned"].includes(o.status));
   const myDelivered = myDoneAll.filter(o=>o.status==="delivered");
@@ -1048,6 +1103,9 @@ function DriverCabinet({ user, onLogout }) {
             <div style={S.statCard()}><p style={S.statNum(C.amber)}>{queueActive.length}</p><p style={S.statLabel}>В работе</p></div>
           </div>
           <p style={S.sectionTitle}>Заявки</p>
+          {myActive.length>0&&(
+            <button onClick={()=>printLoadingList(myActive,user.name)} style={{width:"100%",marginBottom:14,padding:"12px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист ({myActive.length} {myActive.length===1?'заявка':'заявок'})</button>
+          )}
           {driverDateFilter}
           <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
             {FILTERS.map(([k,lb])=>(
