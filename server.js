@@ -220,7 +220,7 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   }
 
   const patch = { status };
-  if (['delivered', 'cancelled', 'returned'].includes(status) && req.user.role === 'driver') {
+  if (['in_transit', 'delivered', 'cancelled', 'returned'].includes(status) && req.user.role === 'driver') {
     patch.driver_id = req.user.id;
     patch.driver_name = req.user.name;
   }
