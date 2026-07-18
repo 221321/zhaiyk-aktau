@@ -557,6 +557,11 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
         {currentUser.role==="driver" && order.status==="in_transit" && (
           <DriverPaymentBlock order={order} onUpdateStatus={onUpdateStatus}/>
         )}
+        {currentUser.role==="driver" && order.status==="in_transit" && order.driver_id===currentUser.id && (
+          <div style={{marginTop:8}}>
+            <button style={{...S.btnOutline,borderColor:"#6B7280",color:"#6B7280"}} onClick={()=>{if(window.confirm('Вернуть заявку в очередь? Другой водитель сможет её забрать.'))onUpdateStatus(order.id,"new",null);}}>🔄 Вернуть в очередь</button>
+          </div>
+        )}
         {currentUser.role==="driver" && order.status==="new" && (
           <div style={{marginTop:20}}>
             <button style={S.btnPrimary} onClick={()=>onUpdateStatus(order.id,"in_transit",null)}>🚚 Взять в доставку</button>
@@ -573,7 +578,8 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
           </div>
         )}
         {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="in_transit" && (
-          <div style={{marginTop:20}}>
+          <div style={{marginTop:20,display:"flex",flexDirection:"column",gap:8}}>
+            <button style={{...S.btnOutline,borderColor:"#6B7280",color:"#6B7280"}} onClick={()=>{if(window.confirm('Вернуть заявку в очередь? Другой водитель сможет её забрать.'))onUpdateStatus(order.id,"new",null);}}>🔄 Вернуть в очередь</button>
             <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED"}} onClick={()=>onUpdateStatus(order.id,"returned",null)}>↩️ Оформить возврат</button>
           </div>
         )}
