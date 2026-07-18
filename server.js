@@ -328,8 +328,10 @@ app.post('/api/employees/sync', (req, res) => {
   if (secret !== '1c_zhaiyk_2025') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  db.set('employees', items).write();
-  res.json({ success: true, count: items.length });
+  const seen = new Set();
+  const deduped = (items || []).filter(it => it && it.code && !seen.has(it.code) && seen.add(it.code));
+  db.set('employees', deduped).write();
+  res.json({ success: true, count: deduped.length, skipped: (items || []).length - deduped.length });
 });
 
 // ===== PRODUCTS (Номенклатура из 1С) =====
