@@ -472,6 +472,7 @@ function printWaybill(order) {
   </head><body>
     <div class="btnbar">
       <button onclick="window.print()" style="background:#1C1917;">🖨 Печать</button>
+      <button onclick="window.close()" style="background:#6B7280;">✕ Закрыть</button>
     </div>
     ${buildWaybillInnerHtml(order)}
   </body></html>`;
@@ -526,6 +527,7 @@ function printLoadingList(orders, driverName) {
   </head><body>
     <div class="btnbar">
       <button onclick="window.print()" style="background:#1C1917;">🖨 Печать</button>
+      <button onclick="window.close()" style="background:#6B7280;">✕ Закрыть</button>
     </div>
     ${buildLoadingListHtml(orders, driverName)}
   </body></html>`;
