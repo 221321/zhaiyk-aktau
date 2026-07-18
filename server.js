@@ -219,10 +219,29 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     }
   }
 
+  if (status === 'in_transit' && orderBefore.status !== 'new') {
+    return res.status(409).json({ error: 'Заявка уже взята другим водителем' });
+  }
+
+  if (status === 'new') {
+    if (orderBefore.status !== 'in_transit') {
+      return res.status(400).json({ error: 'Вернуть в очередь можно только заявку в статусе "В пути"' });
+    }
+    const isOwner = req.user.role === 'driver' && orderBefore.driver_id === req.user.id;
+    const isManager = req.user.role === 'admin' || req.user.role === 'manager';
+    if (!isOwner && !isManager) {
+      return res.status(403).json({ error: 'Вернуть заявку может только водитель, который её взял, либо менеджер' });
+    }
+  }
+
   const patch = { status };
   if (['in_transit', 'delivered', 'cancelled', 'returned'].includes(status) && req.user.role === 'driver') {
     patch.driver_id = req.user.id;
     patch.driver_name = req.user.name;
+  }
+  if (status === 'new') {
+    patch.driver_id = null;
+    patch.driver_name = null;
   }
   if (payment) {
     patch.payment_cash = payment.cash || 0;
@@ -248,6 +267,16 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     const payload = {
       title: 'Заявка в пути',
       body: `${order.client_name} взята в доставку`,
+      url: '/'
+    };
+    sendPushToRole('manager', payload);
+    sendPushToRole('driver', payload, req.user.role === 'driver' ? req.user.id : null);
+  }
+
+  if (status === 'new' && orderBefore.status === 'in_transit') {
+    const payload = {
+      title: 'Заявка снова в очереди',
+      body: `${order.client_name} · можно забрать`,
       url: '/'
     };
     sendPushToRole('manager', payload);
