@@ -35,7 +35,7 @@ const FH = "'Manrope', sans-serif"; /* шрифт заголовков и циф
 
 const TIME_SLOTS = ["До обеда (09:00 – 14:00)", "После обеда (14:00 – 19:00)"];
 
-const SL = { new: "Ожидает", in_transit: "В пути", delivered: "Доставлено", cancelled: "Отказ при получении", returned: "Возврат", revoked: "Отозвана" };
+const SL = { new: "Ожидает", in_transit: "В работе", delivered: "Доставлено", cancelled: "Отказ при получении", returned: "Возврат", revoked: "Отозвана" };
 const SC = { new: "#DA1A10", in_transit: "#B45309", delivered: "#15803D", cancelled: "#DC2626", returned: "#7C3AED", revoked: "#6B7280" };
 const SB = { new: "#FCEBEA", in_transit: "#FBF3E6", delivered: "#EAF5EE", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6" };
 
@@ -748,7 +748,7 @@ function SalesCabinet({ user, token, onLogout }) {
             <div style={S.statsRow}>
               <div style={S.statCard()}><p style={S.statNum()}>{stats.total}</p><p style={S.statLabel}>Всего заявок</p></div>
               <div style={S.statCard()}><p style={S.statNum(C.green)}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
-              <div style={S.statCard()}><p style={S.statNum(C.amber)}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
+              <div style={S.statCard()}><p style={S.statNum(C.amber)}>{stats.inTransit}</p><p style={S.statLabel}>В работе</p></div>
               <div style={S.statCard()}><p style={S.statNum(C.accent)}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
             </div>
             <div style={S.revenueCard}>
@@ -949,8 +949,7 @@ function SalesCabinet({ user, token, onLogout }) {
 
 function DriverCabinet({ user, onLogout }) {
   const [tab, setTab] = useState("queue");
-  const [queueFilter, setQueueFilter] = useState("all");
-  const [doneFilter, setDoneFilter] = useState("all");
+  const [filter, setFilter] = useState("all");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -992,13 +991,15 @@ function DriverCabinet({ user, onLogout }) {
   const queueAll = orders.filter(o=>o.status==="new"||o.status==="in_transit");
   const queueNew = orders.filter(o=>o.status==="new");
   const queueActive = orders.filter(o=>o.status==="in_transit");
-  const queueShown = queueFilter==="new"?queueNew:queueFilter==="in_transit"?queueActive:queueAll;
 
   const myDoneAll = orders.filter(o=>o.driver_id===user.id&&o.date>=driverDateFrom&&o.date<=driverDateTo&&["delivered","cancelled","returned"].includes(o.status));
   const myDelivered = myDoneAll.filter(o=>o.status==="delivered");
   const myCancelled = myDoneAll.filter(o=>o.status==="cancelled");
   const myReturned = myDoneAll.filter(o=>o.status==="returned");
-  const doneShown = doneFilter==="delivered"?myDelivered:doneFilter==="cancelled"?myCancelled:doneFilter==="returned"?myReturned:myDoneAll;
+
+  const combinedAll = [...queueAll,...myDoneAll].sort((a,b)=>b.id-a.id);
+  const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"]];
+  const filterShown = filter==="all"?combinedAll:filter==="new"?queueNew:filter==="in_transit"?queueActive:filter==="delivered"?myDelivered:filter==="cancelled"?myCancelled:myReturned;
 
   const [showMyClients, setShowMyClients] = useState(false);
   const myCashTotal = myDelivered.reduce((s,o)=>s+(o.payment_cash||0),0);
@@ -1014,8 +1015,6 @@ function DriverCabinet({ user, onLogout }) {
   });
   const myClientList = Object.values(myClientBreakdown).sort((a,b)=>(b.cash+b.qr+b.debt)-(a.cash+a.qr+a.debt));
 
-  const QUEUE_FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"]];
-  const DONE_FILTERS=[["all","Все"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"]];
 
   const driverDateFilter = (
     <div style={{marginBottom:16}}>
@@ -1046,17 +1045,18 @@ function DriverCabinet({ user, onLogout }) {
         {tab==="queue"&&<>
           <div style={S.statsRow}>
             <div style={S.statCard()}><p style={S.statNum(C.accent)}>{queueNew.length}</p><p style={S.statLabel}>Ожидают</p></div>
-            <div style={S.statCard()}><p style={S.statNum(C.amber)}>{queueActive.length}</p><p style={S.statLabel}>В пути</p></div>
+            <div style={S.statCard()}><p style={S.statNum(C.amber)}>{queueActive.length}</p><p style={S.statLabel}>В работе</p></div>
           </div>
-          <p style={S.sectionTitle}>Очередь</p>
+          <p style={S.sectionTitle}>Заявки</p>
+          {driverDateFilter}
           <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
-            {QUEUE_FILTERS.map(([k,lb])=>(
-              <button key={k} onClick={()=>setQueueFilter(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${queueFilter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:queueFilter===k?C.navy:C.white,color:queueFilter===k?C.white:C.textMid}}>{lb}</button>
+            {FILTERS.map(([k,lb])=>(
+              <button key={k} onClick={()=>setFilter(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${filter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:filter===k?C.navy:C.white,color:filter===k?C.white:C.textMid}}>{lb}</button>
             ))}
           </div>
-          {loading?<div style={S.loadingWrap}>Загрузка...</div>:queueShown.length===0
+          {loading?<div style={S.loadingWrap}>Загрузка...</div>:filterShown.length===0
             ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>🚗</div><p>Нет заявок</p></div>
-            :queueShown.map(o=>(
+            :filterShown.map(o=>(
               <div key={o.id} style={{...S.card,cursor:"pointer",borderLeft:`4px solid ${SC[o.status]||'#999'}`}} onClick={()=>setSelectedOrder(o)}>
                 <div style={S.row}>
                   <div style={{flex:1,marginRight:10}}>
@@ -1068,36 +1068,6 @@ function DriverCabinet({ user, onLogout }) {
                 </div>
                 <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}>Сумма: <b style={{color:C.text,fontFamily:FH}}>{(o.total||0).toLocaleString()} ₸</b></p>
                 {o.status==="new"&&<button onClick={e=>{e.stopPropagation();handleUpdate(o.id,"in_transit",null);}} style={{marginTop:10,width:"100%",padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>🚚 Взять в доставку</button>}
-              </div>
-            ))
-          }
-        </>}
-        {tab==="done"&&<>
-          <div style={{...S.statsRow,gridTemplateColumns:"1fr 1fr 1fr"}}>
-            <div style={S.statCard()}><p style={S.statNum(C.green)}>{myDelivered.length}</p><p style={S.statLabel}>Доставлено</p></div>
-            <div style={S.statCard()}><p style={S.statNum(C.red)}>{myCancelled.length}</p><p style={S.statLabel}>Отказ</p></div>
-            <div style={S.statCard()}><p style={S.statNum("#7C3AED")}>{myReturned.length}</p><p style={S.statLabel}>Возврат</p></div>
-          </div>
-          <p style={S.sectionTitle}>Закрытые заявки</p>
-          {driverDateFilter}
-          <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
-            {DONE_FILTERS.map(([k,lb])=>(
-              <button key={k} onClick={()=>setDoneFilter(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${doneFilter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:doneFilter===k?C.navy:C.white,color:doneFilter===k?C.white:C.textMid}}>{lb}</button>
-            ))}
-          </div>
-          {loading?<div style={S.loadingWrap}>Загрузка...</div>:doneShown.length===0
-            ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📭</div><p>Ничего не закрыто за этот период</p></div>
-            :doneShown.map(o=>(
-              <div key={o.id} style={{...S.card,cursor:"pointer",borderLeft:`4px solid ${SC[o.status]||'#999'}`}} onClick={()=>setSelectedOrder(o)}>
-                <div style={S.row}>
-                  <div style={{flex:1,marginRight:10}}>
-                    <p style={S.cardTitle}>№ {o.id} · {o.client_name}</p>
-                    <p style={S.cardSub}>{o.address}</p>
-                    <p style={{...S.cardSub,marginTop:2}}>🕐 {o.time_slot} · {o.sales_name}</p>
-                  </div>
-                  <StatusBadge status={o.status}/>
-                </div>
-                <p style={{margin:"8px 0 4px",fontSize:13,color:C.textSub}}>Сумма: <b style={{color:C.text,fontFamily:FH}}>{(o.total||0).toLocaleString()} ₸</b></p>
               </div>
             ))
           }
@@ -1139,7 +1109,7 @@ function DriverCabinet({ user, onLogout }) {
         </>}
       </div>
       <div style={S.nav}>
-        {[["queue","📋","Очередь"],["done","✅","Закрытые"],["cashbox","💰","Касса"]].map(([k,ic,lb])=>(
+        {[["queue","📋","Заявки"],["cashbox","💰","Касса"]].map(([k,ic,lb])=>(
           <button key={k} style={{...S.navBtn(tab===k),flex:1}} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
@@ -1371,7 +1341,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   });
   const driverCashList = Object.values(cashByDriver).sort((a,b)=>b.cash-a.cash);
 
-  const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В пути"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
+  const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
   const TABS=[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["employees","👤","Сотрудники"]];
   const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",employees:"Сотрудники"};
 
@@ -1468,7 +1438,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         <div style={{...S.statsRow, gridTemplateColumns: desktop?"repeat(5, minmax(0,1fr))":"1fr 1fr", maxWidth: desktop?900:"none"}}>
           <div style={S.statCard()}><p style={S.statNum()}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
           <div style={S.statCard()}><p style={S.statNum(C.green)}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
-          <div style={S.statCard()}><p style={S.statNum(C.amber)}>{stats.inTransit}</p><p style={S.statLabel}>В пути</p></div>
+          <div style={S.statCard()}><p style={S.statNum(C.amber)}>{stats.inTransit}</p><p style={S.statLabel}>В работе</p></div>
           <div style={S.statCard()}><p style={S.statNum(C.red)}>{stats.cancelled}</p><p style={S.statLabel}>Не доставлено</p></div>
           <div style={S.statCard()}><p style={S.statNum("#7C3AED")}>{stats.returned}</p><p style={S.statLabel}>Возвратов</p></div>
         </div>
