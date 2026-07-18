@@ -3,6 +3,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const fs = require('fs');
 const low = require('lowdb');
 const FileSync = require('lowdb/adapters/FileSync');
 const webpush = require('web-push');
@@ -10,6 +11,10 @@ const webpush = require('web-push');
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = 'zhaiyk_aktau_secret_2025';
+
+// ===== ФОТО ПОДПИСАННЫХ НАКЛАДНЫХ =====
+const WAYBILL_PHOTOS_DIR = path.join(__dirname, 'uploads', 'waybill-photos');
+fs.mkdirSync(WAYBILL_PHOTOS_DIR, { recursive: true });
 
 // ===== PUSH (web-push / VAPID) =====
 const VAPID_PUBLIC_KEY = 'BD0DnB9fdncg0KE7RyDuy4HjWbfS9yrFOz7hPPjFokzNsi5P7HzRoc-fBWQn2wjJ5Ku72gZEUSAiW98-ob4Oht8';
@@ -19,6 +24,7 @@ webpush.setVapidDetails('mailto:admin@probuh.asia', VAPID_PUBLIC_KEY, VAPID_PRIV
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // База данных (JSON файл)
 const adapter = new FileSync('db.json');
@@ -134,6 +140,33 @@ app.get('/api/orders', authMiddleware, (req, res) => {
   res.json(orders.slice().reverse());
 });
 
+// Фото подписанной клиентом накладной — обязательное условие перед статусом "Доставлено"
+app.post('/api/orders/:id/photo', authMiddleware, (req, res) => {
+  const orderId = parseInt(req.params.id);
+  const order = db.get('orders').find({ id: orderId }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+
+  const { imageBase64 } = req.body || {};
+  if (!imageBase64) return res.status(400).json({ error: 'Нет фото' });
+
+  const raw = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+  const buf = Buffer.from(raw, 'base64');
+  if (buf.length > 3 * 1024 * 1024) {
+    return res.status(413).json({ error: 'Фото слишком большое' });
+  }
+
+  const fileName = `order${orderId}_${Date.now()}.jpg`;
+  fs.writeFileSync(path.join(WAYBILL_PHOTOS_DIR, fileName), buf);
+  const url = '/uploads/waybill-photos/' + fileName;
+
+  db.get('orders').find({ id: orderId }).assign({
+    delivery_photo: url,
+    delivery_photo_at: new Date().toISOString()
+  }).write();
+
+  res.json({ url });
+});
+
 app.post('/api/orders', authMiddleware, (req, res) => {
   const { clientName, clientCode, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone } = req.body;
 
@@ -216,6 +249,9 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   if (status === 'delivered') {
     if (!payment || (Number(payment.cash) || 0) + (Number(payment.qr) || 0) + (Number(payment.debt) || 0) <= 0) {
       return res.status(400).json({ error: 'Укажите способ оплаты (нал/QR/долг) перед подтверждением доставки' });
+    }
+    if (!orderBefore.delivery_photo) {
+      return res.status(400).json({ error: 'Сфотографируйте подписанную накладную перед подтверждением доставки' });
     }
   }
 
