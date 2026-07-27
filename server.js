@@ -10,15 +10,18 @@ const webpush = require('web-push');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const JWT_SECRET = 'zhaiyk_aktau_secret_2025';
+// Секреты берутся из окружения; значения ниже — fallback на случай отсутствия .env,
+// чтобы не сломать текущий деплой. Рекомендуется задать их в /etc/environment или .env на сервере.
+const JWT_SECRET = process.env.JWT_SECRET || 'zhaiyk_aktau_secret_2025';
+const SYNC_SECRET = process.env.SYNC_SECRET || '1c_zhaiyk_2025';
 
 // ===== ФОТО ПОДПИСАННЫХ НАКЛАДНЫХ =====
 const WAYBILL_PHOTOS_DIR = path.join(__dirname, 'uploads', 'waybill-photos');
 fs.mkdirSync(WAYBILL_PHOTOS_DIR, { recursive: true });
 
 // ===== PUSH (web-push / VAPID) =====
-const VAPID_PUBLIC_KEY = 'BD0DnB9fdncg0KE7RyDuy4HjWbfS9yrFOz7hPPjFokzNsi5P7HzRoc-fBWQn2wjJ5Ku72gZEUSAiW98-ob4Oht8';
-const VAPID_PRIVATE_KEY = 'n09Cw7dPy2z7RI54fOhdwuDq-iMImbk81rUTEonJi04';
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BD0DnB9fdncg0KE7RyDuy4HjWbfS9yrFOz7hPPjFokzNsi5P7HzRoc-fBWQn2wjJ5Ku72gZEUSAiW98-ob4Oht8';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'n09Cw7dPy2z7RI54fOhdwuDq-iMImbk81rUTEonJi04';
 webpush.setVapidDetails('mailto:admin@probuh.asia', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
 app.use(cors());
@@ -390,7 +393,7 @@ app.get('/api/employees', authMiddleware, (req, res) => {
 
 app.post('/api/employees/sync', (req, res) => {
   const { items, secret } = req.body;
-  if (secret !== '1c_zhaiyk_2025') {
+  if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const seen = new Set();
@@ -428,7 +431,7 @@ app.get('/api/products', (req, res) => {
 
 app.post('/api/products/sync', (req, res) => {
   const { items, secret } = req.body;
-  if (secret !== '1c_zhaiyk_2025') {
+  if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   db.set('products', items).write();
@@ -494,7 +497,7 @@ app.get('/api/clients', (req, res) => {
 
 app.post('/api/clients/sync', (req, res) => {
   const { items, secret } = req.body;
-  if (secret !== '1c_zhaiyk_2025') {
+  if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   db.set('clients', items).write();
@@ -626,7 +629,7 @@ db.defaults({ stock: [] }).write();
 
 app.post('/api/stock/sync', (req, res) => {
   const { items, secret } = req.body;
-  if (secret !== '1c_zhaiyk_2025') {
+  if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   db.set('stock', items).write();
@@ -638,7 +641,7 @@ app.post('/api/stock/sync', (req, res) => {
 // остаток на сайте, так как товар уже физически списан в 1С
 app.post('/api/orders/:id/mark-realized', (req, res) => {
   const { secret } = req.body;
-  if (secret !== '1c_zhaiyk_2025') {
+  if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const id = parseInt(req.params.id);
