@@ -403,6 +403,21 @@ app.put('/api/users/:id/toggle', authMiddleware, (req, res) => {
   res.json({ success: true, active: newActive });
 });
 
+app.put('/api/users/:id/password', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const id = parseInt(req.params.id);
+  const { password } = req.body;
+  if (!password || password.length < 4) {
+    return res.status(400).json({ error: 'Пароль должен быть не короче 4 символов' });
+  }
+  const user = db.get('users').find({ id }).value();
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  db.get('users').find({ id }).assign({ password: bcrypt.hashSync(password, 10) }).write();
+  res.json({ success: true });
+});
+
 app.delete('/api/users/:id', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   db.get('users').remove({ id: parseInt(req.params.id) }).write();
@@ -419,7 +434,17 @@ app.get('/api/employees', authMiddleware, (req, res) => {
   const employees = db.get('employees').value();
   const users = db.get('users').value();
   const linkedCodes = new Set(users.map(u => u.employee_code).filter(Boolean));
-  res.json(employees.map(e => ({ ...e, has_account: linkedCodes.has(e.code) })));
+  // Часть сотрудников приходит из 1С без кода (code пустой) — для них связку с уже
+  // созданным аккаунтом можно определить только по имени, иначе сотрудник навсегда
+  // остаётся в списке "Без учётной записи", хотя аккаунт для него уже есть
+  const linkedNamesNoCode = new Set(
+    users.filter(u => !u.employee_code).map(u => (u.name || '').trim().toLowerCase())
+  );
+  res.json(employees.map(e => {
+    const hasAccount = (e.code && linkedCodes.has(e.code))
+      || (!e.code && linkedNamesNoCode.has((e.name || '').trim().toLowerCase()));
+    return { ...e, has_account: hasAccount };
+  }));
 });
 
 app.post('/api/employees/sync', (req, res) => {
