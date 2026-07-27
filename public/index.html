@@ -1312,6 +1312,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [empForm, setEmpForm] = useState({});
   const [savingEmp, setSavingEmp] = useState(null);
   const [togglingUser, setTogglingUser] = useState(null);
+  const [passwordEdits, setPasswordEdits] = useState({});
+  const [changingPwd, setChangingPwd] = useState(null);
+  const [empSectionsOpen, setEmpSectionsOpen] = useState({ noAccount: true, accounts: true });
 
   const loadEmployees = useCallback(async () => {
     try { setEmployees(await apiCall('GET','/api/employees')); } catch(e) {}
@@ -1345,6 +1348,17 @@ function AdminCabinet({ user, onLogout, desktop }) {
       await loadUsers();
     } catch(e) { alert(e.message); }
     setTogglingUser(null);
+  };
+
+  const changePassword = async (u) => {
+    const pwd = (passwordEdits[u.id]||'').trim();
+    if (!pwd || pwd.length < 4) { alert('Пароль минимум 4 символа'); return; }
+    setChangingPwd(u.id);
+    try {
+      await apiCall('PUT', `/api/users/${u.id}/password`, { password: pwd });
+      setPasswordEdits(p => ({...p, [u.id]: ''}));
+    } catch(e) { alert(e.message); }
+    setChangingPwd(null);
   };
 
   const loadClients = useCallback(async () => {
@@ -1798,43 +1812,93 @@ function AdminCabinet({ user, onLogout, desktop }) {
             value={empSearch}
             onChange={e=>setEmpSearch(e.target.value)}
           />
-          <p style={{...S.sectionTitle,fontSize:15}}>Без учётной записи</p>
-          {employees.filter(e=>!e.has_account&&(!empSearch||e.name.toLowerCase().includes(empSearch.toLowerCase())||(e.code||'').includes(empSearch))).map((emp,empIdx)=>{
-            const formKey = (emp.code||'nocode')+'_'+empIdx;
-            return (
-            <div key={formKey} style={{...S.card,padding:10,marginBottom:6}}>
-              <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {emp.code}</div>
-              <div style={{fontSize:13,fontWeight:600,marginBottom:8,color:C.textMid}}>{emp.name}</div>
-              <select style={{...S.select,padding:"7px 8px",fontSize:12,marginBottom:6}} value={(empForm[formKey]||{}).role||''} onChange={e=>updateEmpForm(formKey,'role',e.target.value)}>
-                <option value="">— Роль —</option>
-                {ROLE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
-              </select>
-              <div style={{display:"flex",gap:6}}>
-                <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Логин" value={(empForm[formKey]||{}).login||''} onChange={e=>updateEmpForm(formKey,'login',e.target.value)}/>
-                <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Пароль" value={(empForm[formKey]||{}).password||''} onChange={e=>updateEmpForm(formKey,'password',e.target.value)}/>
-                <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap",opacity:savingEmp===formKey?0.5:1}} disabled={savingEmp===formKey} onClick={()=>createEmpAccount(emp,formKey)}>Создать</button>
-              </div>
-            </div>
-            );
-          })}
-          {employees.filter(e=>!e.has_account).length===0&&<div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:13}}>Все сотрудники из 1С уже с аккаунтами</div>}
+          {(() => {
+            const q = empSearch.trim().toLowerCase();
+            const noAccount = employees.filter(e=>!e.has_account&&(!q||e.name.toLowerCase().includes(q)||(e.code||'').includes(q)));
+            const accounts = users.filter(u=>!q||u.name.toLowerCase().includes(q)||u.login.toLowerCase().includes(q));
 
-          <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>Учётные записи</p>
-          {users.map(u=>(
-            <div key={u.id} style={{...S.card,padding:10,marginBottom:6,opacity:u.active?1:0.55}}>
-              <div style={S.row}>
-                <div>
-                  <p style={S.cardTitle}>{u.name} {!u.active&&<span style={{color:C.red,fontSize:11,fontWeight:700}}>· ОТКЛЮЧЁН</span>}</p>
-                  <p style={S.cardSub}>{u.login} · {ROLE_OPTIONS.find(([v])=>v===u.role)?.[1]||u.role}</p>
+            const EmpSection = ({ id, title, badgeColor, count, children }) => {
+              const open = !!empSectionsOpen[id];
+              return (
+                <div style={{...S.card, padding:0, marginBottom:12, overflow:"hidden"}}>
+                  <div
+                    onClick={()=>setEmpSectionsOpen(s=>({...s,[id]:!s[id]}))}
+                    style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 14px",cursor:"pointer",background:C.surface}}
+                  >
+                    <span style={{fontSize:13,fontWeight:700,color:C.navy,display:"flex",alignItems:"center",gap:8}}>
+                      {title}
+                      <span style={{fontSize:11,fontWeight:700,color:badgeColor,background:badgeColor+"22",padding:"2px 8px",borderRadius:99}}>{count}</span>
+                    </span>
+                    <span style={{fontSize:12,color:C.textFaint}}>{open?"▲ Свернуть":"▼ Развернуть"}</span>
+                  </div>
+                  {open && (
+                    <div style={{padding:10,maxHeight:520,overflowY:"auto",borderTop:`1px solid ${C.border}`}}>
+                      {children}
+                    </div>
+                  )}
                 </div>
-                <button
-                  style={{...S.btnSecondary,opacity:togglingUser===u.id?0.5:1}}
-                  disabled={togglingUser===u.id}
-                  onClick={()=>toggleUser(u)}
-                >{u.active?"Отключить":"Включить"}</button>
-              </div>
-            </div>
-          ))}
+              );
+            };
+
+            return <>
+              <EmpSection id="noAccount" title="Без учётной записи" badgeColor={C.red} count={noAccount.length}>
+                {noAccount.length===0
+                  ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:13}}>{q?"Ничего не найдено":"Все сотрудники из 1С уже с аккаунтами"}</div>
+                  : noAccount.map((emp,empIdx)=>{
+                      const formKey = (emp.code||'nocode')+'_'+empIdx;
+                      return (
+                      <div key={formKey} style={{...S.card,padding:10,marginBottom:6}}>
+                        <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {emp.code}</div>
+                        <div style={{fontSize:13,fontWeight:600,marginBottom:8,color:C.textMid}}>{emp.name}</div>
+                        <select style={{...S.select,padding:"7px 8px",fontSize:12,marginBottom:6}} value={(empForm[formKey]||{}).role||''} onChange={e=>updateEmpForm(formKey,'role',e.target.value)}>
+                          <option value="">— Роль —</option>
+                          {ROLE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                        </select>
+                        <div style={{display:"flex",gap:6}}>
+                          <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Логин" value={(empForm[formKey]||{}).login||''} onChange={e=>updateEmpForm(formKey,'login',e.target.value)}/>
+                          <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Пароль" value={(empForm[formKey]||{}).password||''} onChange={e=>updateEmpForm(formKey,'password',e.target.value)}/>
+                          <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap",opacity:savingEmp===formKey?0.5:1}} disabled={savingEmp===formKey} onClick={()=>createEmpAccount(emp,formKey)}>Создать</button>
+                        </div>
+                      </div>
+                      );
+                    })}
+              </EmpSection>
+
+              <EmpSection id="accounts" title="Учётные записи" badgeColor={C.green} count={accounts.length}>
+                {accounts.length===0
+                  ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:13}}>{q?"Ничего не найдено":"Аккаунтов пока нет"}</div>
+                  : accounts.map(u=>(
+                    <div key={u.id} style={{...S.card,padding:10,marginBottom:6,opacity:u.active?1:0.55}}>
+                      <div style={S.row}>
+                        <div>
+                          <p style={S.cardTitle}>{u.name} {!u.active&&<span style={{color:C.red,fontSize:11,fontWeight:700}}>· ОТКЛЮЧЁН</span>}</p>
+                          <p style={S.cardSub}>{u.login} · {ROLE_OPTIONS.find(([v])=>v===u.role)?.[1]||u.role}</p>
+                        </div>
+                        <button
+                          style={{...S.btnSecondary,opacity:togglingUser===u.id?0.5:1}}
+                          disabled={togglingUser===u.id}
+                          onClick={()=>toggleUser(u)}
+                        >{u.active?"Отключить":"Включить"}</button>
+                      </div>
+                      <div style={{display:"flex",gap:6,marginTop:8}}>
+                        <input
+                          type="password"
+                          style={{...S.input,padding:"7px 8px",fontSize:12}}
+                          placeholder="Новый пароль (мин. 4 симв.)"
+                          value={passwordEdits[u.id]||''}
+                          onChange={e=>setPasswordEdits(p=>({...p,[u.id]:e.target.value}))}
+                        />
+                        <button
+                          style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap",opacity:(changingPwd===u.id||!(passwordEdits[u.id]||'').trim())?0.5:1}}
+                          disabled={changingPwd===u.id||!(passwordEdits[u.id]||'').trim()}
+                          onClick={()=>changePassword(u)}
+                        >{changingPwd===u.id?"...":"Сменить пароль"}</button>
+                      </div>
+                    </div>
+                  ))}
+              </EmpSection>
+            </>;
+          })()}
         </div>
       </>}
     </>
