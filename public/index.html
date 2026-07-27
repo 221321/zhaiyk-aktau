@@ -637,7 +637,8 @@ async function shareWaybillPdf(order) {
   }
 }
 
-function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUser }) {
+function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUser, drivers }) {
+  const [selectedDriverId, setSelectedDriverId] = useState("");
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment||'{}') : (order.payment||{cash:order.payment_cash||0,qr:order.payment_qr||0,debt:order.payment_debt||0});
   return (
@@ -709,7 +710,13 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
         )}
         {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="new" && (
           <div style={{marginTop:20}}>
-            <button style={S.btnOutline} onClick={()=>onUpdateStatus(order.id,"in_transit",null)}>🚚 Передать водителю</button>
+            <label style={{...S.label,marginBottom:6}}>Назначить водителя</label>
+            <select style={{...S.select,marginBottom:10}} value={selectedDriverId} onChange={e=>setSelectedDriverId(e.target.value)}>
+              <option value="">— выберите водителя —</option>
+              {(drivers||[]).map(d=>(<option key={d.id} value={d.id}>{d.name}</option>))}
+            </select>
+            <button style={{...S.btnOutline,opacity:selectedDriverId?1:0.5,cursor:selectedDriverId?"pointer":"not-allowed"}} disabled={!selectedDriverId} onClick={()=>onUpdateStatus(order.id,"in_transit",null,Number(selectedDriverId))}>🚚 Передать водителю</button>
+            {(!drivers||drivers.length===0)&&<p style={{margin:"8px 0 0",fontSize:12,color:C.red}}>Нет активных водителей в системе</p>}
           </div>
         )}
         {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="in_transit" && (
@@ -1414,9 +1421,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
     setSavingCode(null);
   };
 
-  const handleUpdate = async (id, status, payment) => {
+  const handleUpdate = async (id, status, payment, driverId) => {
     try {
-      await apiCall('PUT', `/api/orders/${id}/status`, { status, payment });
+      await apiCall('PUT', `/api/orders/${id}/status`, { status, payment, driverId });
       setSelectedOrder(null); loadOrders();
     } catch(e) { alert(e.message); }
   };
@@ -1802,7 +1809,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   if (desktop) {
     return (
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
-        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} currentUser={user}/>}
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
         <aside style={S.side}>
           <div style={{marginBottom:34}}><Brand size={44}/></div>
           <nav style={{flex:1}}>
@@ -1828,7 +1835,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
 
   return (
     <div style={{paddingBottom:72}}>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} currentUser={user}/>}
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
       <div style={S.page}>
         {content}
       </div>
