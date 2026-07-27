@@ -118,6 +118,13 @@ async function sendPushToRole(role, payload, excludeUserId) {
 }
 
 // ===== AUTH =====
+// Публичный список для подсказки на экране входа (как в 1С) — только логин и имя,
+// без ролей и прочих данных, чтобы не раскрывать лишнего неавторизованным
+app.get('/api/login-hints', (req, res) => {
+  const users = db.get('users').filter(u => u.active !== false).value();
+  res.json(users.map(u => ({ login: u.login, name: u.name })));
+});
+
 app.post('/api/login', (req, res) => {
   const { login, password } = req.body;
   const user = db.get('users').find({ login }).value();
