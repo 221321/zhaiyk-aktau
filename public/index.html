@@ -1962,6 +1962,12 @@ function App() {
   );
   const [pushMsg, setPushMsg] = useState('');
   const isDesktop = useIsDesktop();
+  const [loginHints, setLoginHints] = useState([]);
+  const [showLoginDrop, setShowLoginDrop] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/login-hints').then(r=>r.json()).then(setLoginHints).catch(()=>{});
+  }, []);
 
   useEffect(() => {
     const token = getToken();
@@ -2033,8 +2039,39 @@ function App() {
         <h1 style={{...S.logoTitle,textAlign:"center"}}>Жайық Ақтау</h1>
         <p style={{...S.logoSub,textAlign:"center"}}>құс өнімі · система заявок</p>
         {error&&<div style={S.errorBox}>{error}</div>}
-        <div style={S.formGroup}><label style={S.label}>Логин</label><input style={S.input} value={login} onChange={e=>setLogin(e.target.value)} placeholder="Введите логин"/></div>
-        <div style={{...S.formGroup,marginBottom:20}}><label style={S.label}>Пароль</label><input style={S.input} type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Введите пароль" onKeyDown={e=>e.key==="Enter"&&handleLogin()}/></div>
+        <div style={S.formGroup}>
+          <label style={S.label}>Логин</label>
+          <div style={{position:"relative"}}>
+            <input
+              style={S.input}
+              value={login}
+              onChange={e=>{setLogin(e.target.value); setShowLoginDrop(true);}}
+              onFocus={()=>setShowLoginDrop(true)}
+              onBlur={()=>setTimeout(()=>setShowLoginDrop(false),180)}
+              placeholder="Введите логин"
+              autoComplete="off"
+            />
+            {showLoginDrop && (()=>{
+              const q = login.toLowerCase();
+              const matched = q ? loginHints.filter(u=>u.login.toLowerCase().includes(q)||u.name.toLowerCase().includes(q)) : loginHints;
+              return matched.length>0 && (
+                <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:240,overflowY:"auto",marginTop:4}}>
+                  {matched.map(u=>(
+                    <div
+                      key={u.login}
+                      onMouseDown={()=>{setLogin(u.login);setShowLoginDrop(false);document.getElementById('loginPasswordInput')?.focus();}}
+                      style={{padding:"10px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13}}
+                    >
+                      <div style={{fontWeight:600,color:C.text}}>{u.name}</div>
+                      <div style={{fontSize:11,color:C.textFaint}}>{u.login}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+        <div style={{...S.formGroup,marginBottom:20}}><label style={S.label}>Пароль</label><input id="loginPasswordInput" style={S.input} type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Введите пароль" onKeyDown={e=>e.key==="Enter"&&handleLogin()}/></div>
         <button style={{...S.btnPrimary,opacity:loading?0.7:1}} onClick={handleLogin} disabled={loading}>{loading?"Вход...":"Войти"}</button>
       </div>
     </div>
