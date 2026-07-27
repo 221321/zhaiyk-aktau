@@ -242,7 +242,7 @@ app.post('/api/orders', authMiddleware, (req, res) => {
 });
 
 app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
-  const { status, payment } = req.body;
+  const { status, payment, driverId } = req.body;
   const validStatuses = ['new', 'in_transit', 'delivered', 'cancelled', 'returned', 'revoked'];
   if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Неверный статус' });
   const orderId = parseInt(req.params.id);
@@ -262,6 +262,21 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     return res.status(409).json({ error: 'Заявка уже взята другим водителем' });
   }
 
+  // Менеджер/админ передаёт заявку конкретному водителю — водитель обязателен
+  let assignedDriver = null;
+  if (status === 'in_transit' && (req.user.role === 'admin' || req.user.role === 'manager')) {
+    if (!driverId) {
+      return res.status(400).json({ error: 'Выберите водителя, которому передать заявку' });
+    }
+    assignedDriver = db.get('users').find({ id: Number(driverId) }).value();
+    if (!assignedDriver || assignedDriver.role !== 'driver') {
+      return res.status(400).json({ error: 'Указанный пользователь не является водителем' });
+    }
+    if (assignedDriver.active === false) {
+      return res.status(400).json({ error: 'Этот водитель отключён' });
+    }
+  }
+
   if (status === 'new') {
     if (orderBefore.status !== 'in_transit') {
       return res.status(400).json({ error: 'Вернуть в очередь можно только заявку в статусе "В работе"' });
@@ -277,6 +292,10 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   if (['in_transit', 'delivered', 'cancelled', 'returned'].includes(status) && req.user.role === 'driver') {
     patch.driver_id = req.user.id;
     patch.driver_name = req.user.name;
+  }
+  if (assignedDriver) {
+    patch.driver_id = assignedDriver.id;
+    patch.driver_name = assignedDriver.name;
   }
   if (status === 'new') {
     patch.driver_id = null;
@@ -303,13 +322,25 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   }
 
   if (status === 'in_transit') {
-    const payload = {
+    sendPushToRole('manager', {
       title: 'Заявка в пути',
       body: `${order.client_name} взята в доставку`,
       url: '/'
-    };
-    sendPushToRole('manager', payload);
-    sendPushToRole('driver', payload, req.user.role === 'driver' ? req.user.id : null);
+    });
+    if (order.driver_id) {
+      // Целевое уведомление именно назначенному водителю, а не рассылка всем
+      sendPushToUser(order.driver_id, {
+        title: assignedDriver ? 'Вам передана заявка' : 'Заявка в пути',
+        body: `${order.client_name} · ${order.time_slot || ''}`,
+        url: '/'
+      });
+    } else {
+      sendPushToRole('driver', {
+        title: 'Заявка в пути',
+        body: `${order.client_name} взята в доставку`,
+        url: '/'
+      }, req.user.role === 'driver' ? req.user.id : null);
+    }
   }
 
   if (status === 'new' && orderBefore.status === 'in_transit') {
