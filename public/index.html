@@ -1281,6 +1281,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [edits, setEdits] = useState({});
   const [savingCode, setSavingCode] = useState(null);
   const [editingCodes, setEditingCodes] = useState({});
+  const [aliasSectionsOpen, setAliasSectionsOpen] = useState({ unset: true, set: false });
 
   const [clients, setClients] = useState([]);
   const [clientSearch, setClientSearch] = useState("");
@@ -1678,9 +1679,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
             value={aliasSearch}
             onChange={e=>setAliasSearch(e.target.value)}
           />
-          {products
-            .filter(p => !aliasSearch || p.name.toLowerCase().includes(aliasSearch.toLowerCase()) || (p.code||'').includes(aliasSearch))
-            .map(p => {
+          {(() => {
+            const renderProductCard = (p) => {
               const locked = p.has_alias && !editingCodes[p.code];
               return (
               <div key={p.code} style={{...S.card, padding:10, marginBottom:6}}>
@@ -1746,7 +1746,43 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   >{locked ? "Редакт." : "Сохр."}</button>
                 </div>
               </div>
-          )})}
+            )};
+
+            const q = aliasSearch.trim().toLowerCase();
+            const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.code||'').includes(q));
+            const withoutAlias = filtered.filter(p => !p.has_alias);
+            const withAlias = filtered.filter(p => p.has_alias);
+
+            const AliasSection = ({ id, title, badgeColor, list }) => {
+              const open = !!aliasSectionsOpen[id];
+              return (
+                <div style={{...S.card, padding:0, marginBottom:12, overflow:"hidden"}}>
+                  <div
+                    onClick={()=>setAliasSectionsOpen(s=>({...s,[id]:!s[id]}))}
+                    style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 14px",cursor:"pointer",background:C.surface}}
+                  >
+                    <span style={{fontSize:13,fontWeight:700,color:C.navy,display:"flex",alignItems:"center",gap:8}}>
+                      {title}
+                      <span style={{fontSize:11,fontWeight:700,color:badgeColor,background:badgeColor+"22",padding:"2px 8px",borderRadius:99}}>{list.length}</span>
+                    </span>
+                    <span style={{fontSize:12,color:C.textFaint}}>{open?"▲ Свернуть":"▼ Развернуть"}</span>
+                  </div>
+                  {open && (
+                    <div style={{padding:10,maxHeight:520,overflowY:"auto",borderTop:`1px solid ${C.border}`}}>
+                      {list.length===0
+                        ? <div style={{textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>{q?"Ничего не найдено":"Пусто"}</div>
+                        : list.map(renderProductCard)}
+                    </div>
+                  )}
+                </div>
+              );
+            };
+
+            return <>
+              <AliasSection id="unset" title="⚠️ Цены не установлены" badgeColor={C.red} list={withoutAlias}/>
+              <AliasSection id="set" title="✅ Цены установлены" badgeColor={C.green} list={withAlias}/>
+            </>;
+          })()}
           {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
         </div>
       </>}
