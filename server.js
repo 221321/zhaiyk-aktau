@@ -173,8 +173,8 @@ app.post('/api/orders/:id/photo', authMiddleware, (req, res) => {
 app.post('/api/orders', authMiddleware, (req, res) => {
   const { clientName, clientCode, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone } = req.body;
 
-  if (!contactName || !contactName.trim() || !contactPhone || !contactPhone.trim()) {
-    return res.status(400).json({ error: 'Укажите ФИО и телефон контактного лица' });
+  if (!contactPhone || !contactPhone.trim()) {
+    return res.status(400).json({ error: 'Укажите телефон контактного лица' });
   }
 
   const availableMap = computeAvailableStock();
