@@ -28,7 +28,7 @@ tr.rowh:hover { background: #FAF9F7; }
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useCallback } = React;
+const { useState, useEffect, useCallback, useMemo, useRef, memo } = React;
 
 const API = '';
 const FH = "'Manrope', sans-serif"; /* шрифт заголовков и цифр */
@@ -1269,6 +1269,80 @@ function DriverCabinet({ user, onLogout }) {
   );
 }
 
+// Мемоизированная карточка товара для вкладки "Товары" (псевдонимы/цены).
+// Раньше все карточки рендерились заново на каждое нажатие клавиши в любом
+// поле — из-за этого набор текста подтормаживал, особенно когда открыт список
+// из 150+ позиций. React.memo + стабильные (useCallback) колбэки в
+// AdminCabinet означают, что перерисовывается только та карточка, в которой
+// реально поменялось значение.
+const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, alias, price1, price2, price3, commission, onChange, onEditRequest, onSave }) {
+  return (
+    <div style={{...S.card, padding:10, marginBottom:6}}>
+      <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {p.code} {p.group?' · '+p.group:''}</div>
+      <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:C.textMid}}>{p.name}</div>
+      <input
+        style={{...S.input,padding:"7px 10px",fontSize:13,marginBottom:6,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
+        placeholder="Название для сайта (необязательно)"
+        disabled={locked}
+        value={alias}
+        onChange={e=>onChange(p.code,'alias',e.target.value)}
+      />
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 70px auto",gap:6,marginBottom:3}}>
+        {["Цена 1","Цена 2","Цена 3","% торговому",""].map((h,i)=><div key={i} style={{fontSize:9,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <input
+          style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
+          placeholder="Цена 1"
+          type="number"
+          disabled={locked}
+          value={price1}
+          onFocus={e=>e.target.select()}
+          onChange={e=>onChange(p.code,'price1',e.target.value)}
+        />
+        <input
+          style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
+          placeholder="Цена 2"
+          type="number"
+          disabled={locked}
+          value={price2}
+          onFocus={e=>e.target.select()}
+          onChange={e=>onChange(p.code,'price2',e.target.value)}
+        />
+        <input
+          style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
+          placeholder="Цена 3"
+          type="number"
+          disabled={locked}
+          value={price3}
+          onFocus={e=>e.target.select()}
+          onChange={e=>onChange(p.code,'price3',e.target.value)}
+        />
+        <div style={{position:"relative",width:70}}>
+          <input
+            style={{...S.input,padding:"7px 18px 7px 8px",fontSize:12,background:locked?C.surface:"#FFFBEB",color:locked?C.textSub:"#92400E",fontWeight:700,borderColor:locked?C.border:"#FDE68A",width:70}}
+            placeholder="0"
+            type="number"
+            disabled={locked}
+            value={commission}
+            onFocus={e=>e.target.select()}
+            onChange={e=>onChange(p.code,'commission',e.target.value)}
+          />
+          <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:12,fontWeight:700,color:locked?C.textFaint:"#92400E",pointerEvents:"none"}}>%</span>
+        </div>
+        <button
+          style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, marginTop:0, boxShadow:"none", opacity: saving?0.5:1, width:"auto", whiteSpace:"nowrap"}}
+          disabled={saving}
+          onClick={()=>{
+            if (locked) { onEditRequest(p.code); }
+            else { onSave(p); }
+          }}
+        >{locked ? "Редакт." : "Сохр."}</button>
+      </div>
+    </div>
+  );
+});
+
 function AdminCabinet({ user, onLogout, desktop }) {
   const [tab, setTab] = useState("all");
   const [filter, setFilter] = useState("all");
@@ -1412,15 +1486,28 @@ function AdminCabinet({ user, onLogout, desktop }) {
     if (field === 'alias') return p.has_alias ? p.display_name : '';
     return p[field] != null ? String(p[field]) : '';
   };
-  const updateField = (code, field, value) => setEdits(e => ({...e, [code]: {...e[code], [field]: value}}));
+  // updateField передаётся вниз в 150+ мемоизированных карточек, поэтому
+  // должен иметь стабильную ссылку (useCallback без зависимостей, только
+  // функциональный setState) — иначе React.memo на карточках бесполезен.
+  const updateField = useCallback((code, field, value) => setEdits(e => ({...e, [code]: {...e[code], [field]: value}})), []);
+  const onEditRequest = useCallback((code) => setEditingCodes(e => ({...e, [code]: true})), []);
 
-  const saveAlias = async (p) => {
+  // saveAlias тоже должен быть стабильным, поэтому актуальные edits/products
+  // читаем из ref, а не из замыкания над состоянием.
+  const editsRef = useRef(edits);
+  useEffect(() => { editsRef.current = edits; }, [edits]);
+
+  const saveAlias = useCallback(async (p) => {
     const code = p.code;
-    const alias = getField(p, 'alias');
-    const price1 = getField(p, 'price1');
-    const price2 = getField(p, 'price2');
-    const price3 = getField(p, 'price3');
-    const commission = getField(p, 'commission');
+    const fieldsFromEdits = editsRef.current[code] || {};
+    const resolve = (field) => fieldsFromEdits[field] !== undefined
+      ? fieldsFromEdits[field]
+      : (field === 'alias' ? (p.has_alias ? p.display_name : '') : (p[field] != null ? String(p[field]) : ''));
+    const alias = resolve('alias');
+    const price1 = resolve('price1');
+    const price2 = resolve('price2');
+    const price3 = resolve('price3');
+    const commission = resolve('commission');
     setSavingCode(code);
     try {
       await apiCall('POST', '/api/product-aliases', {
@@ -1434,7 +1521,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
       setEditingCodes(e => { const n = {...e}; delete n[code]; return n; });
     } catch(e) { alert(e.message); }
     setSavingCode(null);
-  };
+  }, [loadProducts]);
 
   const handleUpdate = async (id, status, payment, driverId) => {
     try {
@@ -1450,61 +1537,73 @@ function AdminCabinet({ user, onLogout, desktop }) {
     } catch(e) { alert(e.message); }
   };
 
+  const [expandedSales, setExpandedSales] = useState({});
+
+  // Эти вычисления раньше выполнялись при каждом рендере компонента (в т.ч. на
+  // каждое нажатие клавиши в других вкладках, например "Товары"), потому что
+  // перебирали весь список заказов. useMemo пересчитывает их только когда
+  // реально меняются orders/products/фильтры, а не на любой setState где-либо
+  // в AdminCabinet.
   const q = orderSearch.trim().toLowerCase();
-  const filtered = orders
+  const filtered = useMemo(() => orders
     .filter(o=>filter==="all"||o.status===filter)
     .filter(o=>!q
       || String(o.id).includes(q)
       || (o.client_name||'').toLowerCase().includes(q)
       || (o.sales_name||'').toLowerCase().includes(q)
       || (o.driver_name||'').toLowerCase().includes(q)
-      || (o.address||'').toLowerCase().includes(q));
-  const periodOrders = orders.filter(o=>o.date>=dateFrom&&o.date<=dateTo);
-  const stats = {
-    total:periodOrders.length,
-    delivered:periodOrders.filter(o=>o.status==="delivered").length,
-    inTransit:periodOrders.filter(o=>o.status==="in_transit").length,
-    cancelled:periodOrders.filter(o=>o.status==="cancelled").length,
-    returned:periodOrders.filter(o=>o.status==="returned").length,
-    revenue:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.total||0),0),
-    cashTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_cash||0),0),
-    qrTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_qr||0),0),
-    debtTotal:periodOrders.reduce((s,o)=>s+(o.payment_debt||0),0),
-  };
-  const [expandedSales, setExpandedSales] = useState({});
-  const commissionByCode = {};
-  products.forEach(p => { commissionByCode[p.code] = p.commission || 0; });
-  const salesBreakdown = {};
-  periodOrders.filter(o=>o.status==="delivered").forEach(o=>{
-    const key = o.sales_id;
-    if(!salesBreakdown[key]) salesBreakdown[key] = { name: o.sales_name, revenue: 0, items: [] };
-    salesBreakdown[key].revenue += (o.total||0);
-    const orderItems = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
-    orderItems.forEach(it=>{
-      const liveCommission = it.code && commissionByCode[it.code] !== undefined ? commissionByCode[it.code] : (it.commission||0);
-      salesBreakdown[key].items.push({
-        name: it.name,
-        qty: it.qty,
-        price: it.price,
-        commission: liveCommission,
-        bonus: (Number(it.qty)||0)*(Number(it.price)||0)*(Number(liveCommission)||0)/100
+      || (o.address||'').toLowerCase().includes(q)), [orders, filter, q]);
+
+  const { stats, salesList, driverCashList } = useMemo(() => {
+    const periodOrders = orders.filter(o=>o.date>=dateFrom&&o.date<=dateTo);
+    const stats = {
+      total:periodOrders.length,
+      delivered:periodOrders.filter(o=>o.status==="delivered").length,
+      inTransit:periodOrders.filter(o=>o.status==="in_transit").length,
+      cancelled:periodOrders.filter(o=>o.status==="cancelled").length,
+      returned:periodOrders.filter(o=>o.status==="returned").length,
+      revenue:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.total||0),0),
+      cashTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_cash||0),0),
+      qrTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_qr||0),0),
+      debtTotal:periodOrders.reduce((s,o)=>s+(o.payment_debt||0),0),
+    };
+
+    const commissionByCode = {};
+    products.forEach(p => { commissionByCode[p.code] = p.commission || 0; });
+    const salesBreakdown = {};
+    periodOrders.filter(o=>o.status==="delivered").forEach(o=>{
+      const key = o.sales_id;
+      if(!salesBreakdown[key]) salesBreakdown[key] = { name: o.sales_name, revenue: 0, items: [] };
+      salesBreakdown[key].revenue += (o.total||0);
+      const orderItems = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
+      orderItems.forEach(it=>{
+        const liveCommission = it.code && commissionByCode[it.code] !== undefined ? commissionByCode[it.code] : (it.commission||0);
+        salesBreakdown[key].items.push({
+          name: it.name,
+          qty: it.qty,
+          price: it.price,
+          commission: liveCommission,
+          bonus: (Number(it.qty)||0)*(Number(it.price)||0)*(Number(liveCommission)||0)/100
+        });
       });
     });
-  });
-  const salesList = Object.entries(salesBreakdown).map(([id,v])=>({
-    id, ...v, totalBonus: v.items.reduce((s,it)=>s+it.bonus,0)
-  })).sort((a,b)=>b.revenue-a.revenue);
+    const salesList = Object.entries(salesBreakdown).map(([id,v])=>({
+      id, ...v, totalBonus: v.items.reduce((s,it)=>s+it.bonus,0)
+    })).sort((a,b)=>b.revenue-a.revenue);
 
-  const cashByDriver = {};
-  periodOrders.filter(o=>o.status==="delivered"&&o.driver_id).forEach(o=>{
-    const key = o.driver_id;
-    if(!cashByDriver[key]) cashByDriver[key] = { name: o.driver_name, cash:0, qr:0, debt:0, orders:0 };
-    cashByDriver[key].cash += (o.payment_cash||0);
-    cashByDriver[key].qr += (o.payment_qr||0);
-    cashByDriver[key].debt += (o.payment_debt||0);
-    cashByDriver[key].orders += 1;
-  });
-  const driverCashList = Object.values(cashByDriver).sort((a,b)=>b.cash-a.cash);
+    const cashByDriver = {};
+    periodOrders.filter(o=>o.status==="delivered"&&o.driver_id).forEach(o=>{
+      const key = o.driver_id;
+      if(!cashByDriver[key]) cashByDriver[key] = { name: o.driver_name, cash:0, qr:0, debt:0, orders:0 };
+      cashByDriver[key].cash += (o.payment_cash||0);
+      cashByDriver[key].qr += (o.payment_qr||0);
+      cashByDriver[key].debt += (o.payment_debt||0);
+      cashByDriver[key].orders += 1;
+    });
+    const driverCashList = Object.values(cashByDriver).sort((a,b)=>b.cash-a.cash);
+
+    return { stats, salesList, driverCashList };
+  }, [orders, products, dateFrom, dateTo]);
 
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
   const TABS=[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["employees","👤","Сотрудники"]];
@@ -1697,80 +1796,42 @@ function AdminCabinet({ user, onLogout, desktop }) {
             const renderProductCard = (p) => {
               const locked = p.has_alias && !editingCodes[p.code];
               return (
-              <div key={p.code} style={{...S.card, padding:10, marginBottom:6}}>
-                <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {p.code} {p.group?' · '+p.group:''}</div>
-                <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:C.textMid}}>{p.name}</div>
-                <input
-                  style={{...S.input,padding:"7px 10px",fontSize:13,marginBottom:6,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
-                  placeholder="Название для сайта (необязательно)"
-                  disabled={locked}
-                  value={getField(p,'alias')}
-                  onChange={e=>updateField(p.code,'alias',e.target.value)}
+                <ProductAliasCard
+                  key={p.code}
+                  p={p}
+                  locked={locked}
+                  saving={savingCode===p.code}
+                  alias={getField(p,'alias')}
+                  price1={getField(p,'price1')}
+                  price2={getField(p,'price2')}
+                  price3={getField(p,'price3')}
+                  commission={getField(p,'commission')}
+                  onChange={updateField}
+                  onEditRequest={onEditRequest}
+                  onSave={saveAlias}
                 />
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 70px auto",gap:6,marginBottom:3}}>
-                  {["Цена 1","Цена 2","Цена 3","% торговому",""].map((h,i)=><div key={i} style={{fontSize:9,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
-                </div>
-                <div style={{display:"flex",gap:6}}>
-                  <input
-                    style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
-                    placeholder="Цена 1"
-                    type="number"
-                    disabled={locked}
-                    value={getField(p,'price1')}
-                    onFocus={e=>e.target.select()}
-                    onChange={e=>updateField(p.code,'price1',e.target.value)}
-                  />
-                  <input
-                    style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
-                    placeholder="Цена 2"
-                    type="number"
-                    disabled={locked}
-                    value={getField(p,'price2')}
-                    onFocus={e=>e.target.select()}
-                    onChange={e=>updateField(p.code,'price2',e.target.value)}
-                  />
-                  <input
-                    style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
-                    placeholder="Цена 3"
-                    type="number"
-                    disabled={locked}
-                    value={getField(p,'price3')}
-                    onFocus={e=>e.target.select()}
-                    onChange={e=>updateField(p.code,'price3',e.target.value)}
-                  />
-                  <div style={{position:"relative",width:70}}>
-                    <input
-                      style={{...S.input,padding:"7px 18px 7px 8px",fontSize:12,background:locked?C.surface:"#FFFBEB",color:locked?C.textSub:"#92400E",fontWeight:700,borderColor:locked?C.border:"#FDE68A",width:70}}
-                      placeholder="0"
-                      type="number"
-                      disabled={locked}
-                      value={getField(p,'commission')}
-                      onFocus={e=>e.target.select()}
-                      onChange={e=>updateField(p.code,'commission',e.target.value)}
-                    />
-                    <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:12,fontWeight:700,color:locked?C.textFaint:"#92400E",pointerEvents:"none"}}>%</span>
-                  </div>
-                  <button
-                    style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, marginTop:0, boxShadow:"none", opacity: savingCode===p.code?0.5:1, width:"auto", whiteSpace:"nowrap"}}
-                    disabled={savingCode===p.code}
-                    onClick={()=>{
-                      if (locked) { setEditingCodes(e=>({...e,[p.code]:true})); }
-                      else { saveAlias(p); }
-                    }}
-                  >{locked ? "Редакт." : "Сохр."}</button>
-                </div>
-              </div>
-            )};
+              );
+            };
 
             const q = aliasSearch.trim().toLowerCase();
             const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.code||'').includes(q));
             const withoutAlias = filtered.filter(p => !p.has_alias);
             const withAlias = filtered.filter(p => p.has_alias);
 
-            const AliasSection = ({ id, title, badgeColor, list }) => {
+            // ВАЖНО: это обычная функция, возвращающая JSX, а НЕ JSX-компонент
+            // (не вызывается как <AliasSection/>). Раньше здесь была
+            // const AliasSection = (...) => {...}, определяемая заново на
+            // каждый рендер AdminCabinet и используемая как <AliasSection/> —
+            // из-за этого React считал её каждый раз новым типом компонента и
+            // полностью размонтировал/пересоздавал все 157 карточек (со сбросом
+            // фокуса) при любом изменении состояния, включая ввод в поле. Вызов
+            // как обычной функции этого не делает: реконсиляция идёт по
+            // фактически возвращаемым элементам (div/ProductAliasCard), и типы
+            // остаются стабильными между рендерами.
+            const renderAliasSection = ({ id, title, badgeColor, list }) => {
               const open = !!aliasSectionsOpen[id];
               return (
-                <div style={{...S.card, padding:0, marginBottom:12, overflow:"hidden"}}>
+                <div key={id} style={{...S.card, padding:0, marginBottom:12, overflow:"hidden"}}>
                   <div
                     onClick={()=>setAliasSectionsOpen(s=>({...s,[id]:!s[id]}))}
                     style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 14px",cursor:"pointer",background:C.surface}}
@@ -1793,8 +1854,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
             };
 
             return <>
-              <AliasSection id="unset" title="⚠️ Цены не установлены" badgeColor={C.red} list={withoutAlias}/>
-              <AliasSection id="set" title="✅ Цены установлены" badgeColor={C.green} list={withAlias}/>
+              {renderAliasSection({ id:"unset", title:"⚠️ Цены не установлены", badgeColor:C.red, list:withoutAlias })}
+              {renderAliasSection({ id:"set", title:"✅ Цены установлены", badgeColor:C.green, list:withAlias })}
             </>;
           })()}
           {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
