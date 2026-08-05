@@ -1288,7 +1288,7 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, ali
         onChange={e=>onChange(p.code,'alias',e.target.value)}
       />
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 70px auto",gap:6,marginBottom:3}}>
-        {["Цена 1","Цена 2","Цена 3","% торговому",""].map((h,i)=><div key={i} style={{fontSize:9,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
+        {["Цена 1","Цена 2","Цена 3","₸ торговому",""].map((h,i)=><div key={i} style={{fontSize:9,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
       </div>
       <div style={{display:"flex",gap:6}}>
         <input
@@ -1328,7 +1328,7 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, ali
             onFocus={e=>e.target.select()}
             onChange={e=>onChange(p.code,'commission',e.target.value)}
           />
-          <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:12,fontWeight:700,color:locked?C.textFaint:"#92400E",pointerEvents:"none"}}>%</span>
+          <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:12,fontWeight:700,color:locked?C.textFaint:"#92400E",pointerEvents:"none"}}>₸</span>
         </div>
         <button
           style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, marginTop:0, boxShadow:"none", opacity: saving?0.5:1, width:"auto", whiteSpace:"nowrap"}}
@@ -1583,7 +1583,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
           qty: it.qty,
           price: it.price,
           commission: liveCommission,
-          bonus: (Number(it.qty)||0)*(Number(it.price)||0)*(Number(liveCommission)||0)/100
+          bonus: (Number(it.qty)||0)*(Number(liveCommission)||0)
         });
       });
     });
@@ -1738,7 +1738,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                     {s.items.map((it,i)=>(
                       <div key={i} style={{...S.row,marginBottom:6,fontSize:12,alignItems:"flex-start"}}>
                         <span style={{color:C.textMid,flex:1}}>{it.name} <span style={{color:C.textFaint}}>×{it.qty}</span></span>
-                        <span style={{color:C.textSub,textAlign:"right"}}>{it.commission}% = <strong style={{color:C.green}}>{it.bonus.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</strong></span>
+                        <span style={{color:C.textSub,textAlign:"right"}}>{it.commission}₸/ед × {it.qty} = <strong style={{color:C.green}}>{it.bonus.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</strong></span>
                       </div>
                     ))}
                     <div style={{...S.row,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,fontWeight:700}}>
