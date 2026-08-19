@@ -1878,10 +1878,21 @@ function AdminCabinet({ user, onLogout, desktop }) {
             const noAccount = employees.filter(e=>!e.has_account&&(!q||e.name.toLowerCase().includes(q)||(e.code||'').includes(q)));
             const accounts = users.filter(u=>!q||u.name.toLowerCase().includes(q)||u.login.toLowerCase().includes(q));
 
-            const EmpSection = ({ id, title, badgeColor, count, children }) => {
+            // ВАЖНО: обычная функция, возвращающая JSX, а НЕ JSX-компонент (не
+            // вызывается как <EmpSection/>). Раньше здесь была
+            // const EmpSection = (...) => {...}, определяемая заново на каждый
+            // рендер AdminCabinet и используемая как <EmpSection/> — из-за этого
+            // React считал её каждый раз новым типом компонента и полностью
+            // размонтировал/пересоздавал содержимое (включая поля логина и
+            // пароля) при любом изменении состояния, в т.ч. при вводе символа в
+            // поле — из-за этого набор текста в полях сбрасывал фокус после
+            // каждой буквы. Вызов как обычной функции этого не делает: типы
+            // возвращаемых элементов (div/input) остаются стабильными между
+            // рендерами. См. аналогичный фикс в renderAliasSection выше.
+            const renderEmpSection = ({ id, title, badgeColor, count, children }) => {
               const open = !!empSectionsOpen[id];
               return (
-                <div style={{...S.card, padding:0, marginBottom:12, overflow:"hidden"}}>
+                <div key={id} style={{...S.card, padding:0, marginBottom:12, overflow:"hidden"}}>
                   <div
                     onClick={()=>setEmpSectionsOpen(s=>({...s,[id]:!s[id]}))}
                     style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 14px",cursor:"pointer",background:C.surface}}
@@ -1902,8 +1913,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
             };
 
             return <>
-              <EmpSection id="noAccount" title="Без учётной записи" badgeColor={C.red} count={noAccount.length}>
-                {noAccount.length===0
+              {renderEmpSection({ id:"noAccount", title:"Без учётной записи", badgeColor:C.red, count:noAccount.length, children:
+                noAccount.length===0
                   ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:13}}>{q?"Ничего не найдено":"Все сотрудники из 1С уже с аккаунтами"}</div>
                   : noAccount.map((emp,empIdx)=>{
                       const formKey = (emp.code||'nocode')+'_'+empIdx;
@@ -1922,11 +1933,11 @@ function AdminCabinet({ user, onLogout, desktop }) {
                         </div>
                       </div>
                       );
-                    })}
-              </EmpSection>
+                    })
+              })}
 
-              <EmpSection id="accounts" title="Учётные записи" badgeColor={C.green} count={accounts.length}>
-                {accounts.length===0
+              {renderEmpSection({ id:"accounts", title:"Учётные записи", badgeColor:C.green, count:accounts.length, children:
+                accounts.length===0
                   ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:13}}>{q?"Ничего не найдено":"Аккаунтов пока нет"}</div>
                   : accounts.map(u=>(
                     <div key={u.id} style={{...S.card,padding:10,marginBottom:6,opacity:u.active?1:0.55}}>
@@ -1956,8 +1967,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
                         >{changingPwd===u.id?"...":"Сменить пароль"}</button>
                       </div>
                     </div>
-                  ))}
-              </EmpSection>
+                  ))
+              })}
             </>;
           })()}
         </div>
