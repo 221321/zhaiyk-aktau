@@ -410,6 +410,23 @@ app.put('/api/users/:id/toggle', authMiddleware, (req, res) => {
   res.json({ success: true, active: newActive });
 });
 
+const USER_ROLES = ['sales', 'driver', 'manager', 'admin'];
+
+app.put('/api/users/:id/role', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const id = parseInt(req.params.id);
+  const { role } = req.body;
+  if (!USER_ROLES.includes(role)) {
+    return res.status(400).json({ error: 'Недопустимая роль' });
+  }
+  const user = db.get('users').find({ id }).value();
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  db.get('users').find({ id }).assign({ role }).write();
+  res.json({ success: true, role });
+});
+
 app.put('/api/users/:id/password', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });

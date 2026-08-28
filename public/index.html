@@ -1388,6 +1388,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [togglingUser, setTogglingUser] = useState(null);
   const [passwordEdits, setPasswordEdits] = useState({});
   const [changingPwd, setChangingPwd] = useState(null);
+  const [roleEdits, setRoleEdits] = useState({});
+  const [savingRole, setSavingRole] = useState(null);
   const [empSectionsOpen, setEmpSectionsOpen] = useState({ noAccount: true, accounts: true });
 
   const loadEmployees = useCallback(async () => {
@@ -1422,6 +1424,18 @@ function AdminCabinet({ user, onLogout, desktop }) {
       await loadUsers();
     } catch(e) { alert(e.message); }
     setTogglingUser(null);
+  };
+
+  const changeRole = async (u) => {
+    const role = roleEdits[u.id];
+    if (!role || role === u.role) return;
+    setSavingRole(u.id);
+    try {
+      await apiCall('PUT', `/api/users/${u.id}/role`, { role });
+      await loadUsers();
+      setRoleEdits(r => { const n = {...r}; delete n[u.id]; return n; });
+    } catch(e) { alert(e.message); }
+    setSavingRole(null);
   };
 
   const changePassword = async (u) => {
@@ -1953,6 +1967,20 @@ function AdminCabinet({ user, onLogout, desktop }) {
                         >{u.active?"Отключить":"Включить"}</button>
                       </div>
                       <div style={{display:"flex",gap:6,marginTop:8}}>
+                        <select
+                          style={{...S.select,padding:"7px 8px",fontSize:12,flex:1}}
+                          value={roleEdits[u.id]!==undefined?roleEdits[u.id]:u.role}
+                          onChange={e=>setRoleEdits(r=>({...r,[u.id]:e.target.value}))}
+                        >
+                          {ROLE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                        </select>
+                        <button
+                          style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap",opacity:(savingRole===u.id||roleEdits[u.id]===undefined||roleEdits[u.id]===u.role)?0.5:1}}
+                          disabled={savingRole===u.id||roleEdits[u.id]===undefined||roleEdits[u.id]===u.role}
+                          onClick={()=>changeRole(u)}
+                        >{savingRole===u.id?"...":"Сохранить роль"}</button>
+                      </div>
+                      <div style={{display:"flex",gap:6,marginTop:6}}>
                         <input
                           type="password"
                           style={{...S.input,padding:"7px 8px",fontSize:12}}
