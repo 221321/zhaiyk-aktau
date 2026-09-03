@@ -234,6 +234,7 @@ function OrderCard({order, onOpen, onEdit}) {
         <div style={{flex:1,marginRight:10}}>
           <p style={S.cardTitle}>№ {order.id} · {order.client_name||order.clientName}</p>
           <p style={S.cardSub}>{order.address} · {order.time_slot||order.timeSlot}</p>
+          {order.sales_name&&<p style={{...S.cardSub,marginTop:2}}>👤 {order.sales_name}</p>}
         </div>
         <StatusBadge status={order.status}/>
       </div>
@@ -703,7 +704,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
             <button style={S.btnPrimary} onClick={()=>onUpdateStatus(order.id,"in_transit",null)}>🚚 Взять в доставку</button>
           </div>
         )}
-        {currentUser.role==="sales" && order.status==="new" && (
+        {(currentUser.role==="sales"||(currentUser.role==="senior_sales"&&order.sales_id===currentUser.id)) && order.status==="new" && (
           <div style={{marginTop:20}}>
             <button style={S.btnDanger} onClick={()=>{if(window.confirm('Отозвать заявку № '+order.id+'? Действие нельзя отменить.'))onUpdateStatus(order.id,"revoked",null);}}>🗑 Отозвать заявку</button>
           </div>
@@ -951,9 +952,9 @@ function SalesCabinet({ user, token, onLogout }) {
                 </div>
               ))}
             </>}
-            <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>Мои заявки</p>
+            <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>{user.role==="senior_sales"?"Заявки всех торговых":"Мои заявки"}</p>
             {visibleOrders.length===0?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заявок пока нет</p></div>
-              :visibleOrders.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder} onEdit={o.status==="new"?setEditOrder:null}/>)}
+              :visibleOrders.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder} onEdit={o.status==="new"&&(user.role!=="senior_sales"||o.sales_id===user.id)?setEditOrder:null}/>)}
           </>}
         </>}
         {tab==="new"&&<>
@@ -1400,7 +1401,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   }, []);
   useEffect(() => { loadEmployees(); loadUsers(); }, []);
 
-  const ROLE_OPTIONS = [["sales","Торговый представитель"],["driver","Водитель"],["manager","Менеджер"],["admin","Администратор"]];
+  const ROLE_OPTIONS = [["sales","Торговый представитель"],["senior_sales","Старший торговый представитель"],["driver","Водитель"],["warehouse","Зав. склад"],["manager","Менеджер"],["admin","Администратор"]];
 
   const updateEmpForm = (formKey, field, value) => setEmpForm(f => ({...f, [formKey]: {...f[formKey], [field]: value}}));
 
@@ -2012,7 +2013,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     </>
   );
 
-  const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", admin:"Администратор", manager:"Менеджер" };
+  const ROLE_LABEL = { sales:"Торговый представитель", senior_sales:"Старший торговый представитель", driver:"Водитель", warehouse:"Зав. склад", admin:"Администратор", manager:"Менеджер" };
 
   if (desktop) {
     return (
@@ -2050,6 +2051,108 @@ function AdminCabinet({ user, onLogout, desktop }) {
       <div style={S.nav}>
         {[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["employees","👤","Сотр."]].map(([k,ic,lb])=>(
           <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
+            <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WarehouseCabinet({ user, onLogout }) {
+  const [tab, setTab] = useState("stock");
+  const [products, setProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+  const [stockSearch, setStockSearch] = useState("");
+
+  const loadProducts = useCallback(async () => {
+    try {
+      const data = await fetch('/api/products').then(r => r.json());
+      setProducts(data);
+    } catch(e) {}
+    setLoadingProducts(false);
+  }, []);
+  useEffect(() => { loadProducts(); }, []);
+
+  const [orders, setOrders] = useState([]);
+  const [loadingOrders, setLoadingOrders] = useState(true);
+  const loadOrders = useCallback(async () => {
+    try {
+      const data = await apiCall('GET', '/api/orders');
+      setOrders(data);
+    } catch(e) { if(e.message.includes('токен')) onLogout(); }
+    setLoadingOrders(false);
+  }, []);
+  useEffect(() => { loadOrders(); }, []);
+
+  const q = stockSearch.trim().toLowerCase();
+  const filteredProducts = products
+    .filter(p => !q || (p.display_name||p.name||'').toLowerCase().includes(q) || (p.code||'').includes(q))
+    .slice()
+    .sort((a,b)=>(a.display_name||a.name||'').localeCompare(b.display_name||b.name||''));
+
+  const queueOrders = orders.filter(o=>o.status==="new");
+  const activeOrders = orders.filter(o=>o.status==="in_transit");
+  const byDriver = {};
+  activeOrders.forEach(o=>{
+    const key = o.driver_id || 'unassigned';
+    if (!byDriver[key]) byDriver[key] = { name: o.driver_name || 'Без назначенного водителя', orders: [] };
+    byDriver[key].orders.push(o);
+  });
+  const driverGroups = Object.values(byDriver).sort((a,b)=>b.orders.length-a.orders.length);
+
+  return (
+    <div style={{paddingBottom:72}}>
+      <div style={S.page}>
+        {tab==="stock"&&<>
+          <p style={S.sectionTitle}>Остатки на складе</p>
+          <input
+            style={{...S.input,marginBottom:12}}
+            placeholder="Поиск по названию или коду..."
+            value={stockSearch}
+            onChange={e=>setStockSearch(e.target.value)}
+          />
+          {loadingProducts?<div style={S.loadingWrap}>Загрузка...</div>
+            :filteredProducts.length===0?<div style={{textAlign:"center",padding:"40px 0",color:C.textFaint}}>Ничего не найдено</div>
+            :filteredProducts.map(p=>{
+              const out = p.stock!=null && p.stock<=0;
+              return (
+                <div key={p.code} style={{...S.card,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <p style={S.cardTitle}>{p.display_name||p.name}</p>
+                    <p style={S.cardSub}>Код: {p.code}{p.group?' · '+p.group:''}</p>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <p style={{margin:0,fontWeight:800,fontFamily:FH,fontSize:18,color:out?C.red:C.navy}}>{p.stock!=null?p.stock:'—'}</p>
+                    <p style={{margin:0,fontSize:11,color:C.textFaint}}>{p.unit||''}</p>
+                  </div>
+                </div>
+              );
+            })
+          }
+        </>}
+        {tab==="shipping"&&<>
+          <p style={S.sectionTitle}>Отгрузка</p>
+          {queueOrders.length>0&&(
+            <div style={{...S.card,background:C.redSoft,marginBottom:12}}>
+              <p style={{margin:0,fontSize:13,fontWeight:600,color:C.accentDark}}>⏳ Ожидают назначения водителя: {queueOrders.length}</p>
+            </div>
+          )}
+          {loadingOrders?<div style={S.loadingWrap}>Загрузка...</div>
+            :driverGroups.length===0?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>🚚</div><p>Нет заявок в работе</p></div>
+            :driverGroups.map((g,i)=>(
+              <div key={i} style={S.card}>
+                <p style={S.cardTitle}>{g.name}</p>
+                <p style={S.cardSub}>{g.orders.length} {g.orders.length===1?'заявка':'заявок'} в работе</p>
+                <button onClick={()=>printLoadingList(g.orders,g.name)} style={{marginTop:10,width:"100%",padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист</button>
+              </div>
+            ))
+          }
+        </>}
+      </div>
+      <div style={S.nav}>
+        {[["stock","📦","Остатки"],["shipping","🚚","Отгрузка"]].map(([k,ic,lb])=>(
+          <button key={k} style={{...S.navBtn(tab===k),flex:1}} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
         ))}
@@ -2132,7 +2235,7 @@ function App() {
       setTimeout(() => setPushMsg(''), 8000);
     });
   };
-  const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", admin:"Администратор", manager:"Менеджер" };
+  const ROLE_LABEL = { sales:"Торговый представитель", senior_sales:"Старший торговый представитель", driver:"Водитель", warehouse:"Зав. склад", admin:"Администратор", manager:"Менеджер" };
 
   if (checking) return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.surface}}>
@@ -2231,8 +2334,9 @@ function App() {
           <div style={{fontSize:11,color:C.textSub}}>{ROLE_LABEL[user.role]} · <button style={S.logoutBtn} onClick={handleLogout}>Выйти</button></div>
         </div>
       </div>
-      {user.role==="sales"&&<SalesCabinet user={user} onLogout={handleLogout}/>}
+      {(user.role==="sales"||user.role==="senior_sales")&&<SalesCabinet user={user} onLogout={handleLogout}/>}
       {user.role==="driver"&&<DriverCabinet user={user} onLogout={handleLogout}/>}
+      {user.role==="warehouse"&&<WarehouseCabinet user={user} onLogout={handleLogout}/>}
       {(user.role==="admin"||user.role==="manager")&&<AdminCabinet user={user} onLogout={handleLogout} desktop={false}/>}
     </div>
   );

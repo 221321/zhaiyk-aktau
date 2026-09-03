@@ -410,7 +410,7 @@ app.put('/api/users/:id/toggle', authMiddleware, (req, res) => {
   res.json({ success: true, active: newActive });
 });
 
-const USER_ROLES = ['sales', 'driver', 'manager', 'admin'];
+const USER_ROLES = ['sales', 'senior_sales', 'driver', 'warehouse', 'manager', 'admin'];
 
 app.put('/api/users/:id/role', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
@@ -644,7 +644,7 @@ app.post('/api/client-contacts', authMiddleware, (req, res) => {
 db.defaults({ debtSettlements: [] }).write();
 
 app.get('/api/debts', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'driver', 'sales'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'driver', 'sales', 'senior_sales'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const orders = db.get('orders').value();
