@@ -1889,7 +1889,15 @@ function AdminCabinet({ user, onLogout, desktop }) {
           />
           {(() => {
             const q = empSearch.trim().toLowerCase();
-            const noAccount = employees.filter(e=>!e.has_account&&(!q||e.name.toLowerCase().includes(q)||(e.code||'').includes(q)));
+            // _origIdx фиксируется до фильтрации, чтобы formKey сотрудника без
+            // кода 1С не менялся при наборе текста в поиске — иначе позиция
+            // сотрудника в отфильтрованном списке сдвигается, его formKey
+            // "достаётся" другому сотруднику, и уже введённые логин/пароль
+            // показываются под чужим именем (данные не были ничьи, но
+            // визуально привязываются не к тому человеку)
+            const noAccount = employees
+              .map((e,_origIdx)=>({...e,_origIdx}))
+              .filter(e=>!e.has_account&&(!q||e.name.toLowerCase().includes(q)||(e.code||'').includes(q)));
             const accounts = users.filter(u=>!q||u.name.toLowerCase().includes(q)||u.login.toLowerCase().includes(q));
 
             // ВАЖНО: обычная функция, возвращающая JSX, а НЕ JSX-компонент (не
@@ -1930,8 +1938,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
               {renderEmpSection({ id:"noAccount", title:"Без учётной записи", badgeColor:C.red, count:noAccount.length, children:
                 noAccount.length===0
                   ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:13}}>{q?"Ничего не найдено":"Все сотрудники из 1С уже с аккаунтами"}</div>
-                  : noAccount.map((emp,empIdx)=>{
-                      const formKey = (emp.code||'nocode')+'_'+empIdx;
+                  : noAccount.map((emp)=>{
+                      const formKey = (emp.code||'nocode')+'_'+emp._origIdx;
                       return (
                       <div key={formKey} style={{...S.card,padding:10,marginBottom:6}}>
                         <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {emp.code}</div>

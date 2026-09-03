@@ -476,8 +476,17 @@ app.post('/api/employees/sync', (req, res) => {
   if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
+  // Сотрудники без кода 1С — нормальный случай (см. /api/employees), поэтому
+  // дедуплицируем по коду только тех, у кого он есть, а не выбрасываем всех
+  // остальных из выгрузки
   const seen = new Set();
-  const deduped = (items || []).filter(it => it && it.code && !seen.has(it.code) && seen.add(it.code));
+  const deduped = (items || []).filter(it => {
+    if (!it) return false;
+    if (!it.code) return true;
+    if (seen.has(it.code)) return false;
+    seen.add(it.code);
+    return true;
+  });
   db.set('employees', deduped).write();
   res.json({ success: true, count: deduped.length, skipped: (items || []).length - deduped.length });
 });
