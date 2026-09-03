@@ -62,12 +62,22 @@ console.log('✅ База данных готова');
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Нет токена' });
+  let payload;
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
+    payload = jwt.verify(token, JWT_SECRET);
   } catch {
-    res.status(401).json({ error: 'Неверный токен' });
+    return res.status(401).json({ error: 'Неверный токен' });
   }
+  // Роль и активность всегда берём из базы, а не из токена: токен живёт 7 дней,
+  // и без этой проверки смена должности сотруднику или его отключение
+  // администратором не подействует, пока сотрудник сам не перезайдёт —
+  // всё это время он продолжит работать со старыми правами
+  const user = db.get('users').find({ id: payload.id }).value();
+  if (!user || user.active === false) {
+    return res.status(401).json({ error: 'Неверный токен' });
+  }
+  req.user = { id: user.id, login: user.login, name: user.name, role: user.role, region: user.region, client_code: user.client_code || null };
+  next();
 }
 
 // ===== PUSH: подписки и отправка =====
@@ -466,7 +476,7 @@ app.put('/api/users/:id/toggle', authMiddleware, (req, res) => {
   res.json({ success: true, active: newActive });
 });
 
-const USER_ROLES = ['sales', 'driver', 'manager', 'admin'];
+const USER_ROLES = ['sales', 'senior_sales', 'driver', 'cashier', 'warehouse', 'manager', 'admin', 'store'];
 
 app.put('/api/users/:id/role', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
@@ -532,8 +542,17 @@ app.post('/api/employees/sync', (req, res) => {
   if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
+  // Сотрудники без кода 1С — нормальный случай (см. /api/employees), поэтому
+  // дедуплицируем по коду только тех, у кого он есть, а не выбрасываем всех
+  // остальных из выгрузки
   const seen = new Set();
-  const deduped = (items || []).filter(it => it && it.code && !seen.has(it.code) && seen.add(it.code));
+  const deduped = (items || []).filter(it => {
+    if (!it) return false;
+    if (!it.code) return true;
+    if (seen.has(it.code)) return false;
+    seen.add(it.code);
+    return true;
+  });
   db.set('employees', deduped).write();
   res.json({ success: true, count: deduped.length, skipped: (items || []).length - deduped.length });
 });
@@ -1025,7 +1044,7 @@ app.post('/api/client-contacts', authMiddleware, (req, res) => {
 db.defaults({ debtSettlements: [] }).write();
 
 app.get('/api/debts', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'driver', 'sales'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'driver', 'sales', 'senior_sales'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const orders = db.get('orders').value();
