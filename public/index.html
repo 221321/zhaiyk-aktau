@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>ЖАЙЫК АКТАУ</title>
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#DA1A10">
+<meta name="theme-color" content="#1DA851">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -40,10 +40,14 @@ const SC = { new: "#DA1A10", in_transit: "#B45309", delivered: "#15803D", cancel
 const SB = { new: "#FCEBEA", in_transit: "#FBF3E6", delivered: "#EAF5EE", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6" };
 
 const C = {
-  navy:"#1C1917", accent:"#DA1A10", accentDark:"#B31510", redSoft:"#FCEBEA",
+  navy:"#1C1917", accent:"#1DA851", accentDark:"#157E3C", redSoft:"#FCEBEA",
   white:"#FFFFFF", surface:"#F5F3F0",
   border:"#E7E3DE", text:"#1C1917", textMid:"#44403C", textSub:"#79716B", textFaint:"#A8A29E",
   green:"#15803D", amber:"#B45309", red:"#DC2626",
+  // "Новых"/"Ожидают" в статистике — отдельный от бренда цвет (раньше accent
+  // и он же совпадал с этим статусом; после ребрендинга в зелёный оставляем
+  // тёплый оттенок, иначе не отличить от зелёного "Доставлено" рядом).
+  pending:"#DA1A10",
   cashGreen:"#DCFCE7", qrBlue:"#DBEAFE", debtAmber:"#FEF3C7",
 };
 const R = 14;
@@ -56,7 +60,7 @@ const S = {
   logoSub: { fontSize:11, color:C.accent, margin:"0 0 32px", fontWeight:700, letterSpacing:"0.14em", textTransform:"uppercase" },
   label: { display:"block", fontSize:12, fontWeight:600, color:C.textMid, marginBottom:6, letterSpacing:"0.04em", textTransform:"uppercase" },
   input: { width:"100%", padding:"13px 14px", border:`1.5px solid ${C.border}`, borderRadius:10, fontSize:16, outline:"none", boxSizing:"border-box", background:C.white, color:C.text },
-  btnPrimary: { width:"100%", padding:"15px", background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontSize:16, fontWeight:800, cursor:"pointer", marginTop:4, boxShadow:"0 6px 18px rgba(218,26,16,0.28)" },
+  btnPrimary: { width:"100%", padding:"15px", background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontSize:16, fontWeight:800, cursor:"pointer", marginTop:4, boxShadow:"0 6px 18px rgba(29,168,81,0.28)" },
   errorBox: { background:"#FEF2F2", color:C.red, border:"1px solid #FECACA", padding:"10px 13px", borderRadius:8, fontSize:13, marginBottom:16 },
   header: { background:C.white, color:C.text, padding:"0 18px", height:62, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100, borderBottom:`1px solid ${C.border}` },
   headerMark: { fontFamily:"'Inter', sans-serif", fontSize:17, fontWeight:800, letterSpacing:"-0.01em", color:C.navy, lineHeight:1.1 },
@@ -89,7 +93,7 @@ const S = {
   revenueCard: { background:C.white, border:`1px solid ${C.border}`, borderRadius:R, padding:"16px", marginBottom:12 },
   revenueLabel: { margin:"0 0 4px", fontSize:11, color:C.textSub, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" },
   revenueNum: { fontFamily:FH, margin:0, fontSize:28, fontWeight:800, color:C.accent, fontVariantNumeric:"tabular-nums" },
-  bigCreate: { display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", minHeight:56, background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontWeight:800, fontSize:17, cursor:"pointer", boxShadow:"0 6px 18px rgba(218,26,16,0.28)", marginBottom:16 },
+  bigCreate: { display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", minHeight:56, background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontWeight:800, fontSize:17, cursor:"pointer", boxShadow:"0 6px 18px rgba(29,168,81,0.28)", marginBottom:16 },
   bigCreatePlus: { width:26, height:26, borderRadius:"50%", background:"rgba(255,255,255,0.22)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, fontWeight:700, lineHeight:1 },
   // десктоп: сайдбар менеджера
   side: { width:240, flexShrink:0, background:C.white, color:C.text, padding:"26px 20px", display:"flex", flexDirection:"column", position:"sticky", top:0, height:"100vh", borderRight:`1px solid ${C.border}` },
@@ -223,6 +227,22 @@ function PaymentTags({payment}) {
   if (payment.qr>0)   tags.push({label:`QR: ${payment.qr.toLocaleString()} ₸`,   bg:C.qrBlue,   color:"#1D4ED8"});
   if (payment.debt>0) tags.push({label:`Долг: ${payment.debt.toLocaleString()} ₸`, bg:C.debtAmber, color:"#92400E"});
   return <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>{tags.map((t,i)=><span key={i} style={{fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:5,background:t.bg,color:t.color,whiteSpace:"nowrap"}}>{t.label}</span>)}</div>;
+}
+
+// Приманка для автозаполнения браузера: на странице сохранён пароль от
+// сайта, и некоторые браузеры (Edge) игнорируют autocomplete="off"/
+// type="search" на обычных полях поиска и всё равно подставляют туда
+// сохранённый логин. Скрытая пара username/password перед реальным
+// контентом отдаёт браузеру "законную" цель для автозаполнения вместо
+// поля поиска.
+function AutofillDecoy() {
+  const hidden = {position:"absolute", width:1, height:1, padding:0, margin:-1, overflow:"hidden", clip:"rect(0,0,0,0)", whiteSpace:"nowrap", border:0};
+  return (
+    <div aria-hidden="true" style={hidden}>
+      <input type="text" name="username" autoComplete="username" tabIndex="-1"/>
+      <input type="password" name="password" autoComplete="current-password" tabIndex="-1"/>
+    </div>
+  );
 }
 
 function OrderCard({order, onOpen, onEdit}) {
@@ -372,14 +392,15 @@ function DebtsPanel() {
   useEffect(()=>{ loadDebts(); }, []);
 
   const settle = async (d) => {
-    const amount = Number(settleAmounts[d.order_id] ?? d.remaining);
-    const method = settleMethod[d.order_id] || 'cash';
+    const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
+    const amount = Number(settleAmounts[key] ?? d.remaining);
+    const method = settleMethod[key] || 'cash';
     if (!amount || amount<=0) return;
-    setSavingId(d.order_id);
+    setSavingId(key);
     try {
-      await apiCall('POST', '/api/debts/settle', { orderId: d.order_id, amount, method });
+      await apiCall('POST', '/api/debts/settle', { orderId: d.order_id||undefined, saleId: d.sale_id||undefined, amount, method });
       await loadDebts();
-      setSettleAmounts(a=>({...a,[d.order_id]:''}));
+      setSettleAmounts(a=>({...a,[key]:''}));
     } catch(e) { alert(e.message); }
     setSavingId(null);
   };
@@ -388,25 +409,28 @@ function DebtsPanel() {
     <>
       <p style={S.sectionTitle}>Должники</p>
       {loadingDebts?<div style={S.loadingWrap}>Загрузка...</div>:debts.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Долгов нет</div>:
-        debts.map(d=>(
-          <div key={d.order_id} style={{...S.card, borderLeft: d.overdue?`4px solid ${C.red}`:"4px solid #F59E0B", background: d.overdue?"#FEF2F2":C.white}}>
+        debts.map(d=>{
+          const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
+          return (
+          <div key={key} style={{...S.card, borderLeft: d.overdue?`4px solid ${C.red}`:"4px solid #F59E0B", background: d.overdue?"#FEF2F2":C.white}}>
             <div style={S.row}>
               <div>
                 <p style={S.cardTitle}>{d.client_name} {d.overdue&&<span style={{color:C.red,fontSize:11,fontWeight:700}}>· ПРОСРОЧЕН</span>}</p>
-                <p style={{...S.cardSub,color:d.overdue?"#B91C1C":C.textSub}}>№ {d.order_id} · {d.date}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
+                <p style={{...S.cardSub,color:d.overdue?"#B91C1C":C.textSub}}>{d.order_id?`№ ${d.order_id}`:`Касса № ${d.sale_id}`} · {d.date}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
               </div>
               <p style={{margin:0,fontWeight:800,fontFamily:FH,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
             </div>
             <div style={{display:"flex",gap:6,marginTop:10}}>
-              <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder={`До ${d.remaining}`} value={settleAmounts[d.order_id]||''} onFocus={e=>e.target.select()} onChange={e=>setSettleAmounts(a=>({...a,[d.order_id]:e.target.value}))}/>
-              <select style={{...S.select,padding:"7px 8px",fontSize:12,width:110}} value={settleMethod[d.order_id]||'cash'} onChange={e=>setSettleMethod(m=>({...m,[d.order_id]:e.target.value}))}>
+              <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder={`До ${d.remaining}`} value={settleAmounts[key]||''} onFocus={e=>e.target.select()} onChange={e=>setSettleAmounts(a=>({...a,[key]:e.target.value}))}/>
+              <select style={{...S.select,padding:"7px 8px",fontSize:12,width:110}} value={settleMethod[key]||'cash'} onChange={e=>setSettleMethod(m=>({...m,[key]:e.target.value}))}>
                 <option value="cash">Нал</option>
                 <option value="qr">Безнал</option>
               </select>
-              <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,width:"auto",whiteSpace:"nowrap",marginTop:0,boxShadow:"none",opacity:savingId===d.order_id?0.5:1}} disabled={savingId===d.order_id} onClick={()=>settle(d)}>Погасить</button>
+              <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,width:"auto",whiteSpace:"nowrap",marginTop:0,boxShadow:"none",opacity:savingId===key?0.5:1}} disabled={savingId===key} onClick={()=>settle(d)}>Погасить</button>
             </div>
           </div>
-        ))
+          );
+        })
       }
     </>
   );
@@ -703,7 +727,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
             <button style={S.btnPrimary} onClick={()=>onUpdateStatus(order.id,"in_transit",null)}>🚚 Взять в доставку</button>
           </div>
         )}
-        {currentUser.role==="sales" && order.status==="new" && (
+        {(currentUser.role==="sales"||currentUser.role==="store") && order.status==="new" && (
           <div style={{marginTop:20}}>
             <button style={S.btnDanger} onClick={()=>{if(window.confirm('Отозвать заявку № '+order.id+'? Действие нельзя отменить.'))onUpdateStatus(order.id,"revoked",null);}}>🗑 Отозвать заявку</button>
           </div>
@@ -755,14 +779,16 @@ function SalesCabinet({ user, token, onLogout }) {
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [editOrder, setEditOrder] = useState(null);
-  const newLine = () => ({uid:Math.random(),productId:null,name:"",qty:"",price:"",search:"",showDrop:false});
-  const [lines, setLines] = useState([newLine()]);
+  const [lines, setLines] = useState([]);
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogCategory, setCatalogCategory] = useState("");
+  const [catalogSort, setCatalogSort] = useState("name_asc");
 
   const [clients, setClients] = useState([]);
   const [clientSearchText, setClientSearchText] = useState("");
   const [showClientDrop, setShowClientDrop] = useState(false);
   useEffect(() => {
-    fetch('/api/clients').then(r=>r.json()).then(setClients).catch(()=>{});
+    apiCall('GET','/api/clients').then(setClients).catch(()=>{});
   }, []);
 
   const [debts, setDebts] = useState([]);
@@ -784,7 +810,9 @@ function SalesCabinet({ user, token, onLogout }) {
     unit: p.unit || 'кг',
     group: p.group || '',
     code: p.code,
-    stock: p.stock
+    stock: p.stock,
+    photo: p.photo || null,
+    barcode: p.barcode || ''
   }))))
   .catch(() => {});
   }, []);
@@ -800,12 +828,42 @@ function SalesCabinet({ user, token, onLogout }) {
   useEffect(() => { loadOrders(); }, []);
 
   const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
-  const removeLine = (uid) => setLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
-  const addLine = () => setLines(ls=>[...ls,newLine()]);
-  const selectProduct = (uid,prod) => {
+  const removeLine = (uid) => setLines(ls=>ls.filter(l=>l.uid!==uid));
+
+  // Клик по карточке в каталоге: товар уже в корзине — увеличиваем кол-во
+  // (не больше остатка, цена строки не трогается); иначе добавляем новую
+  // строку с qty=1. Цена по-прежнему не проставляется автоматически —
+  // если есть несколько тарифов (priceOptions), торговый выбирает нужный
+  // прямо в корзине (те же кнопки-тарифы, что были раньше на строке).
+  const addProductToCart = (prod) => {
     if (prod.stock !== null && prod.stock !== undefined && prod.stock <= 0) return;
-    updateLine(uid,{productId:prod.id,code:prod.code,name:prod.name,price:"",search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock});
+    const alreadyInCart = lines.some(l => l.productId === prod.id);
+    if (!alreadyInCart && !window.confirm(`Добавить «${prod.name}» в заявку?`)) return;
+    setLines(ls => {
+      const existing = ls.find(l => l.productId === prod.id);
+      if (existing) {
+        const nextQty = (Number(existing.qty) || 0) + 1;
+        const capped = prod.stock != null ? Math.min(nextQty, prod.stock) : nextQty;
+        return ls.map(l => l.productId === prod.id ? {...l, qty: String(capped)} : l);
+      }
+      return [...ls, {uid:Math.random(),productId:prod.id,code:prod.code,name:prod.name,price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",search:prod.name,showDrop:false,qty:"1",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock}];
+    });
   };
+
+  const categories = useMemo(() => [...new Set(products.map(p=>p.group).filter(Boolean))].sort(), [products]);
+  const filteredCatalog = useMemo(() => {
+    const q = catalogSearch.trim().toLowerCase();
+    const list = products.filter(p =>
+      (!q || p.name.toLowerCase().includes(q) || (p.code||'').includes(q) || (p.barcode||'').includes(q)) &&
+      (!catalogCategory || p.group === catalogCategory)
+    );
+    const sorted = list.slice();
+    if (catalogSort === "price_asc") sorted.sort((a,b)=>(a.price||a.priceOptions?.[0]||0)-(b.price||b.priceOptions?.[0]||0));
+    else if (catalogSort === "price_desc") sorted.sort((a,b)=>(b.price||b.priceOptions?.[0]||0)-(a.price||a.priceOptions?.[0]||0));
+    else if (catalogSort === "group") sorted.sort((a,b)=>(a.group||"").localeCompare(b.group||"",'ru')||a.name.localeCompare(b.name,'ru'));
+    else sorted.sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+    return sorted;
+  }, [products, catalogSearch, catalogCategory, catalogSort]);
 
   const filledLines = lines.filter(l=>l.name&&Number(l.qty)>0&&Number(l.price)>0);
   const total = filledLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
@@ -818,9 +876,9 @@ function SalesCabinet({ user, token, onLogout }) {
     setSubmitting(true);
     try {
       await apiCall('POST','/api/orders',{clientName:client.name,clientCode:client.code,address:client.address||'',timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment,contactName,contactPhone});
-      setLines([newLine()]); setClientId(""); setClientSearchText(""); setTimeSlot(""); setComment(""); setContactName(""); setContactPhone("");
+      setLines([]); setClientId(""); setClientSearchText(""); setTimeSlot(""); setComment(""); setContactName(""); setContactPhone("");
       setSubmitted(true); setTab("orders"); loadOrders();
-      fetch('/api/clients').then(r=>r.json()).then(setClients).catch(()=>{});
+      apiCall('GET','/api/clients').then(setClients).catch(()=>{});
       setTimeout(()=>setSubmitted(false),4000);
     } catch(e) { alert(e.message); }
     setSubmitting(false);
@@ -895,7 +953,7 @@ function SalesCabinet({ user, token, onLogout }) {
               <div style={S.statCard()}><p style={S.statNum()}>{stats.total}</p><p style={S.statLabel}>Всего заявок</p></div>
               <div style={S.statCard()}><p style={S.statNum(C.green)}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
               <div style={S.statCard()}><p style={S.statNum(C.amber)}>{stats.inTransit}</p><p style={S.statLabel}>В работе</p></div>
-              <div style={S.statCard()}><p style={S.statNum(C.accent)}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
+              <div style={S.statCard()}><p style={S.statNum(C.pending)}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
             </div>
             <div style={S.revenueCard}>
               <p style={S.revenueLabel}>Продажи за период</p>
@@ -1019,38 +1077,85 @@ function SalesCabinet({ user, token, onLogout }) {
           <div style={S.card}>
             <div style={{...S.row,marginBottom:12}}>
               <label style={S.label}>
-                Номенклатура {products.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:11}}>({products.length} поз. из 1С)</span>}
+                Каталог {products.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:11}}>({products.length} поз. из 1С)</span>}
               </label>
-              <button onClick={addLine} style={{background:C.navy,color:C.white,border:"none",borderRadius:8,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Строка</button>
+              {filledLines.length>0&&<span style={{fontSize:12,fontWeight:700,color:C.navy,background:C.surface,padding:"4px 10px",borderRadius:99,whiteSpace:"nowrap"}}>🛒 {filledLines.length} · {total.toLocaleString()} ₸</span>}
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,marginBottom:6}}>
-              {["Наименование","Кол-во","Цена ₸",""].map((h,i)=><div key={i} style={{fontSize:10,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
+            <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+              <input type="search" style={{...S.input,flex:1,minWidth:160}} placeholder="Поиск по названию, коду или штрихкоду..." value={catalogSearch} onChange={e=>setCatalogSearch(e.target.value)} autoComplete="off" name="catalog-search"/>
+              <select style={{...S.select,width:"auto"}} value={catalogSort} onChange={e=>setCatalogSort(e.target.value)}>
+                <option value="name_asc">По названию</option>
+                <option value="price_asc">Сначала дешёвые</option>
+                <option value="price_desc">Сначала дорогие</option>
+                <option value="group">По отделам</option>
+              </select>
             </div>
-            {lines.map(line=>{
-              const matched=line.search.length>0?products.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):products.slice(0,50);
-              const lineTotal=Number(line.qty)>0&&Number(line.price)>0?Number(line.qty)*Number(line.price):null;
-              return(
-                <div key={line.uid} style={{marginBottom:8}}>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,alignItems:"center"}}>
-                    <div style={{position:"relative"}}>
-                      <input style={{...S.input,padding:"8px 10px",fontSize:13}} placeholder="Введите товар..." value={line.search}
-                        onChange={e=>updateLine(line.uid,{search:e.target.value,name:e.target.value,productId:null,price:"",showDrop:true})}
-                        onFocus={()=>updateLine(line.uid,{showDrop:true})}
-                        onBlur={()=>setTimeout(()=>updateLine(line.uid,{showDrop:false}),180)}
-                      />
-                      {line.showDrop&&matched.length>0&&(
-                        <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:180,overflowY:"auto"}}>
-                          {matched.map(p=>{
-                            const outOfStock = p.stock !== null && p.stock !== undefined && p.stock <= 0;
-                            return (
-                            <div key={p.id} onMouseDown={()=>selectProduct(line.uid,p)} style={{padding:"9px 12px",cursor:outOfStock?"not-allowed":"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13,opacity:outOfStock?0.5:1,background:outOfStock?C.surface:C.white}}>
-                              <div style={{fontWeight:600}}>{p.name}</div>
-                              <div style={{fontSize:11,color:outOfStock?C.red:C.textFaint}}>{p.price>0?p.price.toLocaleString()+' ₸ / ':''}{p.unit}{p.group?' · '+p.group:''}{p.stock!==null&&p.stock!==undefined?(outOfStock?' · Нет в наличии':' · Остаток: '+p.stock):''}</div>
-                            </div>
-                          )})}
+            {categories.length>1&&(
+              <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+                <button onClick={()=>setCatalogCategory("")} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${catalogCategory===""?C.navy:C.border}`,background:catalogCategory===""?C.navy:C.white,color:catalogCategory===""?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>Все</button>
+                {categories.map(cat=>(
+                  <button key={cat} onClick={()=>setCatalogCategory(cat)} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${catalogCategory===cat?C.navy:C.border}`,background:catalogCategory===cat?C.navy:C.white,color:catalogCategory===cat?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>{cat}</button>
+                ))}
+              </div>
+            )}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(150px,1fr))",gap:10}}>
+              {filteredCatalog.length===0&&(
+                <div style={{gridColumn:"1/-1",textAlign:"center",padding:"28px 0",color:C.textFaint,fontSize:13}}>
+                  {products.length===0?"Товары ещё не загружены":"Ничего не найдено"}
+                </div>
+              )}
+              {filteredCatalog.map(p=>{
+                const outOfStock = p.stock !== null && p.stock !== undefined && p.stock <= 0;
+                const lowStock = !outOfStock && p.stock !== null && p.stock !== undefined && p.stock <= 5;
+                const inCart = lines.find(l=>l.productId===p.id);
+                const priceLabel = p.priceOptions && p.priceOptions.length>1
+                  ? `от ${Math.min(...p.priceOptions).toLocaleString()} ₸`
+                  : (p.priceOptions && p.priceOptions.length===1 ? p.priceOptions[0].toLocaleString()+' ₸' : 'цена по запросу');
+                return (
+                  <div key={p.id} style={{border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden",background:C.white,opacity:outOfStock?0.55:1}}>
+                    <div style={{position:"relative",aspectRatio:"1",background:C.white,display:"flex",alignItems:"center",justifyContent:"center",padding:8,boxSizing:"border-box"}}>
+                      {p.photo
+                        ? <img src={p.photo} style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+                        : <span style={{fontSize:26,color:C.textFaint}}>📦</span>}
+                      {lowStock && <span style={{position:"absolute",top:6,left:6,background:"#FEF3C7",color:C.amber,fontSize:9,fontWeight:700,padding:"3px 7px",borderRadius:99}}>Осталось {p.stock}</span>}
+                    </div>
+                    <div style={{padding:"8px 10px"}}>
+                      <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:2,minHeight:32,lineHeight:1.3}}>{p.name}</div>
+                      <div style={{fontSize:13,fontWeight:800,fontFamily:FH,color:C.navy,marginBottom:6}}>{priceLabel}</div>
+                      {outOfStock ? (
+                        <div style={{fontSize:11,color:C.red,textAlign:"center",padding:"7px 0"}}>Нет в наличии</div>
+                      ) : inCart ? (
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.surface,borderRadius:8,padding:"3px"}}>
+                          <button onClick={()=>{
+                            const nextQty=(Number(inCart.qty)||0)-1;
+                            if(nextQty<=0) removeLine(inCart.uid); else updateLine(inCart.uid,{qty:String(nextQty)});
+                          }} style={{width:26,height:26,border:"none",borderRadius:6,background:C.white,boxShadow:`0 0 0 1px ${C.border}`,fontSize:15,fontWeight:700,color:C.navy,cursor:"pointer"}}>−</button>
+                          <span style={{fontSize:13,fontWeight:800,color:C.navy}}>{inCart.qty||0}</span>
+                          <button onClick={()=>{
+                            const nextQty=(Number(inCart.qty)||0)+1;
+                            updateLine(inCart.uid,{qty:String(p.stock!=null?Math.min(nextQty,p.stock):nextQty)});
+                          }} style={{width:26,height:26,border:"none",borderRadius:6,background:C.white,boxShadow:`0 0 0 1px ${C.border}`,fontSize:15,fontWeight:700,color:C.navy,cursor:"pointer"}}>+</button>
                         </div>
+                      ) : (
+                        <button onClick={()=>addProductToCart(p)} style={{width:"100%",padding:"7px",border:"none",borderRadius:8,background:C.navy,color:C.white,fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                          Добавить
+                        </button>
                       )}
                     </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {lines.some(l=>l.productId)&&(
+          <div style={S.card}>
+            <label style={{...S.label,marginBottom:10,display:"block"}}>Корзина</label>
+            {lines.filter(l=>l.productId).map(line=>{
+              const lineTotal=Number(line.qty)>0&&Number(line.price)>0?Number(line.qty)*Number(line.price):null;
+              return(
+                <div key={line.uid} style={{marginBottom:10}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 56px 80px 28px",gap:6,alignItems:"center"}}>
+                    <div style={{fontSize:13,color:C.textMid,fontWeight:600}}>{line.name}</div>
                     <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"center"}} placeholder="кол" value={line.qty} type="number" min="1" max={line.stock!=null?line.stock:undefined}
                       onChange={e=>{
                         let v = e.target.value;
@@ -1066,7 +1171,7 @@ function SalesCabinet({ user, token, onLogout }) {
                     />
                     <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
                   </div>
-                  {line.stock!=null&&<div style={{fontSize:11,color:C.textFaint,marginTop:2}}>На складе: {line.stock} {}</div>}
+                  {line.stock!=null&&<div style={{fontSize:11,color:C.textFaint,marginTop:2}}>На складе: {line.stock}</div>}
                   {lineTotal&&<div style={{textAlign:"right",fontSize:11,color:C.textSub,marginTop:2,paddingRight:34}}>= <strong style={{color:C.navy}}>{lineTotal.toLocaleString()} ₸</strong></div>}
                   {line.priceOptions&&line.priceOptions.length>0&&(
                     <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
@@ -1078,8 +1183,10 @@ function SalesCabinet({ user, token, onLogout }) {
                 </div>
               );
             })}
-            {filledLines.length>0&&<><hr style={{...S.divider,marginTop:8}}/><div style={S.row}><span style={{fontSize:13,color:C.textSub}}>Итого</span><span style={{fontSize:17,fontWeight:800,fontFamily:FH,color:C.navy}}>{total.toLocaleString()} ₸</span></div></>}
+            <hr style={{...S.divider,marginTop:8}}/>
+            <div style={S.row}><span style={{fontSize:13,color:C.textSub}}>Итого</span><span style={{fontSize:17,fontWeight:800,fontFamily:FH,color:C.navy}}>{total.toLocaleString()} ₸</span></div>
           </div>
+          )}
           <div style={S.card}>
             <div style={S.formGroup}>
               <label style={S.label}>Комментарий</label>
@@ -1088,6 +1195,576 @@ function SalesCabinet({ user, token, onLogout }) {
             <button style={{...S.btnPrimary,opacity:(submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim())?0.45:1}} onClick={handleSubmit} disabled={submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()}>{submitting?"Отправка...":"Отправить заявку"}</button>
                   </div>
         </>}
+      </div>
+    </div>
+  );
+}
+
+const STORE_TABS = [["orders","📋","Заказы"],["new","➕","Новый заказ"],["report","📊","Отчёт"],["profile","🏬","Профиль"]];
+const STORE_TAB_TITLES = { orders:"Заказы", new:"Новый заказ", report:"Отчёт о закупках", profile:"Профиль магазина" };
+const STORE_FILTERS = [["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"]];
+
+function StoreCabinet({ user, onLogout, desktop }) {
+  const [tab, setTab] = useState("orders");
+  useEffect(() => {
+    const handlePopState = () => setTab("orders");
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [timeSlot, setTimeSlot] = useState("");
+  const [comment, setComment] = useState("");
+  const [lines, setLines] = useState([]);
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogCategory, setCatalogCategory] = useState("");
+  const [catalogSort, setCatalogSort] = useState("name_asc");
+
+  // Профиль магазина (адрес доставки, контактное лицо) — заполняется один
+  // раз на вкладке "Профиль" и дальше просто подставляется в каждый новый
+  // заказ, а не вводится заново каждый раз. Сам заказ сервер всё равно
+  // привяжет к user.client_code независимо от того, что отправит браузер.
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const loadProfile = useCallback(async () => {
+    try {
+      const data = await apiCall('GET', '/api/my-client');
+      setProfile(data);
+    } catch(e) {}
+    setProfileLoading(false);
+  }, []);
+  useEffect(() => { loadProfile(); }, []);
+
+  const address = profile?.address || '';
+  const contactName = profile?.contactName || '';
+  const contactPhone = profile?.contactPhone || '';
+  const profileComplete = !!(address.trim() && contactPhone.trim());
+
+  const [profileForm, setProfileForm] = useState({address:'',contactName:'',contactPhone:''});
+  useEffect(() => {
+    if (profile) setProfileForm({address:profile.address||'',contactName:profile.contactName||'',contactPhone:profile.contactPhone||''});
+  }, [profile]);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const saveProfile = async () => {
+    if (!profileForm.contactPhone.trim()) return;
+    setSavingProfile(true);
+    try {
+      const saved = await apiCall('PUT','/api/my-client',profileForm);
+      setProfile(p=>({...p,...saved}));
+      setProfileSaved(true);
+      setTimeout(()=>setProfileSaved(false),3000);
+    } catch(e) { alert(e.message); }
+    setSavingProfile(false);
+  };
+
+  const [products, setProducts] = useState([]);
+  useEffect(() => {
+    fetch('/api/products')
+      .then(r => r.json())
+      .then(data => setProducts(data.filter(p => p.has_alias && p.price1 != null).map((p, i) => ({
+        id: i + 1,
+        name: p.display_name || p.name,
+        price: p.price1,
+        unit: p.unit || 'кг',
+        group: p.group || '',
+        code: p.code,
+        stock: p.stock,
+        photo: p.photo || null,
+        barcode: p.barcode || ''
+      }))))
+      .catch(() => {});
+  }, []);
+
+  const loadOrders = useCallback(async () => {
+    try {
+      const data = await apiCall('GET', '/api/orders');
+      setOrders(data);
+    } catch(e) { if(e.message.includes('токен')) onLogout(); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadOrders(); }, []);
+
+  const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
+  const removeLine = (uid) => setLines(ls=>ls.filter(l=>l.uid!==uid));
+
+  // Клик по карточке в каталоге: товар уже в корзине — увеличиваем кол-во
+  // (не больше остатка), иначе добавляем новую строку с qty=1. Первое
+  // добавление товара требует подтверждения — повторные клики (увеличение
+  // кол-ва уже выбранного товара) больше не переспрашивают.
+  const addProductToCart = (prod) => {
+    if (prod.stock !== null && prod.stock !== undefined && prod.stock <= 0) return;
+    const alreadyInCart = lines.some(l => l.productId === prod.id);
+    if (!alreadyInCart && !window.confirm(`Добавить «${prod.name}» в заказ?`)) return;
+    setLines(ls => {
+      const existing = ls.find(l => l.productId === prod.id);
+      if (existing) {
+        const nextQty = (Number(existing.qty) || 0) + 1;
+        const capped = prod.stock != null ? Math.min(nextQty, prod.stock) : nextQty;
+        return ls.map(l => l.productId === prod.id ? {...l, qty: String(capped)} : l);
+      }
+      return [...ls, {uid:Math.random(),productId:prod.id,code:prod.code,name:prod.name,price:prod.price,search:prod.name,showDrop:false,qty:"1",stock:prod.stock}];
+    });
+  };
+
+  const categories = useMemo(() => [...new Set(products.map(p=>p.group).filter(Boolean))].sort(), [products]);
+  const filteredCatalog = useMemo(() => {
+    const q = catalogSearch.trim().toLowerCase();
+    const list = products.filter(p =>
+      (!q || p.name.toLowerCase().includes(q) || (p.code||'').includes(q) || (p.barcode||'').includes(q)) &&
+      (!catalogCategory || p.group === catalogCategory)
+    );
+    const sorted = list.slice();
+    if (catalogSort === "price_asc") sorted.sort((a,b)=>(a.price||0)-(b.price||0));
+    else if (catalogSort === "price_desc") sorted.sort((a,b)=>(b.price||0)-(a.price||0));
+    else if (catalogSort === "group") sorted.sort((a,b)=>(a.group||"").localeCompare(b.group||"",'ru')||a.name.localeCompare(b.name,'ru'));
+    else sorted.sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+    return sorted;
+  }, [products, catalogSearch, catalogCategory, catalogSort]);
+
+  const filledLines = lines.filter(l=>l.name&&Number(l.qty)>0&&Number(l.price)>0);
+  const total = filledLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
+
+  const handleSubmit = async () => {
+    if (submitting) return;
+    if (filledLines.length===0||!timeSlot||!contactPhone.trim()) return;
+    const items = filledLines.map(l=>({id:l.productId,code:l.code,name:l.name,qty:Number(l.qty),price:Number(l.price)}));
+    setSubmitting(true);
+    try {
+      await apiCall('POST','/api/orders',{address,timeSlot,items,total,comment,contactName,contactPhone});
+      setLines([]); setTimeSlot(""); setComment("");
+      setSubmitted(true); setTab("orders"); loadOrders();
+      setTimeout(()=>setSubmitted(false),4000);
+    } catch(e) { alert(e.message); }
+    setSubmitting(false);
+  };
+
+  const handleUpdateStatus = async (id, status, payment) => {
+    try {
+      await apiCall('PUT',`/api/orders/${id}/status`,{status});
+      setSelectedOrder(null); loadOrders();
+    } catch(e) { alert(e.message); }
+  };
+
+  const todayStr = new Date().toISOString().slice(0,10);
+  const monthAgoStr = (() => { const d = new Date(); d.setDate(d.getDate()-29); return d.toISOString().slice(0,10); })();
+  const [storeDateFrom, setStoreDateFrom] = useState(monthAgoStr);
+  const [storeDateTo, setStoreDateTo] = useState(todayStr);
+  const [storePreset, setStorePreset] = useState("month");
+  const [filter, setFilter] = useState("all");
+
+  const applyStorePreset = (preset) => {
+    const now = new Date();
+    let from = new Date(now);
+    if (preset === "week") from.setDate(now.getDate() - 6);
+    else if (preset === "month") from.setDate(now.getDate() - 29);
+    setStorePreset(preset);
+    if (preset !== "custom") {
+      setStoreDateFrom(from.toISOString().slice(0,10));
+      setStoreDateTo(todayStr);
+    }
+  };
+
+  const periodOrders = useMemo(() => orders.filter(o=>o.date>=storeDateFrom&&o.date<=storeDateTo), [orders, storeDateFrom, storeDateTo]);
+  const filteredOrders = filter==="all" ? periodOrders : periodOrders.filter(o=>o.status===filter);
+
+  const stats = {
+    total: periodOrders.length,
+    delivered: periodOrders.filter(o=>o.status==="delivered").length,
+    inTransit: periodOrders.filter(o=>o.status==="in_transit").length,
+    new: periodOrders.filter(o=>o.status==="new").length,
+    cancelled: periodOrders.filter(o=>o.status==="cancelled").length,
+    returned: periodOrders.filter(o=>o.status==="returned").length,
+    spent: periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.total||0),0),
+    cashTotal: periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_cash||0),0),
+    qrTotal: periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_qr||0),0),
+    debtTotal: periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_debt||0),0),
+  };
+
+  // Отчёт о закупках: что и сколько магазин купил за период (только по
+  // доставленным заказам — отменённые/возвраты в закуп не считаем).
+  const productBreakdown = useMemo(() => {
+    const map = {};
+    periodOrders.filter(o=>o.status==="delivered").forEach(o=>{
+      const its = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
+      its.forEach(it=>{
+        const key = it.code || it.name;
+        if (!map[key]) map[key] = { name: it.name, qty: 0, sum: 0 };
+        map[key].qty += Number(it.qty)||0;
+        map[key].sum += (Number(it.qty)||0)*(Number(it.price)||0);
+      });
+    });
+    return Object.values(map).sort((a,b)=>b.sum-a.sum);
+  }, [periodOrders]);
+
+  const dateRangeInputs = (
+    <div style={{marginBottom:16}}>
+      <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+        {[["day","День"],["week","Неделя"],["month","Месяц"],["custom","Свободный отбор"]].map(([k,lb])=>(
+          <button key={k} onClick={()=>applyStorePreset(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${storePreset===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:storePreset===k?C.navy:C.white,color:storePreset===k?C.white:C.textMid}}>{lb}</button>
+        ))}
+      </div>
+      {storePreset==="custom"&&(
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:120}}>
+            <label style={{...S.label,marginBottom:4}}>С</label>
+            <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={storeDateFrom} onChange={e=>setStoreDateFrom(e.target.value)}/>
+          </div>
+          <div style={{flex:1,minWidth:120}}>
+            <label style={{...S.label,marginBottom:4}}>По</label>
+            <input type="date" style={{...S.input,padding:"8px 10px",fontSize:13}} value={storeDateTo} onChange={e=>setStoreDateTo(e.target.value)}/>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const filterChips = (
+    <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+      {STORE_FILTERS.map(([k,lb])=>(
+        <button key={k} onClick={()=>setFilter(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${filter===k?C.navy:C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,background:filter===k?C.navy:C.white,color:filter===k?C.white:C.textMid}}>{lb}</button>
+      ))}
+    </div>
+  );
+
+  const ordersTable = (
+    <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden"}}>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead>
+            <tr>{["№","Дата","Адрес / время","Позиций","Сумма","Оплата","Водитель","Статус"].map((h,i)=><th key={i} style={S.th}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {filteredOrders.map(o=>{
+              const payment = {cash:o.payment_cash||0,qr:o.payment_qr||0,debt:o.payment_debt||0};
+              const its = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
+              return (
+                <tr key={o.id} className="rowh" onClick={()=>setSelectedOrder(o)} style={{cursor:"pointer"}}>
+                  <td style={{...S.td,fontFamily:FH,fontWeight:800}}>{o.id}</td>
+                  <td style={S.td}>{o.date}</td>
+                  <td style={S.td}>
+                    <div style={{fontSize:12,color:C.textSub}}>{o.address}</div>
+                    <div style={{fontSize:12,color:C.textFaint}}>{o.time_slot}</div>
+                  </td>
+                  <td style={S.td}>{its.length}</td>
+                  <td style={{...S.td,fontFamily:FH,fontWeight:800,whiteSpace:"nowrap"}}>{(o.total||0).toLocaleString()} ₸</td>
+                  <td style={S.td}><PaymentTags payment={payment}/></td>
+                  <td style={S.td}>{o.driver_name || <span style={{color:C.textSub,fontStyle:"italic",fontSize:13}}>—</span>}</td>
+                  <td style={S.td}><StatusBadge status={o.status}/></td>
+                </tr>
+              );
+            })}
+            {filteredOrders.length===0&&(
+              <tr><td colSpan="8" style={{...S.td,textAlign:"center",color:C.textFaint,padding:"40px 0"}}>Заказов нет</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  // ===== "Новый заказ" — каталог в стиле кассы (см. CashierCabinet): большая
+  // сетка товаров слева, липкая колонка адреса/корзины/оформления справа на
+  // десктопе. На мобильном остаётся прежний порядок карточек друг под другом.
+  const newOrderAddressCard = (
+    <div style={S.card}>
+      <div style={S.formGroup}>
+        <div style={{...S.row,marginBottom:2}}>
+          <label style={S.label}>Адрес и контакт</label>
+          <button style={{background:"transparent",border:"none",color:C.navy,fontSize:12,fontWeight:600,cursor:"pointer",padding:0}} onClick={()=>setTab("profile")}>Изменить</button>
+        </div>
+        {profileComplete ? (
+          <div style={{fontSize:13,color:C.textMid,lineHeight:1.5}}>
+            {address}<br/>
+            {contactName&&<>{contactName}, </>}{contactPhone}
+          </div>
+        ) : (
+          <div style={{fontSize:13,color:C.textFaint,fontStyle:"italic"}}>Не заполнено</div>
+        )}
+      </div>
+      <div style={S.formGroup}>
+        <label style={S.label}>Время доставки</label>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {TIME_SLOTS.map(slot=>(
+            <button key={slot} onClick={()=>setTimeSlot(slot)} style={{padding:"12px",borderRadius:10,border:`1.5px solid ${timeSlot===slot?C.navy:C.border}`,background:timeSlot===slot?C.navy:C.white,color:timeSlot===slot?C.white:C.textMid,fontSize:14,fontWeight:500,cursor:"pointer",textAlign:"left"}}>{slot}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const newOrderCatalogCard = (
+    <div style={S.card}>
+      <div style={{...S.row,marginBottom:12}}>
+        <label style={S.label}>Каталог {products.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:11}}>({products.length} поз.)</span>}</label>
+        {filledLines.length>0&&<span style={{fontSize:12,fontWeight:700,color:C.navy,background:C.surface,padding:"4px 10px",borderRadius:99,whiteSpace:"nowrap"}}>🛒 {filledLines.length} · {total.toLocaleString()} ₸</span>}
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+        <input type="search" style={{...S.input,flex:1,minWidth:160}} placeholder="Поиск по названию, коду или штрихкоду..." value={catalogSearch} onChange={e=>setCatalogSearch(e.target.value)} autoComplete="off" name="catalog-search"/>
+        <select style={{...S.select,width:"auto"}} value={catalogSort} onChange={e=>setCatalogSort(e.target.value)}>
+          <option value="name_asc">По названию</option>
+          <option value="price_asc">Сначала дешёвые</option>
+          <option value="price_desc">Сначала дорогие</option>
+          <option value="group">По отделам</option>
+        </select>
+      </div>
+      {categories.length>1&&(
+        <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+          <button onClick={()=>setCatalogCategory("")} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${catalogCategory===""?C.navy:C.border}`,background:catalogCategory===""?C.navy:C.white,color:catalogCategory===""?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>Все</button>
+          {categories.map(cat=>(
+            <button key={cat} onClick={()=>setCatalogCategory(cat)} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${catalogCategory===cat?C.navy:C.border}`,background:catalogCategory===cat?C.navy:C.white,color:catalogCategory===cat?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>{cat}</button>
+          ))}
+        </div>
+      )}
+      <div style={{display:"grid",gridTemplateColumns: desktop?"repeat(auto-fill, minmax(150px,1fr))":"1fr 1fr",gap:10}}>
+        {filteredCatalog.length===0&&(
+          <div style={{gridColumn:"1/-1",textAlign:"center",padding:"28px 0",color:C.textFaint,fontSize:13}}>
+            {products.length===0?"Товары ещё не загружены":"Ничего не найдено"}
+          </div>
+        )}
+        {filteredCatalog.map(p=>{
+          const outOfStock = p.stock !== null && p.stock !== undefined && p.stock <= 0;
+          const lowStock = !outOfStock && p.stock !== null && p.stock !== undefined && p.stock <= 5;
+          const inCart = lines.find(l=>l.productId===p.id);
+          return (
+            <div key={p.id} style={{border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden",background:C.white,opacity:outOfStock?0.55:1}}>
+              <div style={{position:"relative",aspectRatio:"1",background:C.white,display:"flex",alignItems:"center",justifyContent:"center",padding:8,boxSizing:"border-box"}}>
+                {p.photo
+                  ? <img src={p.photo} style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+                  : <span style={{fontSize:26,color:C.textFaint}}>📦</span>}
+                {lowStock && <span style={{position:"absolute",top:6,left:6,background:"#FEF3C7",color:C.amber,fontSize:9,fontWeight:700,padding:"3px 7px",borderRadius:99}}>Осталось {p.stock}</span>}
+              </div>
+              <div style={{padding:"8px 10px"}}>
+                <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:2,minHeight:32,lineHeight:1.3}}>{p.name}</div>
+                <div style={{fontSize:13,fontWeight:800,fontFamily:FH,color:C.navy,marginBottom:6}}>{p.price>0?p.price.toLocaleString()+' ₸':'цена по запросу'}</div>
+                {outOfStock ? (
+                  <div style={{fontSize:11,color:C.red,textAlign:"center",padding:"7px 0"}}>Нет в наличии</div>
+                ) : inCart ? (
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.surface,borderRadius:8,padding:"3px"}}>
+                    <button onClick={()=>{
+                      const nextQty=(Number(inCart.qty)||0)-1;
+                      if(nextQty<=0) removeLine(inCart.uid); else updateLine(inCart.uid,{qty:String(nextQty)});
+                    }} style={{width:26,height:26,border:"none",borderRadius:6,background:C.white,boxShadow:`0 0 0 1px ${C.border}`,fontSize:15,fontWeight:700,color:C.navy,cursor:"pointer"}}>−</button>
+                    <span style={{fontSize:13,fontWeight:800,color:C.navy}}>{inCart.qty||0}</span>
+                    <button onClick={()=>{
+                      const nextQty=(Number(inCart.qty)||0)+1;
+                      updateLine(inCart.uid,{qty:String(p.stock!=null?Math.min(nextQty,p.stock):nextQty)});
+                    }} style={{width:26,height:26,border:"none",borderRadius:6,background:C.white,boxShadow:`0 0 0 1px ${C.border}`,fontSize:15,fontWeight:700,color:C.navy,cursor:"pointer"}}>+</button>
+                  </div>
+                ) : (
+                  <button onClick={()=>addProductToCart(p)} style={{width:"100%",padding:"7px",border:"none",borderRadius:8,background:C.navy,color:C.white,fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                    Добавить
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const newOrderCartCard = filledLines.length>0 && (
+    <div style={S.card}>
+      <label style={{...S.label,marginBottom:10,display:"block"}}>Корзина</label>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 52px 74px 26px",gap:6,marginBottom:6}}>
+        {["Товар","Кол-во","Сумма",""].map((h,i)=><div key={i} style={{fontSize:10,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
+      </div>
+      {lines.filter(l=>l.productId).map(line=>{
+        const lineTotal = Number(line.qty)>0 ? Number(line.qty)*Number(line.price) : 0;
+        return (
+          <div key={line.uid} style={{display:"grid",gridTemplateColumns:"1fr 52px 74px 26px",gap:6,alignItems:"center",marginBottom:6}}>
+            <div style={{fontSize:12,color:C.textMid}}>{line.name}</div>
+            <input style={{...S.input,padding:"6px 4px",fontSize:12,textAlign:"center"}} type="number" min="1" max={line.stock!=null?line.stock:undefined} value={line.qty}
+              onChange={e=>{
+                let v = e.target.value;
+                if (line.stock!=null && Number(v) > line.stock) v = String(line.stock);
+                updateLine(line.uid,{qty:v});
+              }}
+              onFocus={e=>e.target.select()}
+            />
+            <div style={{fontSize:12,textAlign:"right",fontWeight:700,color:C.navy}}>{lineTotal?lineTotal.toLocaleString():''}</div>
+            <button onClick={()=>removeLine(line.uid)} style={{width:26,height:30,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:13,color:C.textFaint}}>×</button>
+          </div>
+        );
+      })}
+      <hr style={{...S.divider,marginTop:8}}/>
+      <div style={S.row}><span style={{fontSize:13,color:C.textSub}}>Итого</span><span style={{fontSize:17,fontWeight:800,fontFamily:FH,color:C.navy}}>{total.toLocaleString()} ₸</span></div>
+    </div>
+  );
+
+  const newOrderCommentCard = (
+    <div style={S.card}>
+      <div style={S.formGroup}>
+        <label style={S.label}>Комментарий</label>
+        <textarea style={S.textarea} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Особые пожелания..."/>
+      </div>
+      <button style={{...S.btnPrimary,opacity:(submitting||filledLines.length===0||!timeSlot||!contactPhone.trim())?0.45:1}} onClick={handleSubmit} disabled={submitting||filledLines.length===0||!timeSlot||!contactPhone.trim()}>{submitting?"Отправка...":"Отправить заказ"}</button>
+    </div>
+  );
+
+  const content = (
+    <>
+      {tab==="orders"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Заказы</p>}
+        {!desktop&&<button style={S.bigCreate} onClick={()=>{window.history.pushState({view:'new'},'','');setTab("new");}}><span style={S.bigCreatePlus}>+</span> Новый заказ</button>}
+        {submitted&&<div style={S.alertSuccess}>Заказ отправлен! Менеджер направит его в доставку.</div>}
+        {dateRangeInputs}
+        {loading?<div style={S.loadingWrap}>Загрузка...</div>:<>
+          <div style={{...S.statsRow, gridTemplateColumns: desktop?"repeat(6, minmax(0,1fr))":"1fr 1fr"}}>
+            <div style={S.statCard()}><p style={S.statNum()}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
+            <div style={S.statCard()}><p style={S.statNum(C.green)}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
+            <div style={S.statCard()}><p style={S.statNum(C.amber)}>{stats.inTransit}</p><p style={S.statLabel}>В работе</p></div>
+            <div style={S.statCard()}><p style={S.statNum(C.pending)}>{stats.new}</p><p style={S.statLabel}>Новых</p></div>
+            <div style={S.statCard()}><p style={S.statNum(C.red)}>{stats.cancelled}</p><p style={S.statLabel}>Отказ</p></div>
+            <div style={S.statCard()}><p style={S.statNum("#7C3AED")}>{stats.returned}</p><p style={S.statLabel}>Возврат</p></div>
+          </div>
+          {filterChips}
+          {desktop
+            ? ordersTable
+            : (filteredOrders.length===0
+              ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заказов нет</p></div>
+              :filteredOrders.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder}/>))
+          }
+        </>}
+      </>}
+      {tab==="report"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Отчёт о закупках</p>}
+        {dateRangeInputs}
+        <div style={{...S.revenueCard, maxWidth: desktop?560:"none"}}>
+          <p style={S.revenueLabel}>Потрачено за период</p>
+          <p style={{...S.revenueNum, marginBottom:14}}>{stats.spent.toLocaleString()} ₸</p>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            {[{label:"Наличка",val:stats.cashTotal,bg:C.cashGreen,col:"#15803D"},{label:"QR код",val:stats.qrTotal,bg:C.qrBlue,col:"#1D4ED8"},{label:"Долг",val:stats.debtTotal,bg:C.debtAmber,col:"#92400E"}].map(({label,val,bg,col})=>(
+              <div key={label} style={{background:bg,borderRadius:10,padding:"10px 8px"}}>
+                <p style={{margin:"0 0 2px",fontSize:10,color:col,fontWeight:700}}>{label.toUpperCase()}</p>
+                <p style={{margin:0,fontSize:13,fontWeight:800,fontFamily:FH,color:col}}>{(val||0).toLocaleString()} ₸</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{maxWidth: desktop?560:"none"}}>
+          <p style={{...S.sectionTitle,fontSize:15,marginTop:8}}>По товарам</p>
+          {productBreakdown.length===0?<div style={{textAlign:"center",padding:"32px 0",color:C.textFaint}}>Нет доставленных заказов за этот период</div>:
+            productBreakdown.map((p,i)=>(
+              <div key={i} style={S.card}>
+                <div style={S.row}>
+                  <div><p style={S.cardTitle}>{p.name}</p><p style={S.cardSub}>{p.qty.toLocaleString()} шт/кг</p></div>
+                  <p style={{margin:0,fontWeight:800,fontFamily:FH,color:C.navy}}>{p.sum.toLocaleString()} ₸</p>
+                </div>
+              </div>
+          ))}
+        </div>
+      </>}
+      {tab==="new"&&<>
+        {!desktop&&(
+          <div style={{...S.row,marginBottom:14}}>
+            <p style={{...S.sectionTitle,margin:0}}>Новый заказ</p>
+            <button style={S.btnSecondary} onClick={()=>setTab("orders")}>← Назад</button>
+          </div>
+        )}
+          {!profileLoading && !profileComplete && (
+            <div style={{...S.alertSuccess,background:"#FEF3C7",color:"#92400E",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <span>Заполните адрес и телефон в профиле — тогда не придётся вводить их в каждом заказе.</span>
+              <button style={{...S.btnSecondary,width:"auto",whiteSpace:"nowrap"}} onClick={()=>setTab("profile")}>Заполнить профиль</button>
+            </div>
+          )}
+          {desktop ? (
+            // Каталог слева + липкая колонка адрес/корзина/оформление справа —
+            // та же раскладка, что у кассы (CashierCabinet), чтобы магазин
+            // видел чек и мог оформить продажу, не прокручивая страницу вниз.
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 380px",gap:16,alignItems:"start"}}>
+              {newOrderCatalogCard}
+              <div style={{position:"sticky",top:20,display:"flex",flexDirection:"column",gap:16}}>
+                {newOrderAddressCard}
+                {newOrderCartCard}
+                {newOrderCommentCard}
+              </div>
+            </div>
+          ) : (
+            <>
+              {newOrderAddressCard}
+              {newOrderCatalogCard}
+              {newOrderCartCard}
+              {newOrderCommentCard}
+            </>
+          )}
+      </>}
+      {tab==="profile"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Профиль магазина</p>}
+        <div style={{maxWidth: desktop?480:"none"}}>
+          <p style={{fontSize:12,color:C.textSub,marginTop:desktop?0:-8,marginBottom:14}}>
+            Эти данные подставляются в каждый новый заказ — заполните один раз, и не придётся вводить их заново.
+          </p>
+          {profileLoading ? <div style={S.loadingWrap}>Загрузка...</div> : (
+            <div style={S.card}>
+              {profileSaved&&<div style={{...S.alertSuccess,marginBottom:14}}>Сохранено</div>}
+              <div style={S.formGroup}>
+                <label style={S.label}>Адрес доставки</label>
+                <input style={S.input} placeholder="Адрес" value={profileForm.address} onChange={e=>setProfileForm(f=>({...f,address:e.target.value}))}/>
+              </div>
+              <div style={S.formGroup}>
+                <label style={S.label}>Контактное лицо</label>
+                <input style={{...S.input,marginBottom:8}} placeholder="Имя" value={profileForm.contactName} onChange={e=>setProfileForm(f=>({...f,contactName:e.target.value}))}/>
+                <input style={S.input} placeholder="Телефон" value={profileForm.contactPhone} onChange={e=>setProfileForm(f=>({...f,contactPhone:e.target.value}))}/>
+              </div>
+              <button style={{...S.btnPrimary,opacity:(savingProfile||!profileForm.contactPhone.trim())?0.45:1}} onClick={saveProfile} disabled={savingProfile||!profileForm.contactPhone.trim()}>{savingProfile?"Сохранение...":"Сохранить"}</button>
+            </div>
+          )}
+        </div>
+      </>}
+    </>
+  );
+
+  if (desktop) {
+    return (
+      <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
+        <AutofillDecoy/>
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdateStatus} currentUser={user}/>}
+        <aside style={S.side}>
+          <div style={{marginBottom:34}}><Brand size={44}/></div>
+          <nav style={{flex:1}}>
+            {STORE_TABS.map(([k,ic,lb])=>(
+              <button key={k} style={S.sideLink(tab===k)} onClick={()=>setTab(k)}>
+                <span style={{fontSize:16}}>{ic}</span>{lb}
+              </button>
+            ))}
+          </nav>
+          <div style={{fontSize:12,color:"#8B8681",lineHeight:1.6}}>
+            Магазин · {user.name}<br/>
+            <button style={{background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,padding:"6px 14px",borderRadius:8,cursor:"pointer",fontSize:12,marginTop:8}} onClick={onLogout}>Выйти</button>
+          </div>
+        </aside>
+        <main style={S.main}>
+          <div style={{...S.row,marginBottom:22,alignItems:"flex-start"}}>
+            <div>
+              <h1 style={S.h1}>{STORE_TAB_TITLES[tab]}</h1>
+              <div style={S.h1sub}>{new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'})}</div>
+            </div>
+            {tab!=="new" && <button style={{...S.btnPrimary,width:"auto",padding:"12px 20px",marginTop:0,boxShadow:"none"}} onClick={()=>setTab("new")}>+ Новый заказ</button>}
+          </div>
+          {content}
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{paddingBottom:72}}>
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdateStatus} currentUser={user}/>}
+      <div style={S.page}>
+        {content}
+      </div>
+      <div style={S.nav}>
+        {STORE_TABS.map(([k,ic,lb])=>(
+          <button key={k} style={{...S.navBtn(tab===k),flex:1}} onClick={()=>setTab(k)}>
+            <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -1134,8 +1811,11 @@ function DriverCabinet({ user, onLogout }) {
     }
   };
 
-  const queueAll = orders.filter(o=>o.status==="new"||o.status==="in_transit");
-  const queueNew = orders.filter(o=>o.status==="new");
+  // Заявки от магазина в статусе "new" ещё не разобраны менеджером и не
+  // видны в общей очереди — менеджер сам назначает водителя (тогда заявка
+  // переходит в in_transit с driver_id и появляется как обычно).
+  const queueAll = orders.filter(o=>(o.status==="new"&&o.source!=="store")||o.status==="in_transit");
+  const queueNew = orders.filter(o=>o.status==="new"&&o.source!=="store");
   const queueActive = orders.filter(o=>o.status==="in_transit");
   const myActive = orders.filter(o=>o.status==="in_transit"&&o.driver_id===user.id);
 
@@ -1191,7 +1871,7 @@ function DriverCabinet({ user, onLogout }) {
       <div style={S.page}>
         {tab==="queue"&&<>
           <div style={S.statsRow}>
-            <div style={S.statCard()}><p style={S.statNum(C.accent)}>{queueNew.length}</p><p style={S.statLabel}>Ожидают</p></div>
+            <div style={S.statCard()}><p style={S.statNum(C.pending)}>{queueNew.length}</p><p style={S.statLabel}>Ожидают</p></div>
             <div style={S.statCard()}><p style={S.statNum(C.amber)}>{queueActive.length}</p><p style={S.statLabel}>В работе</p></div>
           </div>
           <p style={S.sectionTitle}>Заявки</p>
@@ -1275,11 +1955,20 @@ function DriverCabinet({ user, onLogout }) {
 // из 150+ позиций. React.memo + стабильные (useCallback) колбэки в
 // AdminCabinet означают, что перерисовывается только та карточка, в которой
 // реально поменялось значение.
-const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, alias, price1, price2, price3, commission, onChange, onEditRequest, onSave }) {
+const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, alias, price1, price2, price3, commission, cost, onChange, onEditRequest, onSave }) {
   return (
-    <div style={{...S.card, padding:10, marginBottom:6}}>
-      <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {p.code} {p.group?' · '+p.group:''}</div>
-      <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:C.textMid}}>{p.name}</div>
+    <div id={`product-card-${p.code}`} style={{...S.card, padding:10, marginBottom:6}}>
+      <div style={{display:"flex",gap:10,marginBottom:6}}>
+        <div style={{width:52,height:52,borderRadius:8,flex:"none",overflow:"hidden",background:C.surface,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {p.photo
+            ? <img src={p.photo} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            : <span style={{fontSize:18,color:C.textFaint}}>📷</span>}
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {p.code} {p.group?' · '+p.group:''}</div>
+          <div style={{fontSize:13,fontWeight:600,color:C.textMid}}>{p.name}</div>
+        </div>
+      </div>
       <input
         style={{...S.input,padding:"7px 10px",fontSize:13,marginBottom:6,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
         placeholder="Название для сайта (необязательно)"
@@ -1287,9 +1976,10 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, ali
         value={alias}
         onChange={e=>onChange(p.code,'alias',e.target.value)}
       />
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 70px auto",gap:6,marginBottom:3}}>
-        {["Цена 1","Цена 2","Цена 3","₸ торговому",""].map((h,i)=><div key={i} style={{fontSize:9,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 70px auto",gap:6,marginBottom:1}}>
+        {["Цена 1","Цена 2","Цена 3","Закупка","% торговому",""].map((h,i)=><div key={i} style={{fontSize:9,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
       </div>
+      <div style={{fontSize:10,color:C.textFaint,marginBottom:4}}>Цена 1 — видят магазины в своём кабинете. Цена 2/3 — на выбор торгового представителя. Закупка — для расчёта прибыли в отчётах, покупатель её не видит.</div>
       <div style={{display:"flex",gap:6}}>
         <input
           style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
@@ -1318,17 +2008,26 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, ali
           onFocus={e=>e.target.select()}
           onChange={e=>onChange(p.code,'price3',e.target.value)}
         />
+        <input
+          style={{...S.input,padding:"7px 8px",fontSize:12,background:locked?C.surface:"#F0F9F4",color:locked?C.textSub:"#157E3C",fontWeight:600}}
+          placeholder="Закупка"
+          type="number"
+          disabled={locked}
+          value={cost}
+          onFocus={e=>e.target.select()}
+          onChange={e=>onChange(p.code,'cost',e.target.value)}
+        />
         <div style={{position:"relative",width:70}}>
           <input
             style={{...S.input,padding:"7px 18px 7px 8px",fontSize:12,background:locked?C.surface:"#FFFBEB",color:locked?C.textSub:"#92400E",fontWeight:700,borderColor:locked?C.border:"#FDE68A",width:70}}
-            placeholder="0"
+            placeholder="4"
             type="number"
             disabled={locked}
             value={commission}
             onFocus={e=>e.target.select()}
             onChange={e=>onChange(p.code,'commission',e.target.value)}
           />
-          <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:12,fontWeight:700,color:locked?C.textFaint:"#92400E",pointerEvents:"none"}}>₸</span>
+          <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:12,fontWeight:700,color:locked?C.textFaint:"#92400E",pointerEvents:"none"}}>%</span>
         </div>
         <button
           style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, marginTop:0, boxShadow:"none", opacity: saving?0.5:1, width:"auto", whiteSpace:"nowrap"}}
@@ -1343,6 +2042,964 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, ali
   );
 });
 
+// Раздел (для каталога) и фото — отдельно от цен, во вкладке "Каталог"
+// (её видят и admin, и manager — они уже используют один и тот же
+// AdminCabinet). Название товара здесь не редактируется — это делает
+// "Товары" (алиас для сайта), а тут только то, что видно покупателю
+// при выборе: картинка и раздел.
+const ProductCatalogCard = memo(function ProductCatalogCard({ p, category, barcode, categoryOptions, saving, onChangeCategory, onSaveCategory, onUploadPhoto, onRemovePhoto }) {
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError, setPhotoError] = useState("");
+  const fileInputId = `catalog-photo-input-${p.code}`;
+  const categoryListId = `catalog-category-options-${p.code}`;
+
+  const onPhotoSelected = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setPhotoError("");
+    setPhotoUploading(true);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = ev => resolve(ev.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const compressed = await compressImage(dataUrl, 640, 0.75);
+      await onUploadPhoto(p.code, compressed);
+    } catch(err) {
+      setPhotoError(err.message || 'Не удалось загрузить фото');
+    }
+    setPhotoUploading(false);
+  };
+
+  const removePhoto = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm('Удалить фото товара?')) return;
+    setPhotoError("");
+    setPhotoUploading(true);
+    try {
+      await onRemovePhoto(p.code);
+    } catch(err) {
+      setPhotoError(err.message || 'Не удалось удалить фото');
+    }
+    setPhotoUploading(false);
+  };
+
+  return (
+    <div style={{...S.card, padding:10, marginBottom:0, display:"flex", flexDirection:"column"}}>
+      <div style={{position:"relative",width:"100%",aspectRatio:"1"}}>
+        <label htmlFor={fileInputId} style={{width:"100%",height:"100%",borderRadius:8,cursor:"pointer",overflow:"hidden",background:C.white,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",padding:8,boxSizing:"border-box"}}>
+          {photoUploading
+            ? <span style={{fontSize:12,color:C.textFaint}}>...</span>
+            : p.photo
+              ? <img src={p.photo} style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+              : <span style={{fontSize:40,color:C.textFaint}}>📷</span>}
+        </label>
+        {p.photo && !photoUploading && (
+          <button onClick={removePhoto} title="Удалить фото" style={{position:"absolute",top:6,right:6,width:22,height:22,borderRadius:"50%",border:`1px solid ${C.border}`,background:C.white,color:C.red,fontSize:12,lineHeight:1,cursor:"pointer",padding:0}}>✕</button>
+        )}
+      </div>
+      <input id={fileInputId} type="file" accept="image/*" style={{display:"none"}} onChange={onPhotoSelected}/>
+      <div style={{marginTop:8,marginBottom:8,minWidth:0}}>
+        <div style={{display:"flex",justifyContent:"space-between",gap:6,marginBottom:2}}>
+          <span style={{fontSize:11,color:C.textFaint}}>Код 1С: {p.code}</span>
+          <span style={{fontSize:12,fontWeight:800,fontFamily:FH,color:C.navy,whiteSpace:"nowrap"}}>{p.price1>0?p.price1.toLocaleString()+' ₸':'—'}</span>
+        </div>
+        <div style={{fontSize:13,fontWeight:600,color:C.textMid}}>{p.name}</div>
+        {photoError&&<div style={{fontSize:11,color:C.red,marginTop:2}}>{photoError}</div>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:"auto"}}>
+        <input
+          style={{...S.input,padding:"7px 10px",fontSize:13}}
+          placeholder="Штрихкод"
+          value={barcode}
+          onChange={e=>onChangeCategory(p.code,'barcode',e.target.value)}
+        />
+        <div style={{display:"flex",gap:6}}>
+          <input
+            style={{...S.input,padding:"7px 10px",fontSize:13,flex:1}}
+            placeholder="Раздел каталога (например: Посуда)"
+            value={category}
+            list={categoryListId}
+            onChange={e=>onChangeCategory(p.code,'category',e.target.value)}
+          />
+          <button
+            style={{...S.btnPrimary, padding:"7px 14px", fontSize:12, marginTop:0, boxShadow:"none", opacity: saving?0.5:1, width:"auto", whiteSpace:"nowrap"}}
+            disabled={saving}
+            onClick={()=>onSaveCategory(p)}
+          >Сохр.</button>
+        </div>
+      </div>
+      <datalist id={categoryListId}>
+        {categoryOptions.map(c=><option key={c} value={c}/>)}
+      </datalist>
+    </div>
+  );
+});
+
+// ===== CashCore (локальное кассовое ядро E-Kassa/ОФД) =====
+// Настройки (адрес ядра, ID кассы в ОФД, PIN/токен кассира) — в
+// localStorage, а не в общих данных приложения: это привязано к
+// конкретному компьютеру-кассе, а не к аккаунту/организации. Кассовое
+// ядро почти всегда стоит на другом компьютере, чем сервер приложения (касса
+// в торговой точке, сервер — в облаке), поэтому запросы к нему идёт
+// напрямую из браузера кассира на 127.0.0.1, а не через бэкенд — бэкенд
+// физически не имеет сетевого доступа к кассе в магазине.
+const CASHCORE_STORAGE_KEY = 'zhaiyk_aktau_cashcore_settings';
+function getCashcoreSettings() {
+  try {
+    const raw = localStorage.getItem(CASHCORE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : { url: 'http://127.0.0.1:8080', kkmOfdId: '', auth: '' };
+  } catch { return { url: 'http://127.0.0.1:8080', kkmOfdId: '', auth: '' }; }
+}
+function saveCashcoreSettings(s) {
+  try { localStorage.setItem(CASHCORE_STORAGE_KEY, JSON.stringify(s)); } catch {}
+}
+
+// Пробивает фискальный чек методом TradeOperation. Осознанно не шлёт
+// оплату "в долг" — в документации CashCore нет типа платежа под остаток
+// долга (только PAYMENT_CASH/PAYMENT_CARD/PAYMENT_MOBILE), поэтому чек с
+// неполной оплатой рискует не соответствовать требованиям ОФД; вызывающий
+// код (submit в PosSaleModal) сам решает не звать эту функцию, если есть
+// remainder>0, и просит пробить чек вручную после погашения долга.
+async function fiscalizeSale(sale, operation = 2) {
+  const s = getCashcoreSettings();
+  if (!s.url || !s.kkmOfdId) {
+    throw new Error('ККМ не настроена — заполните адрес ядра и ID кассы в ⚙ настройках кассы');
+  }
+  const payments = [];
+  if (sale.payment_cash > 0) payments.push({ type: 0, sum: sale.payment_cash });
+  if (sale.payment_qr > 0) payments.push({ type: 1, sum: sale.payment_qr });
+  const body = {
+    kkm_ofd_id: Number(s.kkmOfdId),
+    is_printable: true,
+    // 2 = OPERATION_SELL (продажа), 3 = OPERATION_SELL_RETURN (возврат
+    // продажи — см. voidSale в AdminCabinet: чек возврата для уже
+    // пробитой продажи, теми же позициями и оплатой).
+    operation,
+    items: (sale.items || []).map(it => ({
+      type: 1, // ItemTypeEnum.ITEM_TYPE_COMMODITY
+      commodity: { name: it.name, quantity: it.qty, price: it.price, sum: it.qty * it.price },
+    })),
+    payments,
+  };
+  let resp;
+  try {
+    resp = await fetch(`${s.url.replace(/\/$/, '')}/TradeOperation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(s.auth ? { Authorization: s.auth } : {}) },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new Error(`Кассовое ядро недоступно по адресу ${s.url}. Проверьте, что CashCore запущен на этом компьютере, и что браузер не блокирует запрос (см. "смешанный контент", если сайт открыт по https)`);
+  }
+  const data = await resp.json().catch(() => null);
+  if (!resp.ok || !data || data.response_code !== 0) {
+    const msg = data && data.response_data && (data.response_data.message || (typeof data.response_data === 'string' ? data.response_data : JSON.stringify(data.response_data)));
+    throw new Error(msg || `ККМ вернула ошибку (HTTP ${resp.status})`);
+  }
+  const r = data.response_data;
+  return { fiscal_id: r.fiscal_id, qr_code: r.qr_code, ofd_name: r.ofd_name };
+}
+
+function CashcoreSettingsForm({ initial, onSave, onClose }) {
+  const [url, setUrl] = useState(initial.url || 'http://127.0.0.1:8080');
+  const [kkmOfdId, setKkmOfdId] = useState(initial.kkmOfdId || '');
+  const [auth, setAuth] = useState(initial.auth || '');
+  return (
+    <div style={{...S.card, marginBottom:16, background:C.surface}}>
+      <p style={{margin:"0 0 10px",fontSize:13,fontWeight:700,color:C.navy}}>⚙ Настройка кассового ядра (CashCore)</p>
+      <p style={{fontSize:11,color:C.textSub,marginBottom:10}}>
+        Заполняется один раз на этом компьютере (данные не уходят на сервер, хранятся только в этом браузере).
+        Адрес — обычно http://127.0.0.1:8080, если CashCore запущен на этом же ПК. ID кассы и токен/ПИН — из
+        конфигуратора CashCoreConfig и личного кабинета ОФД.
+      </p>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
+        <input style={{...S.input,padding:"7px 10px",fontSize:13}} placeholder="Адрес CashCore (http://127.0.0.1:8080)" value={url} onChange={e=>setUrl(e.target.value)}/>
+        <input style={{...S.input,padding:"7px 10px",fontSize:13}} placeholder="ID кассы в ОФД (kkm_ofd_id)" value={kkmOfdId} onChange={e=>setKkmOfdId(e.target.value)}/>
+        <input style={{...S.input,padding:"7px 10px",fontSize:13}} placeholder="ПИН-код или Bearer-токен для заголовка Authorization" value={auth} onChange={e=>setAuth(e.target.value)}/>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button style={{...S.btnPrimary,width:"auto",padding:"7px 16px",marginTop:0,boxShadow:"none"}} onClick={()=>{ const next={url:url.trim(),kkmOfdId:kkmOfdId.trim(),auth:auth.trim()}; onSave(next); }}>Сохранить</button>
+        <button style={{...S.btnSecondary,width:"auto",padding:"7px 16px"}} onClick={onClose}>Отмена</button>
+      </div>
+    </div>
+  );
+}
+
+// Касса — мгновенная продажа по каталогу (без адреса/времени доставки).
+// Пишет в /api/sales, которая делит остаток с обычными заявками и
+// сводится в тот же отчёт "Касса" — см. AdminCabinet.
+function PosSaleModal({ products, clients, onClose, onCompleted }) {
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
+  const [cart, setCart] = useState([]);
+  const [clientSearchText, setClientSearchText] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [showClientDrop, setShowClientDrop] = useState(false);
+  const [payType, setPayType] = useState({ cash: true, qr: false });
+  const [payAmounts, setPayAmounts] = useState({ cash: "", qr: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [showCashcoreSettings, setShowCashcoreSettings] = useState(false);
+  // Пока saleResult===null — обычная форма продажи. После оформления —
+  // экран с результатом фискализации (успех/долг/ошибка), закрывается
+  // отдельной кнопкой "Готово", чтобы кассир успел увидеть, пробился чек
+  // или нет, прежде чем модалка закроется и это станет незаметно.
+  const [saleResult, setSaleResult] = useState(null);
+  const [fiscalizing, setFiscalizing] = useState(false);
+
+  const categories = useMemo(() => [...new Set(products.map(p=>p.group).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru')), [products]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return products.filter(p =>
+      (!q || p.name.toLowerCase().includes(q) || (p.code||'').includes(q) || (p.barcode||'').includes(q)) &&
+      (!category || p.group === category)
+    );
+  }, [products, search, category]);
+
+  const addToCart = (p) => {
+    setCart(c => {
+      const existing = c.find(l => l.code === p.code);
+      if (existing) {
+        const nextQty = existing.qty + 1;
+        const capped = p.stock != null ? Math.min(nextQty, p.stock) : nextQty;
+        return c.map(l => l.code === p.code ? { ...l, qty: capped } : l);
+      }
+      return [...c, { code: p.code, name: p.name, price: p.price1 || 0, qty: 1, stock: p.stock }];
+    });
+  };
+  const changeQty = (code, delta) => {
+    setCart(c => c.map(l => {
+      if (l.code !== code) return l;
+      const next = l.qty + delta;
+      const capped = l.stock != null ? Math.min(next, l.stock) : next;
+      return { ...l, qty: Math.max(0, capped) };
+    }).filter(l => l.qty > 0));
+  };
+  const changePrice = (code, price) => setCart(c => c.map(l => l.code===code ? { ...l, price: Number(price)||0 } : l));
+  const removeFromCart = (code) => setCart(c => c.filter(l => l.code !== code));
+
+  const total = cart.reduce((s,l)=>s+l.qty*l.price, 0);
+  const cashAmt = payType.cash ? (Number(payAmounts.cash)||0) : 0;
+  const qrAmt = payType.qr ? (Number(payAmounts.qr)||0) : 0;
+  const remainder = Math.max(0, total - cashAmt - qrAmt);
+  const overpaid = (cashAmt + qrAmt) > total;
+
+  const toggleCashQr = (key) => {
+    setPayType(pt => {
+      const next = { ...pt, [key]: !pt[key] };
+      if (!next[key]) setPayAmounts(a => ({ ...a, [key]: "" }));
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    // Пока не тронули суммы вручную — наличкой закрываем всю сумму по умолчанию (частый случай).
+    if (payType.cash && payAmounts.cash === "" && !payType.qr) {
+      setPayAmounts(a => ({ ...a, cash: total ? String(total) : "" }));
+    }
+  }, [total, payType.cash, payType.qr]);
+
+  const canSubmit = cart.length>0 && !submitting && (remainder<=0 || clientId) && !overpaid;
+
+  const runFiscalize = async (sale) => {
+    setFiscalizing(true);
+    try {
+      const fiscal = await fiscalizeSale(sale);
+      await apiCall('POST', `/api/sales/${sale.id}/fiscal`, fiscal);
+      setSaleResult(r => ({ ...r, fiscal, fiscalError: null }));
+    } catch (fe) {
+      setSaleResult(r => ({ ...r, fiscal: null, fiscalError: fe.message }));
+    }
+    setFiscalizing(false);
+  };
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setError("");
+    setSubmitting(true);
+    try {
+      const sale = await apiCall('POST', '/api/sales', {
+        items: cart.map(l=>({code:l.code,name:l.name,qty:l.qty,price:l.price})),
+        paymentCash: cashAmt,
+        paymentQr: qrAmt,
+        paymentDebt: remainder,
+        clientCode: clientId || undefined,
+      });
+      // Продажа с долгом (remainder>0) не фискализируем автоматически — в
+      // ККМ нет типа платежа "в долг", чек с неполной оплатой был бы
+      // некорректен. Пробивается вручную после погашения.
+      if (remainder > 0) {
+        setSaleResult({ sale, fiscal: null, fiscalError: null, skippedDebt: true });
+      } else {
+        setSaleResult({ sale, fiscal: null, fiscalError: null, skippedDebt: false });
+        await runFiscalize(sale);
+      }
+    } catch(e) { setError(e.message); }
+    setSubmitting(false);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}} onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div style={{background:C.surface,margin:"16px auto",borderRadius:16,padding:20,maxWidth:900,minHeight:"calc(100vh - 32px)"}}>
+        <div style={{...S.row,marginBottom:16}}>
+          <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>💵 Новая продажа</p>
+          <div style={{display:"flex",gap:8}}>
+            {!saleResult&&<button style={S.btnSecondary} onClick={()=>setShowCashcoreSettings(s=>!s)} title="Настройка кассового ядра">⚙ ККМ</button>}
+            <button style={S.btnSecondary} onClick={onClose}>✕ Закрыть</button>
+          </div>
+        </div>
+
+        {saleResult ? (
+          <div style={S.card}>
+            <p style={{margin:"0 0 10px",fontSize:15,fontWeight:800,color:C.navy}}>✅ Продажа №{saleResult.sale.id} оформлена — {saleResult.sale.total.toLocaleString()} ₸</p>
+            {saleResult.skippedDebt&&(
+              <div style={{...S.errorBox,background:"#FEF3E6",color:"#92400E",marginBottom:10}}>
+                В продаже есть долг — чек не пробивается автоматически (в ККМ нет типа оплаты "в долг").
+                Пробейте чек вручную после погашения.
+              </div>
+            )}
+            {fiscalizing&&<div style={{padding:"10px 0",color:C.textSub,fontSize:13}}>Пробиваю чек через ККМ...</div>}
+            {!fiscalizing&&saleResult.fiscal&&(
+              <div style={{...S.errorBox,background:"#EAF5EE",color:"#15803D",marginBottom:10}}>
+                🧾 Чек пробит. Фискальный признак: {saleResult.fiscal.fiscal_id}{saleResult.fiscal.ofd_name?` (${saleResult.fiscal.ofd_name})`:''}
+              </div>
+            )}
+            {!fiscalizing&&saleResult.fiscalError&&(
+              <div style={S.errorBox}>
+                ⚠️ Чек не пробит: {saleResult.fiscalError}
+                <div style={{marginTop:8}}>
+                  <button style={{...S.btnSecondary,width:"auto",padding:"6px 14px",fontSize:12}} onClick={()=>runFiscalize(saleResult.sale)}>🔁 Повторить</button>
+                </div>
+              </div>
+            )}
+            <button style={{...S.btnPrimary,marginTop:10}} onClick={onCompleted}>Готово</button>
+          </div>
+        ) : <>
+        {showCashcoreSettings&&(
+          <CashcoreSettingsForm
+            initial={getCashcoreSettings()}
+            onSave={(next)=>{ saveCashcoreSettings(next); setShowCashcoreSettings(false); }}
+            onClose={()=>setShowCashcoreSettings(false)}
+          />
+        )}
+        <input
+          type="search"
+          style={{...S.input,marginBottom:10}}
+          placeholder="Поиск по названию, коду или штрихкоду..."
+          value={search}
+          onChange={e=>setSearch(e.target.value)}
+          autoComplete="off"
+          name="pos-search"
+        />
+        {categories.length>0&&(
+          <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+            <button onClick={()=>setCategory("")} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${category===""?C.navy:C.border}`,background:category===""?C.navy:C.white,color:category===""?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>Все</button>
+            {categories.map(cat=>(
+              <button key={cat} onClick={()=>setCategory(cat)} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${category===cat?C.navy:C.border}`,background:category===cat?C.navy:C.white,color:category===cat?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>{cat}</button>
+            ))}
+          </div>
+        )}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(140px,1fr))",gap:10,marginBottom:20,maxHeight:320,overflowY:"auto",padding:2}}>
+          {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>Ничего не найдено</div>}
+          {filtered.map(p=>{
+            const outOfStock = p.stock!=null && p.stock<=0;
+            const inCart = cart.find(l=>l.code===p.code);
+            return (
+              <div key={p.code} style={{border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden",background:C.white,opacity:outOfStock?0.5:1}}>
+                <div style={{aspectRatio:"1",background:C.white,display:"flex",alignItems:"center",justifyContent:"center",padding:6,boxSizing:"border-box"}}>
+                  {p.photo ? <img src={p.photo} style={{width:"100%",height:"100%",objectFit:"contain"}}/> : <span style={{fontSize:22,color:C.textFaint}}>📦</span>}
+                </div>
+                <div style={{padding:"6px 8px"}}>
+                  <div style={{fontSize:11,fontWeight:600,color:C.text,marginBottom:2,minHeight:28,lineHeight:1.3}}>{p.name}</div>
+                  <div style={{fontSize:12,fontWeight:800,fontFamily:FH,color:C.navy,marginBottom:6}}>{p.price1>0?p.price1.toLocaleString()+' ₸':'—'}</div>
+                  {outOfStock ? (
+                    <div style={{fontSize:10,color:C.red,textAlign:"center",padding:"6px 0"}}>Нет в наличии</div>
+                  ) : inCart ? (
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.surface,borderRadius:8,padding:"2px"}}>
+                      <button onClick={()=>changeQty(p.code,-1)} style={{width:24,height:24,border:"none",borderRadius:6,background:C.white,boxShadow:`0 0 0 1px ${C.border}`,fontSize:14,fontWeight:700,color:C.navy,cursor:"pointer"}}>−</button>
+                      <span style={{fontSize:12,fontWeight:800,color:C.navy}}>{inCart.qty}</span>
+                      <button onClick={()=>changeQty(p.code,1)} style={{width:24,height:24,border:"none",borderRadius:6,background:C.white,boxShadow:`0 0 0 1px ${C.border}`,fontSize:14,fontWeight:700,color:C.navy,cursor:"pointer"}}>+</button>
+                    </div>
+                  ) : (
+                    <button onClick={()=>addToCart(p)} style={{width:"100%",padding:"6px",border:"none",borderRadius:8,background:C.navy,color:C.white,fontSize:11,fontWeight:700,cursor:"pointer"}}>Добавить</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={S.card}>
+          <p style={{...S.label,marginBottom:10,display:"block"}}>Корзина</p>
+          {cart.length===0
+            ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:13}}>Пусто — выберите товары выше</div>
+            : cart.map(l=>(
+              <div key={l.code} style={{display:"grid",gridTemplateColumns:"1fr 56px 80px 28px",gap:6,alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:13,color:C.textMid,fontWeight:600}}>{l.name}</div>
+                <input style={{...S.input,padding:"7px 6px",fontSize:13,textAlign:"center"}} type="number" min="1" max={l.stock!=null?l.stock:undefined} value={l.qty}
+                  onChange={e=>{
+                    let v = Number(e.target.value)||0;
+                    if (l.stock!=null) v = Math.min(v, l.stock);
+                    setCart(c=>c.map(x=>x.code===l.code?{...x,qty:Math.max(0,v)}:x));
+                  }}
+                  onFocus={e=>e.target.select()}
+                />
+                <input style={{...S.input,padding:"7px 6px",fontSize:13,textAlign:"right"}} type="number" value={l.price} onChange={e=>changePrice(l.code,e.target.value)} onFocus={e=>e.target.select()}/>
+                <button onClick={()=>removeFromCart(l.code)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
+              </div>
+            ))}
+          {cart.length>0&&<><hr style={{...S.divider,marginTop:4}}/><div style={S.row}><span style={{fontSize:13,color:C.textSub}}>Итого</span><span style={{fontSize:17,fontWeight:800,fontFamily:FH,color:C.navy}}>{total.toLocaleString()} ₸</span></div></>}
+        </div>
+
+        <div style={S.card}>
+          <p style={{...S.label,marginBottom:10,display:"block"}}>Клиент {remainder>0?<span style={{color:C.red,fontWeight:400}}>(обязателен для долга)</span>:<span style={{color:C.textFaint,fontWeight:400}}>(необязательно)</span>}</p>
+          <div style={{position:"relative"}}>
+            <input
+              style={S.input}
+              placeholder="Начните вводить название..."
+              value={clientSearchText}
+              onChange={e=>{ setClientSearchText(e.target.value); setClientId(""); setShowClientDrop(true); }}
+              onFocus={()=>setShowClientDrop(true)}
+              onBlur={()=>setTimeout(()=>setShowClientDrop(false),180)}
+            />
+            {showClientDrop&&(()=>{
+              const matched = clientSearchText.length>0 ? clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients.slice(0,50);
+              return matched.length>0&&(
+                <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:200,overflowY:"auto"}}>
+                  {matched.map(c=>(
+                    <div key={c.code} onMouseDown={()=>{ setClientId(c.code); setClientSearchText(c.name); setShowClientDrop(false); }} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13}}>{c.name}</div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+
+        <div style={S.card}>
+          <p style={{margin:"0 0 12px",fontSize:13,fontWeight:700,color:C.navy}}>Оплата</p>
+          {[{key:"cash",label:"Наличка",icon:"💵",bg:C.cashGreen,col:"#15803D"},{key:"qr",label:"QR код",icon:"📲",bg:C.qrBlue,col:"#1D4ED8"}].map(({key,label,icon,bg,col})=>(
+            <div key={key} style={{marginBottom:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div onClick={()=>toggleCashQr(key)} style={{width:22,height:22,borderRadius:6,border:`2px solid ${payType[key]?col:C.border}`,background:payType[key]?col:C.white,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {payType[key]&&<span style={{color:C.white,fontSize:13,fontWeight:700}}>✓</span>}
+                </div>
+                <span style={{fontSize:14,fontWeight:600,color:payType[key]?col:C.textMid}}>{icon} {label}</span>
+                {payType[key]&&<input style={{flex:1,border:`1.5px solid ${col}40`,borderRadius:6,padding:"6px 10px",fontSize:14,fontWeight:600,outline:"none",background:bg,color:col}} placeholder="Сумма ₸" value={payAmounts[key]} onFocus={e=>e.target.select()} onChange={e=>setPayAmounts(a=>({...a,[key]:e.target.value}))}/>}
+              </div>
+            </div>
+          ))}
+          <div style={{padding:"12px 14px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`}}>
+            <div style={{...S.row,marginBottom:6}}><span style={{fontSize:12,color:C.textSub}}>Сумма продажи</span><span style={{fontWeight:700,fontFamily:FH}}>{total.toLocaleString()} ₸</span></div>
+            <div style={{...S.row,paddingTop:6,borderTop:`1px solid ${C.border}`}}>
+              <span style={{fontSize:13,fontWeight:700,color:overpaid?C.red:(remainder>0?"#92400E":C.green)}}>{overpaid?"⚠️ Оплачено больше суммы":(remainder>0?"📋 Долг":"✅ Полностью оплачено")}</span>
+              {(remainder>0||overpaid)&&<span style={{fontWeight:800,fontSize:15,fontFamily:FH,color:overpaid?C.red:"#92400E"}}>{(overpaid?(cashAmt+qrAmt-total):remainder).toLocaleString()} ₸</span>}
+            </div>
+          </div>
+        </div>
+
+        {error&&<div style={S.errorBox}>{error}</div>}
+        <button style={{...S.btnSuccess,opacity:canSubmit?1:0.45,cursor:canSubmit?"pointer":"not-allowed"}} disabled={!canSubmit} onClick={submit}>{submitting?"Оформление...":"✅ Оформить продажу"}</button>
+        </>}
+      </div>
+    </div>
+  );
+}
+
+// Считает выручку/себестоимость/прибыль по списку заявок или продаж (у
+// обеих items — либо массив, либо JSON-строка). cost — снимок закупочной
+// цены на момент продажи (см. getCostMap на сервере), а не текущая цена
+// товара, поэтому прошлые продажи не "плывут" при правке закупки задним
+// числом. Если у части позиций cost ещё не заведён — они не портят сумму
+// (просто не входят в себестоимость), но считаются в missingCostLines,
+// чтобы отчёт мог честно предупредить "прибыль занижена".
+function sumItemsProfit(list) {
+  let revenue = 0, cost = 0, missingCostLines = 0;
+  (list || []).forEach(o => {
+    const its = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
+    its.forEach(it => {
+      const qty = Number(it.qty) || 0, price = Number(it.price) || 0;
+      revenue += qty * price;
+      if (it.cost != null) cost += qty * Number(it.cost);
+      else missingCostLines += 1;
+    });
+  });
+  return { revenue, cost, profit: revenue - cost, missingCostLines };
+}
+
+// Блок "Прибыль" — переиспользуется в "Отчёте" (только заявки), "Кассе"
+// (только продажи по кассе) и как общий свод (заявки+касса вместе).
+// missingLines>0 означает, что у части проданных позиций ещё не заведена
+// закупочная цена (см. вкладку "Товары") — тогда прибыль занижена, честно
+// показываем это отдельной строкой вместо того, чтобы выдать неполную
+// цифру за точную.
+function ProfitBlock({ revenue, cost, profit, missingLines }) {
+  const margin = revenue > 0 ? (profit / revenue * 100) : 0;
+  return (
+    <div style={{...S.card, marginTop:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <div>
+          <p style={{margin:"0 0 2px",fontSize:10,color:C.textFaint,fontWeight:700,textTransform:"uppercase"}}>Себестоимость</p>
+          <p style={{margin:0,fontSize:15,fontWeight:800,fontFamily:FH,color:C.textMid}}>{cost.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</p>
+        </div>
+        <div>
+          <p style={{margin:"0 0 2px",fontSize:10,color:C.textFaint,fontWeight:700,textTransform:"uppercase"}}>Прибыль</p>
+          <p style={{margin:0,fontSize:15,fontWeight:800,fontFamily:FH,color:profit>=0?C.green:C.red}}>{profit.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</p>
+        </div>
+        <div>
+          <p style={{margin:"0 0 2px",fontSize:10,color:C.textFaint,fontWeight:700,textTransform:"uppercase"}}>Маржа</p>
+          <p style={{margin:0,fontSize:15,fontWeight:800,fontFamily:FH,color:profit>=0?C.green:C.red}}>{margin.toFixed(1)}%</p>
+        </div>
+      </div>
+      {missingLines>0&&(
+        <p style={{margin:"10px 0 0",fontSize:11.5,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"7px 10px"}}>
+          ⚠️ У {missingLines} {missingLines===1?'позиции':'позиций'} нет закупочной цены — прибыль занижена. Заполните на вкладке «Товары».
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Кабинет кассира — постоянный экран кассы: каталог и текущий чек всегда
+// на экране (не нужно нажимать "Новая продажа" каждый раз, как торговый
+// жмёт "Создать заявку"), плюс смена — пока не открыта, кассы не видно.
+function CashierCabinet({ user, onLogout }) {
+  const isDesktop = useIsDesktop();
+  const [shift, setShift] = useState(undefined); // undefined = грузится, null = смены нет
+  const [openingShift, setOpeningShift] = useState(false);
+  const [closingShift, setClosingShift] = useState(false);
+
+  const loadShift = useCallback(async () => {
+    try {
+      const data = await apiCall('GET', '/api/cashier-shift/current');
+      setShift(data);
+    } catch(e) { if(e.message.includes('токен')) onLogout(); }
+  }, []);
+  useEffect(() => { loadShift(); }, []);
+
+  const [sales, setSales] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [clients, setClients] = useState([]);
+
+  const loadSales = useCallback(async () => {
+    try { setSales(await apiCall('GET', '/api/sales')); } catch(e) {}
+  }, []);
+  useEffect(() => { loadSales(); }, []);
+  useEffect(() => { fetch('/api/products').then(r=>r.json()).then(setProducts).catch(()=>{}); }, []);
+  useEffect(() => { apiCall('GET', '/api/clients').then(setClients).catch(()=>{}); }, []);
+
+  const openShift = async () => {
+    setOpeningShift(true);
+    try { setShift(await apiCall('POST', '/api/cashier-shift/open', {})); }
+    catch(e) { alert(e.message); }
+    setOpeningShift(false);
+  };
+
+  // Итог смены считаем по своим продажам с момента открытия — без
+  // отдельного поля shift_id на продаже: он не нужен, пока смены не
+  // пересекаются (одна открытая на кассира за раз, см. сервер).
+  const myShiftSales = useMemo(() => {
+    if (!shift) return [];
+    return sales.filter(s => s.created_by_id === user.id && s.status !== "voided" && s.created_at >= shift.opened_at);
+  }, [sales, shift, user.id]);
+
+  const closeShift = async () => {
+    if (!shift) return;
+    const cash = myShiftSales.reduce((s,o)=>s+(o.payment_cash||0),0);
+    const qr = myShiftSales.reduce((s,o)=>s+(o.payment_qr||0),0);
+    const debt = myShiftSales.reduce((s,o)=>s+(o.payment_debt||0),0);
+    if (!window.confirm(`Закрыть смену?\n\nПродаж: ${myShiftSales.length}\nНаличка: ${cash.toLocaleString()} ₸\nQR: ${qr.toLocaleString()} ₸\nДолг: ${debt.toLocaleString()} ₸`)) return;
+    setClosingShift(true);
+    try {
+      await apiCall('POST', `/api/cashier-shift/${shift.id}/close`, {});
+      setShift(null);
+    } catch(e) { alert(e.message); }
+    setClosingShift(false);
+  };
+
+  // ===== Каталог + чек — та же механика, что в PosSaleModal у менеджера,
+  // но всегда на экране, без открытия/закрытия отдельного окна =====
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
+  const [cart, setCart] = useState([]);
+  const [clientSearchText, setClientSearchText] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [showClientDrop, setShowClientDrop] = useState(false);
+  const [payType, setPayType] = useState({ cash: true, qr: false });
+  const [payAmounts, setPayAmounts] = useState({ cash: "", qr: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [saleResult, setSaleResult] = useState(null);
+  const [fiscalizing, setFiscalizing] = useState(false);
+  const [showCashcoreSettings, setShowCashcoreSettings] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [fiscalizingSaleId, setFiscalizingSaleId] = useState(null);
+  const [fiscalErrorBySale, setFiscalErrorBySale] = useState({});
+
+  const categories = useMemo(() => [...new Set(products.map(p=>p.group).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru')), [products]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return products.filter(p =>
+      (!q || p.name.toLowerCase().includes(q) || (p.code||'').includes(q) || (p.barcode||'').includes(q)) &&
+      (!category || p.group === category)
+    );
+  }, [products, search, category]);
+
+  const addToCart = (p) => {
+    setCart(c => {
+      const existing = c.find(l => l.code === p.code);
+      if (existing) {
+        const nextQty = existing.qty + 1;
+        const capped = p.stock != null ? Math.min(nextQty, p.stock) : nextQty;
+        return c.map(l => l.code === p.code ? { ...l, qty: capped } : l);
+      }
+      return [...c, { code: p.code, name: p.name, price: p.price1 || 0, qty: 1, stock: p.stock }];
+    });
+  };
+  const changeQty = (code, delta) => {
+    setCart(c => c.map(l => {
+      if (l.code !== code) return l;
+      const next = l.qty + delta;
+      const capped = l.stock != null ? Math.min(next, l.stock) : next;
+      return { ...l, qty: Math.max(0, capped) };
+    }).filter(l => l.qty > 0));
+  };
+  const changePrice = (code, price) => setCart(c => c.map(l => l.code===code ? { ...l, price: Number(price)||0 } : l));
+  const removeFromCart = (code) => setCart(c => c.filter(l => l.code !== code));
+  const clearCart = () => { setCart([]); setClientId(""); setClientSearchText(""); setPayAmounts({ cash:"", qr:"" }); };
+
+  const total = cart.reduce((s,l)=>s+l.qty*l.price, 0);
+  const cashAmt = payType.cash ? (Number(payAmounts.cash)||0) : 0;
+  const qrAmt = payType.qr ? (Number(payAmounts.qr)||0) : 0;
+  const remainder = Math.max(0, total - cashAmt - qrAmt);
+  const overpaid = (cashAmt + qrAmt) > total;
+
+  const toggleCashQr = (key) => {
+    setPayType(pt => {
+      const next = { ...pt, [key]: !pt[key] };
+      if (!next[key]) setPayAmounts(a => ({ ...a, [key]: "" }));
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (payType.cash && payAmounts.cash === "" && !payType.qr) {
+      setPayAmounts(a => ({ ...a, cash: total ? String(total) : "" }));
+    }
+  }, [total, payType.cash, payType.qr]);
+
+  const canSubmit = cart.length>0 && !submitting && (remainder<=0 || clientId) && !overpaid;
+
+  const runFiscalize = async (sale) => {
+    setFiscalizing(true);
+    try {
+      const fiscal = await fiscalizeSale(sale);
+      await apiCall('POST', `/api/sales/${sale.id}/fiscal`, fiscal);
+      setSaleResult(r => ({ ...r, fiscal, fiscalError: null }));
+    } catch (fe) {
+      setSaleResult(r => ({ ...r, fiscal: null, fiscalError: fe.message }));
+    }
+    setFiscalizing(false);
+  };
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setError("");
+    setSubmitting(true);
+    try {
+      const sale = await apiCall('POST', '/api/sales', {
+        items: cart.map(l=>({code:l.code,name:l.name,qty:l.qty,price:l.price})),
+        paymentCash: cashAmt,
+        paymentQr: qrAmt,
+        paymentDebt: remainder,
+        clientCode: clientId || undefined,
+      });
+      clearCart();
+      loadSales();
+      if (remainder > 0) {
+        setSaleResult({ sale, fiscal: null, fiscalError: null, skippedDebt: true });
+      } else {
+        setSaleResult({ sale, fiscal: null, fiscalError: null, skippedDebt: false });
+        await runFiscalize(sale);
+      }
+    } catch(e) { setError(e.message); }
+    setSubmitting(false);
+  };
+
+  const retryFiscal = useCallback(async (sale) => {
+    setFiscalizingSaleId(sale.id);
+    setFiscalErrorBySale(e => ({ ...e, [sale.id]: null }));
+    try {
+      const fiscal = await fiscalizeSale(sale);
+      await apiCall('POST', `/api/sales/${sale.id}/fiscal`, fiscal);
+      await loadSales();
+    } catch (e) {
+      setFiscalErrorBySale(er => ({ ...er, [sale.id]: e.message }));
+    }
+    setFiscalizingSaleId(null);
+  }, [loadSales]);
+
+  const voidSale = useCallback(async (sale) => {
+    if (!window.confirm(`Отменить продажу № ${sale.id} на ${sale.total.toLocaleString()} ₸? Остаток вернётся на склад.`)) return;
+    try {
+      let fiscalReturn = {};
+      if (sale.fiscal_id) {
+        try {
+          const r = await fiscalizeSale(sale, 3); // OPERATION_SELL_RETURN
+          fiscalReturn = { fiscal_return_id: r.fiscal_id, fiscal_return_qr: r.qr_code };
+        } catch (fe) {
+          alert(`Не удалось пробить чек возврата: ${fe.message}\n\nПродажа НЕ отменена — иначе в ОФД останется чек без документа возврата. Попробуйте ещё раз, когда касса будет доступна.`);
+          return;
+        }
+      }
+      await apiCall('POST', `/api/sales/${sale.id}/void`, fiscalReturn);
+      await loadSales();
+    } catch(e) { alert(e.message); }
+  }, [loadSales]);
+
+  const todayStr = new Date().toISOString().slice(0,10);
+  const historyList = useMemo(() => sales.filter(s=>s.date===todayStr).slice().sort((a,b)=>b.id-a.id), [sales, todayStr]);
+
+  if (shift === undefined) {
+    return <div style={S.loadingWrap}>Загрузка...</div>;
+  }
+
+  if (!shift) {
+    return (
+      <div style={{minHeight:"60vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{...S.card,maxWidth:360,width:"100%",textAlign:"center",padding:"32px 24px"}}>
+          <div style={{fontSize:44,marginBottom:12}}>🔒</div>
+          <p style={{...S.cardTitle,fontSize:18,marginBottom:6}}>Касса закрыта</p>
+          <p style={{...S.cardSub,marginBottom:20}}>Откройте смену, чтобы начать продажи</p>
+          <button style={S.btnSuccess} disabled={openingShift} onClick={openShift}>{openingShift?"Открываем...":"▶ Начать смену"}</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{padding: isDesktop?"20px 24px 40px":"16px 12px 90px"}}>
+      {showCashcoreSettings&&(
+        <CashcoreSettingsForm
+          initial={getCashcoreSettings()}
+          onSave={(next)=>{ saveCashcoreSettings(next); setShowCashcoreSettings(false); }}
+          onClose={()=>setShowCashcoreSettings(false)}
+        />
+      )}
+      <div style={{...S.row,marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <div>
+          <p style={{margin:"0 0 2px",fontSize:12,color:C.textSub,display:"flex",alignItems:"center",gap:6}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:C.green,display:"inline-block"}}/> Касса открыта · смена №{shift.id}
+          </p>
+          <p style={{margin:0,fontSize:12,color:C.textFaint}}>с {new Date(shift.opened_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})} · {user.name}</p>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button style={S.btnSecondary} onClick={()=>setShowCashcoreSettings(s=>!s)}>⚙ ККМ</button>
+          <button style={S.btnSecondary} onClick={()=>setShowHistory(s=>!s)}>{showHistory?"✕ Скрыть историю":"🧾 История"}</button>
+          <button style={{...S.btnSecondary,color:C.red,borderColor:"#FCA5A5"}} disabled={closingShift} onClick={closeShift}>{closingShift?"Закрываем...":"⏹ Закончить смену"}</button>
+        </div>
+      </div>
+
+      <div style={{display: isDesktop?"grid":"block", gridTemplateColumns: isDesktop?"minmax(0,1fr) 380px":undefined, gap:16, alignItems:"start"}}>
+        <div>
+          <input
+            type="search"
+            style={{...S.input,marginBottom:10}}
+            placeholder="Поиск по названию, коду или штрихкоду..."
+            value={search}
+            onChange={e=>setSearch(e.target.value)}
+            autoComplete="off"
+            name="cashier-pos-search"
+          />
+          {categories.length>0&&(
+            <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+              <button onClick={()=>setCategory("")} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${category===""?C.navy:C.border}`,background:category===""?C.navy:C.white,color:category===""?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>Все</button>
+              {categories.map(cat=>(
+                <button key={cat} onClick={()=>setCategory(cat)} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${category===cat?C.navy:C.border}`,background:category===cat?C.navy:C.white,color:category===cat?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>{cat}</button>
+              ))}
+            </div>
+          )}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(140px,1fr))",gap:10}}>
+            {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>Ничего не найдено</div>}
+            {filtered.map(p=>{
+              const outOfStock = p.stock!=null && p.stock<=0;
+              const inCart = cart.find(l=>l.code===p.code);
+              return (
+                <div key={p.code} style={{border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden",background:C.white,opacity:outOfStock?0.5:1}}>
+                  <div style={{aspectRatio:"1",background:C.white,display:"flex",alignItems:"center",justifyContent:"center",padding:6,boxSizing:"border-box"}}>
+                    {p.photo ? <img src={p.photo} style={{width:"100%",height:"100%",objectFit:"contain"}}/> : <span style={{fontSize:22,color:C.textFaint}}>📦</span>}
+                  </div>
+                  <div style={{padding:"6px 8px"}}>
+                    <div style={{fontSize:11,fontWeight:600,color:C.text,marginBottom:2,minHeight:28,lineHeight:1.3}}>{p.name}</div>
+                    <div style={{fontSize:12,fontWeight:800,fontFamily:FH,color:C.navy,marginBottom:6}}>{p.price1>0?p.price1.toLocaleString()+' ₸':'—'}</div>
+                    {outOfStock ? (
+                      <div style={{fontSize:10,color:C.red,textAlign:"center",padding:"6px 0"}}>Нет в наличии</div>
+                    ) : inCart ? (
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.surface,borderRadius:8,padding:"2px"}}>
+                        <button onClick={()=>changeQty(p.code,-1)} style={{width:24,height:24,border:"none",borderRadius:6,background:C.white,boxShadow:`0 0 0 1px ${C.border}`,fontSize:14,fontWeight:700,color:C.navy,cursor:"pointer"}}>−</button>
+                        <span style={{fontSize:12,fontWeight:800,color:C.navy}}>{inCart.qty}</span>
+                        <button onClick={()=>changeQty(p.code,1)} style={{width:24,height:24,border:"none",borderRadius:6,background:C.white,boxShadow:`0 0 0 1px ${C.border}`,fontSize:14,fontWeight:700,color:C.navy,cursor:"pointer"}}>+</button>
+                      </div>
+                    ) : (
+                      <button onClick={()=>addToCart(p)} style={{width:"100%",padding:"6px",border:"none",borderRadius:8,background:C.navy,color:C.white,fontSize:11,fontWeight:700,cursor:"pointer"}}>Добавить</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {showHistory&&(
+            <div style={{marginTop:24}}>
+              <p style={{...S.sectionTitle,fontSize:15}}>Продажи сегодня ({historyList.length})</p>
+              {historyList.length===0?<div style={{textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>Продаж пока не было</div>:
+                historyList.map(s=>(
+                  <div key={s.id} style={S.card}>
+                    <div style={S.row}>
+                      <div>
+                        <p style={S.cardTitle}>№ {s.id} · {s.client_name||"Без клиента"}</p>
+                        <p style={S.cardSub}>{s.items.length} поз. · {s.created_by_name} · {new Date(s.created_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</p>
+                      </div>
+                      <p style={{margin:0,fontWeight:800,fontFamily:FH,color:C.navy}}>{s.total.toLocaleString()} ₸</p>
+                    </div>
+                    {s.status==="voided" ? (
+                      <p style={{margin:"8px 0 0",fontSize:11,color:C.red}}>Отменена</p>
+                    ) : s.fiscal_id
+                      ? <p style={{margin:"8px 0 0",fontSize:11,color:C.green}}>
+                          🧾 Чек пробит · признак {s.fiscal_id}
+                          {s.fiscal_return_id&&<><br/>↩️ Чек возврата пробит · признак {s.fiscal_return_id}</>}
+                        </p>
+                      : (
+                        <div style={{marginTop:8}}>
+                          <p style={{margin:"0 0 6px",fontSize:11,color:s.payment_debt>0?C.textFaint:C.red}}>
+                            {s.payment_debt>0 ? "Чек не пробит (продажа с долгом — пробить можно после погашения)" : "⚠️ Чек не пробит"}
+                          </p>
+                          <button
+                            style={{...S.btnSecondary,padding:"6px 14px",fontSize:12,width:"auto",opacity:fiscalizingSaleId===s.id?0.6:1}}
+                            disabled={fiscalizingSaleId===s.id}
+                            onClick={()=>retryFiscal(s)}
+                          >{fiscalizingSaleId===s.id?"Пробиваю...":"🔁 Пробить чек"}</button>
+                          {fiscalErrorBySale[s.id]&&<p style={{margin:"6px 0 0",fontSize:11,color:C.red}}>{fiscalErrorBySale[s.id]}</p>}
+                        </div>
+                      )}
+                    {s.status!=="voided"&&<button style={{...S.btnDanger,marginTop:10,padding:"8px",fontSize:12}} onClick={()=>voidSale(s)}>Отменить продажу</button>}
+                  </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          {saleResult ? (
+            <div style={S.card}>
+              <p style={{margin:"0 0 10px",fontSize:15,fontWeight:800,color:C.navy}}>✅ Продажа №{saleResult.sale.id} оформлена — {saleResult.sale.total.toLocaleString()} ₸</p>
+              {saleResult.skippedDebt&&(
+                <div style={{...S.errorBox,background:"#FEF3E6",color:"#92400E",marginBottom:10}}>
+                  В продаже есть долг — чек не пробивается автоматически (в ККМ нет типа оплаты "в долг").
+                  Пробейте чек вручную после погашения.
+                </div>
+              )}
+              {fiscalizing&&<div style={{padding:"10px 0",color:C.textSub,fontSize:13}}>Пробиваю чек через ККМ...</div>}
+              {!fiscalizing&&saleResult.fiscal&&(
+                <div style={{...S.errorBox,background:"#EAF5EE",color:"#15803D",marginBottom:10}}>
+                  🧾 Чек пробит. Фискальный признак: {saleResult.fiscal.fiscal_id}{saleResult.fiscal.ofd_name?` (${saleResult.fiscal.ofd_name})`:''}
+                </div>
+              )}
+              {!fiscalizing&&saleResult.fiscalError&&(
+                <div style={S.errorBox}>
+                  ⚠️ Чек не пробит: {saleResult.fiscalError}
+                  <div style={{marginTop:8}}>
+                    <button style={{...S.btnSecondary,width:"auto",padding:"6px 14px",fontSize:12}} onClick={()=>runFiscalize(saleResult.sale)}>🔁 Повторить</button>
+                  </div>
+                </div>
+              )}
+              <button style={{...S.btnPrimary,marginTop:10}} onClick={()=>setSaleResult(null)}>Новая продажа</button>
+            </div>
+          ) : <>
+          <div style={S.card}>
+            <div style={{...S.row,marginBottom:10}}>
+              <p style={{margin:0,fontSize:15,fontWeight:800,color:C.navy}}>Текущий чек</p>
+              {cart.length>0&&<button style={{background:"none",border:"none",color:C.red,fontSize:12,cursor:"pointer"}} onClick={clearCart}>Очистить</button>}
+            </div>
+            {cart.length===0
+              ? <div style={{textAlign:"center",padding:"30px 0",color:C.textFaint}}><div style={{fontSize:36,marginBottom:8}}>🛒</div><p style={{margin:0,fontSize:13}}>Чек пока пуст —<br/>выберите товары слева</p></div>
+              : cart.map(l=>(
+                <div key={l.code} style={{display:"grid",gridTemplateColumns:"1fr 56px 80px 28px",gap:6,alignItems:"center",marginBottom:8}}>
+                  <div style={{fontSize:13,color:C.textMid,fontWeight:600}}>{l.name}</div>
+                  <input style={{...S.input,padding:"7px 6px",fontSize:13,textAlign:"center"}} type="number" min="1" max={l.stock!=null?l.stock:undefined} value={l.qty}
+                    onChange={e=>{
+                      let v = Number(e.target.value)||0;
+                      if (l.stock!=null) v = Math.min(v, l.stock);
+                      setCart(c=>c.map(x=>x.code===l.code?{...x,qty:Math.max(0,v)}:x));
+                    }}
+                    onFocus={e=>e.target.select()}
+                  />
+                  <input style={{...S.input,padding:"7px 6px",fontSize:13,textAlign:"right"}} type="number" value={l.price} onChange={e=>changePrice(l.code,e.target.value)} onFocus={e=>e.target.select()}/>
+                  <button onClick={()=>removeFromCart(l.code)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
+                </div>
+              ))}
+            {cart.length>0&&<><hr style={{...S.divider,marginTop:4}}/><div style={S.row}><span style={{fontSize:13,color:C.textSub}}>Итого</span><span style={{fontSize:17,fontWeight:800,fontFamily:FH,color:C.navy}}>{total.toLocaleString()} ₸</span></div></>}
+          </div>
+
+          <div style={S.card}>
+            <p style={{...S.label,marginBottom:10,display:"block"}}>Клиент {remainder>0?<span style={{color:C.red,fontWeight:400}}>(обязателен для долга)</span>:<span style={{color:C.textFaint,fontWeight:400}}>(необязательно)</span>}</p>
+            <div style={{position:"relative"}}>
+              <input
+                style={S.input}
+                placeholder="Начните вводить название..."
+                value={clientSearchText}
+                onChange={e=>{ setClientSearchText(e.target.value); setClientId(""); setShowClientDrop(true); }}
+                onFocus={()=>setShowClientDrop(true)}
+                onBlur={()=>setTimeout(()=>setShowClientDrop(false),180)}
+              />
+              {showClientDrop&&(()=>{
+                const matched = clientSearchText.length>0 ? clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients.slice(0,50);
+                return matched.length>0&&(
+                  <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:200,overflowY:"auto"}}>
+                    {matched.map(c=>(
+                      <div key={c.code} onMouseDown={()=>{ setClientId(c.code); setClientSearchText(c.name); setShowClientDrop(false); }} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13}}>{c.name}</div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          <div style={S.card}>
+            <p style={{margin:"0 0 12px",fontSize:13,fontWeight:700,color:C.navy}}>Оплата</p>
+            {[{key:"cash",label:"Наличка",icon:"💵",bg:C.cashGreen,col:"#15803D"},{key:"qr",label:"QR код",icon:"📲",bg:C.qrBlue,col:"#1D4ED8"}].map(({key,label,icon,bg,col})=>(
+              <div key={key} style={{marginBottom:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div onClick={()=>toggleCashQr(key)} style={{width:22,height:22,borderRadius:6,border:`2px solid ${payType[key]?col:C.border}`,background:payType[key]?col:C.white,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    {payType[key]&&<span style={{color:C.white,fontSize:13,fontWeight:700}}>✓</span>}
+                  </div>
+                  <span style={{fontSize:14,fontWeight:600,color:payType[key]?col:C.textMid}}>{icon} {label}</span>
+                  {payType[key]&&<input style={{flex:1,border:`1.5px solid ${col}40`,borderRadius:6,padding:"6px 10px",fontSize:14,fontWeight:600,outline:"none",background:bg,color:col}} placeholder="Сумма ₸" value={payAmounts[key]} onFocus={e=>e.target.select()} onChange={e=>setPayAmounts(a=>({...a,[key]:e.target.value}))}/>}
+                </div>
+              </div>
+            ))}
+            <div style={{padding:"12px 14px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`}}>
+              <div style={{...S.row,marginBottom:6}}><span style={{fontSize:12,color:C.textSub}}>Сумма продажи</span><span style={{fontWeight:700,fontFamily:FH}}>{total.toLocaleString()} ₸</span></div>
+              <div style={{...S.row,paddingTop:6,borderTop:`1px solid ${C.border}`}}>
+                <span style={{fontSize:13,fontWeight:700,color:overpaid?C.red:(remainder>0?"#92400E":C.green)}}>{overpaid?"⚠️ Оплачено больше суммы":(remainder>0?"📋 Долг":"✅ Полностью оплачено")}</span>
+                {(remainder>0||overpaid)&&<span style={{fontWeight:800,fontSize:15,fontFamily:FH,color:overpaid?C.red:"#92400E"}}>{(overpaid?(cashAmt+qrAmt-total):remainder).toLocaleString()} ₸</span>}
+              </div>
+            </div>
+          </div>
+
+          {error&&<div style={S.errorBox}>{error}</div>}
+          <button style={{...S.btnSuccess,opacity:canSubmit?1:0.45,cursor:canSubmit?"pointer":"not-allowed"}} disabled={!canSubmit} onClick={submit}>{submitting?"Оформление...":"✅ Оплатить"}</button>
+          </>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminCabinet({ user, onLogout, desktop }) {
   const [tab, setTab] = useState("all");
   const [filter, setFilter] = useState("all");
@@ -1352,6 +3009,76 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [products, setProducts] = useState([]);
   const [aliasSearch, setAliasSearch] = useState("");
+  const [catalogAdminSearch, setCatalogAdminSearch] = useState("");
+  const [catalogAdminSection, setCatalogAdminSection] = useState("");
+
+  // ===== НКТ: подбор кода НКТ (NTIN) по штрихкоду через nct.gov.kz =====
+  const [nktSearch, setNktSearch] = useState("");
+  const [nktOnlyMissing, setNktOnlyMissing] = useState(true);
+  const [nktRunning, setNktRunning] = useState(false);
+  const [nktProgress, setNktProgress] = useState(null); // {done,total,matched,notFound,noBarcode,errors}
+  const [nktPicker, setNktPicker] = useState(null); // {code, loading, results, error}
+  // Ref, а не state — цикл в runNktMatch держит одно замыкание на весь
+  // прогон (как editsRef выше), поэтому нажатие "Остановить" должно быть
+  // видно этому же замыканию сразу, а не только в следующем вызове функции.
+  const nktStopRef = useRef(false);
+
+  // Гоняем пакетный подбор порциями по 25, а не всё разом — так виден
+  // прогресс и один долгий запрос не упирается в таймаут на 3400 позициях.
+  const runNktMatch = useCallback(async () => {
+    const targets = products.filter(p => p.barcode && !p.nkt_code);
+    if (targets.length === 0) { alert('Нет товаров со штрихкодом без кода НКТ'); return; }
+    setNktRunning(true);
+    nktStopRef.current = false;
+    const summary = { done: 0, total: targets.length, matched: 0, notFound: 0, noBarcode: 0, errors: 0 };
+    setNktProgress({ ...summary });
+    for (let i = 0; i < targets.length; i += 25) {
+      if (nktStopRef.current) break;
+      const batch = targets.slice(i, i + 25).map(p => p.code);
+      try {
+        const { results } = await apiCall('POST', '/api/nkt/match-batch', { codes: batch });
+        results.forEach(r => {
+          summary.done++;
+          if (r.status === 'matched') summary.matched++;
+          else if (r.status === 'not_found') summary.notFound++;
+          else if (r.status === 'no_barcode') summary.noBarcode++;
+          else summary.errors++;
+        });
+      } catch (e) {
+        summary.done += batch.length;
+        summary.errors += batch.length;
+      }
+      setNktProgress({ ...summary });
+    }
+    await loadProducts();
+    setNktRunning(false);
+  }, [products, loadProducts]);
+
+  const searchNktForProduct = useCallback(async (p) => {
+    setNktPicker({ code: p.code, loading: true, results: [], error: '' });
+    try {
+      const params = p.barcode ? `gtin=${encodeURIComponent(p.barcode)}` : `q=${encodeURIComponent(p.name)}`;
+      const { results } = await apiCall('GET', `/api/nkt/search?${params}`);
+      setNktPicker({ code: p.code, loading: false, results, error: results.length === 0 ? 'Ничего не найдено' : '' });
+    } catch (e) {
+      setNktPicker({ code: p.code, loading: false, results: [], error: e.message });
+    }
+  }, []);
+
+  const pickNktResult = useCallback(async (code, ntinCode) => {
+    try {
+      await apiCall('POST', '/api/product-aliases', { code, nkt_code: ntinCode });
+      await loadProducts();
+    } catch (e) { alert(e.message); }
+    setNktPicker(null);
+  }, [loadProducts]);
+
+  const saveNktCodeManually = useCallback(async (code, value) => {
+    try {
+      await apiCall('POST', '/api/product-aliases', { code, nkt_code: value });
+      await loadProducts();
+    } catch (e) { alert(e.message); }
+  }, [loadProducts]);
   const [edits, setEdits] = useState({});
   const [savingCode, setSavingCode] = useState(null);
   const [editingCodes, setEditingCodes] = useState({});
@@ -1390,7 +3117,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [changingPwd, setChangingPwd] = useState(null);
   const [roleEdits, setRoleEdits] = useState({});
   const [savingRole, setSavingRole] = useState(null);
-  const [empSectionsOpen, setEmpSectionsOpen] = useState({ noAccount: true, accounts: true });
+  const [empSectionsOpen, setEmpSectionsOpen] = useState({ noAccount: true, accounts: true, noStoreAccount: false });
 
   const loadEmployees = useCallback(async () => {
     try { setEmployees(await apiCall('GET','/api/employees')); } catch(e) {}
@@ -1400,7 +3127,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   }, []);
   useEffect(() => { loadEmployees(); loadUsers(); }, []);
 
-  const ROLE_OPTIONS = [["sales","Торговый представитель"],["driver","Водитель"],["manager","Менеджер"],["admin","Администратор"]];
+  const ROLE_OPTIONS = [["sales","Торговый представитель"],["driver","Водитель"],["cashier","Кассир"],["manager","Менеджер"],["admin","Администратор"],["store","Магазин"]];
 
   const updateEmpForm = (formKey, field, value) => setEmpForm(f => ({...f, [formKey]: {...f[formKey], [field]: value}}));
 
@@ -1412,6 +3139,19 @@ function AdminCabinet({ user, onLogout, desktop }) {
     try {
       await apiCall('POST','/api/users', { login: form.login, password: form.password, name: emp.name, role: form.role, region: form.region||'', employee_code: emp.code });
       await loadEmployees(); await loadUsers();
+      setEmpForm(f => ({...f, [formKey]: {}}));
+    } catch(e) { alert(e.message); }
+    setSavingEmp(null);
+  };
+
+  const createStoreAccount = async (client, formKey) => {
+    const form = empForm[formKey] || {};
+    if (!form.login || !form.password) { alert('Заполните логин и пароль'); return; }
+    if (form.password.length < 4) { alert('Пароль минимум 4 символа'); return; }
+    setSavingEmp(formKey);
+    try {
+      await apiCall('POST','/api/users', { login: form.login, password: form.password, name: client.name, role: 'store', client_code: client.code });
+      await loadClients(); await loadUsers();
       setEmpForm(f => ({...f, [formKey]: {}}));
     } catch(e) { alert(e.message); }
     setSavingEmp(null);
@@ -1451,7 +3191,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
 
   const loadClients = useCallback(async () => {
     try {
-      const data = await fetch('/api/clients').then(r => r.json());
+      const data = await apiCall('GET', '/api/clients');
       setClients(data);
     } catch(e) {}
   }, []);
@@ -1495,11 +3235,103 @@ function AdminCabinet({ user, onLogout, desktop }) {
 
   useEffect(() => { loadProducts(); }, []);
 
+  // Разделы каталога — явный список (можно завести раздел заранее, до
+  // того как в него попадёт товар), плюс объединяем с тем, что уже
+  // фактически проставлено у товаров (categoryOptions ниже), чтобы старые
+  // разделы из 1С тоже были доступны для переименования/удаления.
+  const [categories, setCategories] = useState([]);
+  const loadCategories = useCallback(async () => {
+    try {
+      const data = await apiCall('GET', '/api/categories');
+      setCategories(data);
+    } catch(e) {}
+  }, []);
+  useEffect(() => { loadCategories(); }, []);
+
+  const createCategory = useCallback(async (name) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return;
+    try {
+      await apiCall('POST', '/api/categories', { name: trimmed });
+      await loadCategories();
+    } catch(e) { alert(e.message); }
+  }, [loadCategories]);
+
+  const renameCategory = useCallback(async (oldName, newName) => {
+    const trimmed = (newName || '').trim();
+    if (!trimmed || trimmed === oldName) return;
+    try {
+      await apiCall('PUT', `/api/categories/${encodeURIComponent(oldName)}`, { name: trimmed });
+      await Promise.all([loadCategories(), loadProducts()]);
+    } catch(e) { alert(e.message); }
+  }, [loadCategories, loadProducts]);
+
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const deleteCategory = useCallback(async (name) => {
+    if (!window.confirm(`Удалить раздел «${name}»? У товаров этот раздел будет снят (станут «Без раздела»).`)) return;
+    try {
+      await apiCall('DELETE', `/api/categories/${encodeURIComponent(name)}`);
+      await Promise.all([loadCategories(), loadProducts()]);
+    } catch(e) { alert(e.message); }
+  }, [loadCategories, loadProducts]);
+
+  // Касса — продажа по каталогу (мгновенная, без доставки). См. /api/sales
+  // на сервере: отдельная от orders коллекция, но делит остаток и сводится
+  // в один отчёт с заявками ниже (salesReport).
+  const [sales, setSales] = useState([]);
+  const [showPosModal, setShowPosModal] = useState(false);
+  const loadSales = useCallback(async () => {
+    try {
+      const data = await apiCall('GET', '/api/sales');
+      setSales(data);
+    } catch(e) {}
+  }, []);
+  useEffect(() => { loadSales(); }, []);
+
+  const [fiscalizingSaleId, setFiscalizingSaleId] = useState(null);
+  const [fiscalErrorBySale, setFiscalErrorBySale] = useState({});
+  const retryFiscal = useCallback(async (sale) => {
+    setFiscalizingSaleId(sale.id);
+    setFiscalErrorBySale(e => ({ ...e, [sale.id]: null }));
+    try {
+      const fiscal = await fiscalizeSale(sale);
+      await apiCall('POST', `/api/sales/${sale.id}/fiscal`, fiscal);
+      await loadSales();
+    } catch (e) {
+      setFiscalErrorBySale(er => ({ ...er, [sale.id]: e.message }));
+    }
+    setFiscalizingSaleId(null);
+  }, [loadSales]);
+
+  const voidSale = useCallback(async (sale) => {
+    if (!window.confirm(`Отменить продажу № ${sale.id} на ${sale.total.toLocaleString()} ₸? Остаток вернётся на склад.`)) return;
+    try {
+      let fiscalReturn = {};
+      if (sale.fiscal_id) {
+        // Чек уже пробит в ККМ/ОФД — без обратного чека возврата отмена в
+        // самом CashCore/налоговой не отразится, сервер это тоже проверит
+        // и откажет, но лучше объяснить кассиру заранее.
+        try {
+          const r = await fiscalizeSale(sale, 3); // OPERATION_SELL_RETURN
+          fiscalReturn = { fiscal_return_id: r.fiscal_id, fiscal_return_qr: r.qr_code };
+        } catch (fe) {
+          alert(`Не удалось пробить чек возврата: ${fe.message}\n\nПродажа НЕ отменена — иначе в ОФД останется чек без документа возврата. Попробуйте ещё раз, когда касса будет доступна.`);
+          return;
+        }
+      }
+      await apiCall('POST', `/api/sales/${sale.id}/void`, fiscalReturn);
+      await loadSales();
+    } catch(e) { alert(e.message); }
+  }, [loadSales]);
+
   const getField = (p, field) => {
     if (edits[p.code] && edits[p.code][field] !== undefined) return edits[p.code][field];
     if (field === 'alias') return p.has_alias ? p.display_name : '';
+    if (field === 'category') return p.group || '';
     return p[field] != null ? String(p[field]) : '';
   };
+  const categoryOptions = useMemo(() => [...new Set([...products.map(p=>p.group).filter(Boolean), ...categories])].sort((a,b)=>a.localeCompare(b,'ru')), [products, categories]);
   // updateField передаётся вниз в 150+ мемоизированных карточек, поэтому
   // должен иметь стабильную ссылку (useCallback без зависимостей, только
   // функциональный setState) — иначе React.memo на карточках бесполезен.
@@ -1522,6 +3354,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     const price2 = resolve('price2');
     const price3 = resolve('price3');
     const commission = resolve('commission');
+    const cost = resolve('cost');
     setSavingCode(code);
     try {
       await apiCall('POST', '/api/product-aliases', {
@@ -1530,11 +3363,43 @@ function AdminCabinet({ user, onLogout, desktop }) {
         price2: price2 === '' ? null : Number(price2),
         price3: price3 === '' ? null : Number(price3),
         commission: commission === '' ? 0 : Number(commission),
+        cost: cost === '' ? null : Number(cost),
       });
       await loadProducts();
       setEditingCodes(e => { const n = {...e}; delete n[code]; return n; });
     } catch(e) { alert(e.message); }
     setSavingCode(null);
+  }, [loadProducts]);
+
+  // Раздел (вкладка "Каталог") сохраняется отдельно от цен/названия — своя
+  // кнопка "Сохр.", без запроса на разблокировку. Сервер шлёт только
+  // {code, category}, alias в этот запрос не попадает (см. фикс в
+  // POST /api/product-aliases — иначе тихо стёрло бы название сайта).
+  const [savingCategoryCode, setSavingCategoryCode] = useState(null);
+  const saveCategory = useCallback(async (p) => {
+    const code = p.code;
+    const fieldsFromEdits = editsRef.current[code] || {};
+    const category = fieldsFromEdits.category !== undefined ? fieldsFromEdits.category : (p.group || '');
+    const barcode = fieldsFromEdits.barcode !== undefined ? fieldsFromEdits.barcode : (p.barcode || '');
+    setSavingCategoryCode(code);
+    try {
+      await apiCall('POST', '/api/product-aliases', { code, category, barcode });
+      await loadProducts();
+    } catch(e) { alert(e.message); }
+    setSavingCategoryCode(null);
+  }, [loadProducts]);
+
+  // Стабильная ссылка (как saveAlias) — передаётся в 150+ мемоизированных
+  // ProductCatalogCard. Ответственность карточки — сжать фото и показать
+  // ошибку/спиннер; загрузка на сервер и обновление списка — здесь.
+  const uploadProductPhoto = useCallback(async (code, imageBase64) => {
+    await apiCall('POST', `/api/products/${code}/photo`, { imageBase64 });
+    await loadProducts();
+  }, [loadProducts]);
+
+  const removeProductPhoto = useCallback(async (code) => {
+    await apiCall('DELETE', `/api/products/${code}/photo`);
+    await loadProducts();
   }, [loadProducts]);
 
   const handleUpdate = async (id, status, payment, driverId) => {
@@ -1568,7 +3433,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
       || (o.driver_name||'').toLowerCase().includes(q)
       || (o.address||'').toLowerCase().includes(q)), [orders, filter, q]);
 
-  const { stats, salesList, driverCashList } = useMemo(() => {
+  const { stats, repList, storeList, driverCashList, posReport, returnsInfo } = useMemo(() => {
     const periodOrders = orders.filter(o=>o.date>=dateFrom&&o.date<=dateTo);
     const stats = {
       total:periodOrders.length,
@@ -1581,29 +3446,91 @@ function AdminCabinet({ user, onLogout, desktop }) {
       qrTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_qr||0),0),
       debtTotal:periodOrders.reduce((s,o)=>s+(o.payment_debt||0),0),
     };
+    const deliveredOrders = periodOrders.filter(o=>o.status==="delivered");
+    const ordersProfit = sumItemsProfit(deliveredOrders);
+    stats.costTotal = ordersProfit.cost;
+    stats.profit = ordersProfit.profit;
+    stats.profitMissingLines = ordersProfit.missingCostLines;
+
+    // Продажи по кассе за тот же период — отдельно от заявок на доставку,
+    // но объединяем в общую сумму (combinedCash/Qr/Debt) ниже, чтобы
+    // менеджер видел одну кассовую сумму, а не считал вручную по двум местам.
+    const periodSales = sales.filter(s=>s.date>=dateFrom&&s.date<=dateTo&&s.status!=="voided");
+    const posReport = {
+      count: periodSales.length,
+      revenue: periodSales.reduce((s,o)=>s+(o.total||0),0),
+      cashTotal: periodSales.reduce((s,o)=>s+(o.payment_cash||0),0),
+      qrTotal: periodSales.reduce((s,o)=>s+(o.payment_qr||0),0),
+      debtTotal: periodSales.reduce((s,o)=>s+(o.payment_debt||0),0),
+      list: periodSales.slice().sort((a,b)=>b.id-a.id),
+      combinedCash: stats.cashTotal + periodSales.reduce((s,o)=>s+(o.payment_cash||0),0),
+      combinedQr: stats.qrTotal + periodSales.reduce((s,o)=>s+(o.payment_qr||0),0),
+      combinedDebt: stats.debtTotal + periodSales.reduce((s,o)=>s+(o.payment_debt||0),0),
+      combinedRevenue: stats.revenue + periodSales.reduce((s,o)=>s+(o.total||0),0),
+    };
+    const salesProfit = sumItemsProfit(periodSales);
+    posReport.costTotal = salesProfit.cost;
+    posReport.profit = salesProfit.profit;
+    posReport.profitMissingLines = salesProfit.missingCostLines;
+    posReport.combinedCost = stats.costTotal + salesProfit.cost;
+    posReport.combinedProfit = stats.profit + salesProfit.profit;
+    posReport.combinedProfitMissingLines = stats.profitMissingLines + salesProfit.missingCostLines;
 
     const commissionByCode = {};
     products.forEach(p => { commissionByCode[p.code] = p.commission || 0; });
-    const salesBreakdown = {};
+    // Разбито на два свода по order.source: "sales" — реальные торгпреды
+    // (у них комиссия — их заработок), "store" — магазины, оформившие
+    // заказ сами себе (sales_id там — это аккаунт самого магазина, не
+    // сотрудник; раньше оба вида смешивались в одном списке под общим
+    // заголовком "По торговым представителям", отличить можно было только
+    // по имени в списке).
+    const repBreakdown = {};
+    const storeBreakdown = {};
     periodOrders.filter(o=>o.status==="delivered").forEach(o=>{
+      const bucket = o.source === "store" ? storeBreakdown : repBreakdown;
       const key = o.sales_id;
-      if(!salesBreakdown[key]) salesBreakdown[key] = { name: o.sales_name, revenue: 0, items: [] };
-      salesBreakdown[key].revenue += (o.total||0);
+      if(!bucket[key]) bucket[key] = { name: o.sales_name, revenue: 0, items: [] };
+      bucket[key].revenue += (o.total||0);
       const orderItems = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
       orderItems.forEach(it=>{
         const liveCommission = it.code && commissionByCode[it.code] !== undefined ? commissionByCode[it.code] : (it.commission||0);
-        salesBreakdown[key].items.push({
+        bucket[key].items.push({
           name: it.name,
           qty: it.qty,
           price: it.price,
           commission: liveCommission,
-          bonus: (Number(it.qty)||0)*(Number(liveCommission)||0)
+          bonus: (Number(it.qty)||0)*(Number(it.price)||0)*(Number(liveCommission)||0)/100
         });
       });
     });
-    const salesList = Object.entries(salesBreakdown).map(([id,v])=>({
+    const toList = (breakdown) => Object.entries(breakdown).map(([id,v])=>({
       id, ...v, totalBonus: v.items.reduce((s,it)=>s+it.bonus,0)
     })).sort((a,b)=>b.revenue-a.revenue);
+    const repList = toList(repBreakdown);
+    const storeList = toList(storeBreakdown);
+
+    // Возвраты за период: отказы/возвраты заявок (доставка не состоялась
+    // или товар вернули) плюс отменённые продажи кассы. И то, и другое уже
+    // снимает резерв остатка (см. computeAvailableStock на сервере), но
+    // нигде не суммировалось как "сколько выручки не случилось из-за
+    // возвратов" — только этот блок это считает.
+    const lostOrders = periodOrders.filter(o=>o.status==="cancelled"||o.status==="returned");
+    const lostOrdersRevenue = lostOrders.reduce((s,o)=>s+(o.total||0),0);
+    const voidedSales = sales.filter(s=>s.date>=dateFrom&&s.date<=dateTo&&s.status==="voided");
+    const voidedSalesRevenue = voidedSales.reduce((s,o)=>s+(o.total||0),0);
+    const returnsRevenue = lostOrdersRevenue + voidedSalesRevenue;
+    const successfulRevenue = stats.revenue + periodSales.reduce((s,o)=>s+(o.total||0),0);
+    const returnsInfo = {
+      count: lostOrders.length + voidedSales.length,
+      ordersCount: lostOrders.length,
+      ordersRevenue: lostOrdersRevenue,
+      salesCount: voidedSales.length,
+      salesRevenue: voidedSalesRevenue,
+      revenue: returnsRevenue,
+      // доля возвратов от всего оборота за период (успешное + вернувшееся) —
+      // а не от одной только успешной выручки, иначе цифра занижена.
+      share: (successfulRevenue + returnsRevenue) > 0 ? (returnsRevenue / (successfulRevenue + returnsRevenue) * 100) : 0,
+    };
 
     const cashByDriver = {};
     periodOrders.filter(o=>o.status==="delivered"&&o.driver_id).forEach(o=>{
@@ -1616,12 +3543,12 @@ function AdminCabinet({ user, onLogout, desktop }) {
     });
     const driverCashList = Object.values(cashByDriver).sort((a,b)=>b.cash-a.cash);
 
-    return { stats, salesList, driverCashList };
-  }, [orders, products, dateFrom, dateTo]);
+    return { stats, repList, storeList, driverCashList, posReport, returnsInfo };
+  }, [orders, sales, products, dateFrom, dateTo]);
 
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
-  const TABS=[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["employees","👤","Сотрудники"]];
-  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",employees:"Сотрудники"};
+  const TABS=[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["catalog","🗂","Каталог"],["nkt","🌐","НКТ"],["employees","👤","Сотрудники"]];
+  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",catalog:"Каталог",nkt:"Коды НКТ",employees:"Сотрудники"};
 
   const dateRangeInputs = (
     <div style={{marginBottom:16,maxWidth:420}}>
@@ -1655,10 +3582,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
 
   const searchInput = (
     <input
+      type="search"
       style={{...S.input, maxWidth: desktop?360:"100%", marginBottom:12}}
       placeholder="Поиск по номеру, клиенту, торговому…"
       value={orderSearch}
       onChange={e=>setOrderSearch(e.target.value)}
+      autoComplete="off"
+      name="order-search"
     />
   );
 
@@ -1733,43 +3663,147 @@ function AdminCabinet({ user, onLogout, desktop }) {
           </div>
         </div>
         <div style={{maxWidth: desktop?560:"none"}}>
-          <p style={{...S.sectionTitle,fontSize:15,marginTop:8}}>По торговым представителям</p>
-          {salesList.length===0?<div style={{textAlign:"center",padding:"32px 0",color:C.textFaint}}>Нет доставленных заявок за этот период</div>:
-            salesList.map(s=>(
-              <div key={s.id} style={S.card}>
-                <div style={{...S.row,cursor:"pointer"}} onClick={()=>setExpandedSales(e=>({...e,[s.id]:!e[s.id]}))}>
+          <ProfitBlock revenue={stats.revenue} cost={stats.costTotal} profit={stats.profit} missingLines={stats.profitMissingLines}/>
+        </div>
+        <div style={{maxWidth: desktop?560:"none"}}>
+          <div style={{...S.card,marginTop:10}}>
+            <p style={{margin:"0 0 10px",fontSize:13,fontWeight:700,color:C.navy}}>Возвраты за период</p>
+            {returnsInfo.count===0
+              ? <p style={{margin:0,fontSize:13,color:C.textSub}}>Возвратов и отказов не было.</p>
+              : <>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
                   <div>
-                    <p style={S.cardTitle}>{s.name}</p>
-                    <p style={S.cardSub}>{s.items.length} поз. продано</p>
+                    <p style={{margin:"0 0 2px",fontSize:10,color:C.textFaint,fontWeight:700,textTransform:"uppercase"}}>Случаев</p>
+                    <p style={{margin:0,fontSize:15,fontWeight:800,fontFamily:FH,color:C.text}}>{returnsInfo.count}</p>
                   </div>
-                  <div style={{textAlign:"right"}}>
-                    <p style={{margin:0,fontWeight:800,fontFamily:FH,color:C.navy}}>{s.revenue.toLocaleString()} ₸</p>
-                    <p style={{margin:0,fontSize:11,color:C.textFaint}}>{expandedSales[s.id]?"▲ Свернуть":"▼ Подробнее"}</p>
+                  <div>
+                    <p style={{margin:"0 0 2px",fontSize:10,color:C.textFaint,fontWeight:700,textTransform:"uppercase"}}>Сумма</p>
+                    <p style={{margin:0,fontSize:15,fontWeight:800,fontFamily:FH,color:C.red}}>{returnsInfo.revenue.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</p>
+                  </div>
+                  <div>
+                    <p style={{margin:"0 0 2px",fontSize:10,color:C.textFaint,fontWeight:700,textTransform:"uppercase"}}>Доля оборота</p>
+                    <p style={{margin:0,fontSize:15,fontWeight:800,fontFamily:FH,color:C.red}}>{returnsInfo.share.toFixed(1)}%</p>
                   </div>
                 </div>
-                {expandedSales[s.id]&&(
-                  <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
-                    {s.items.map((it,i)=>(
-                      <div key={i} style={{...S.row,marginBottom:6,fontSize:12,alignItems:"flex-start"}}>
-                        <span style={{color:C.textMid,flex:1}}>{it.name} <span style={{color:C.textFaint}}>×{it.qty}</span></span>
-                        <span style={{color:C.textSub,textAlign:"right"}}>{it.commission}₸/ед × {it.qty} = <strong style={{color:C.green}}>{it.bonus.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</strong></span>
-                      </div>
-                    ))}
-                    <div style={{...S.row,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,fontWeight:700}}>
-                      <span style={{fontSize:13,color:C.textMid}}>Итого бонус</span>
-                      <span style={{fontSize:15,fontFamily:FH,fontWeight:800,color:C.green}}>{s.totalBonus.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-          ))}
+                <p style={{margin:0,fontSize:11.5,color:C.textSub}}>
+                  Заявки (отказ/возврат): {returnsInfo.ordersCount} на {returnsInfo.ordersRevenue.toLocaleString()} ₸ ·
+                  {" "}Отменённые продажи кассы: {returnsInfo.salesCount} на {returnsInfo.salesRevenue.toLocaleString()} ₸
+                </p>
+              </>}
+          </div>
         </div>
+        {(() => {
+          // Обычная функция, возвращающая JSX (не JSX-компонент) — тот же
+          // приём, что и renderAliasSection/renderEmpSection выше: если
+          // объявить как <RenderSalesEntity/>, React считает её новым типом
+          // компонента на каждый рендер AdminCabinet и сбрасывает
+          // expandedSales/раскрытые карточки.
+          const renderSalesEntity = (s) => (
+            <div key={s.id} style={S.card}>
+              <div style={{...S.row,cursor:"pointer"}} onClick={()=>setExpandedSales(e=>({...e,[s.id]:!e[s.id]}))}>
+                <div>
+                  <p style={S.cardTitle}>{s.name}</p>
+                  <p style={S.cardSub}>{s.items.length} поз. продано</p>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <p style={{margin:0,fontWeight:800,fontFamily:FH,color:C.navy}}>{s.revenue.toLocaleString()} ₸</p>
+                  <p style={{margin:0,fontSize:11,color:C.textFaint}}>{expandedSales[s.id]?"▲ Свернуть":"▼ Подробнее"}</p>
+                </div>
+              </div>
+              {expandedSales[s.id]&&(
+                <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                  {s.items.map((it,i)=>(
+                    <div key={i} style={{...S.row,marginBottom:6,fontSize:12,alignItems:"flex-start"}}>
+                      <span style={{color:C.textMid,flex:1}}>{it.name} <span style={{color:C.textFaint}}>×{it.qty}</span></span>
+                      <span style={{color:C.textSub,textAlign:"right"}}>{it.commission}% × {(it.price*it.qty).toLocaleString()} ₸ = <strong style={{color:C.green}}>{it.bonus.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</strong></span>
+                    </div>
+                  ))}
+                  <div style={{...S.row,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,fontWeight:700}}>
+                    <span style={{fontSize:13,color:C.textMid}}>Итого бонус</span>
+                    <span style={{fontSize:15,fontFamily:FH,fontWeight:800,color:C.green}}>{s.totalBonus.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+          return <>
+            <div style={{maxWidth: desktop?560:"none"}}>
+              <p style={{...S.sectionTitle,fontSize:15,marginTop:8}}>По торговым представителям</p>
+              {repList.length===0
+                ? <div style={{textAlign:"center",padding:"32px 0",color:C.textFaint}}>Нет доставленных заявок за этот период</div>
+                : repList.map(renderSalesEntity)}
+            </div>
+            <div style={{maxWidth: desktop?560:"none"}}>
+              <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>Магазины (самозаказ)</p>
+              {storeList.length===0
+                ? <div style={{textAlign:"center",padding:"32px 0",color:C.textFaint}}>Нет самостоятельных заказов от магазинов за этот период</div>
+                : storeList.map(renderSalesEntity)}
+            </div>
+          </>;
+        })()}
       </>}
       {tab==="cashbox"&&<>
         {!desktop&&<p style={S.sectionTitle}>Касса</p>}
+        <div style={{maxWidth: desktop?560:"none"}}>
+          <button style={{...S.bigCreate,marginBottom:16}} onClick={()=>setShowPosModal(true)}><span style={S.bigCreatePlus}>+</span> Новая продажа</button>
+        </div>
         {dateRangeInputs}
         <div style={{maxWidth: desktop?560:"none"}}>
-          <p style={{...S.sectionTitle,fontSize:15}}>Сдача кассы по водителям</p>
+          <p style={{...S.sectionTitle,fontSize:15}}>Касса за период (заявки + продажи)</p>
+          <div style={{...S.revenueCard}}>
+            <p style={S.revenueLabel}>Общая выручка</p>
+            <p style={{...S.revenueNum,marginBottom:14}}>{posReport.combinedRevenue.toLocaleString()} ₸</p>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+              <div style={{background:C.cashGreen,borderRadius:10,padding:"10px 8px"}}>
+                <p style={{margin:"0 0 2px",fontSize:10,color:"#15803D",fontWeight:700}}>НАЛИЧКА</p>
+                <p style={{margin:0,fontSize:13,fontWeight:800,fontFamily:FH,color:"#15803D"}}>{posReport.combinedCash.toLocaleString()} ₸</p>
+              </div>
+              <div style={{background:C.qrBlue,borderRadius:10,padding:"10px 8px"}}>
+                <p style={{margin:"0 0 2px",fontSize:10,color:"#1D4ED8",fontWeight:700}}>QR</p>
+                <p style={{margin:0,fontSize:13,fontWeight:800,fontFamily:FH,color:"#1D4ED8"}}>{posReport.combinedQr.toLocaleString()} ₸</p>
+              </div>
+              <div style={{background:C.debtAmber,borderRadius:10,padding:"10px 8px"}}>
+                <p style={{margin:"0 0 2px",fontSize:10,color:"#92400E",fontWeight:700}}>ДОЛГ</p>
+                <p style={{margin:0,fontSize:13,fontWeight:800,fontFamily:FH,color:"#92400E"}}>{posReport.combinedDebt.toLocaleString()} ₸</p>
+              </div>
+            </div>
+          </div>
+          <ProfitBlock revenue={posReport.combinedRevenue} cost={posReport.combinedCost} profit={posReport.combinedProfit} missingLines={posReport.combinedProfitMissingLines}/>
+          <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>Продажи по кассе ({posReport.count})</p>
+          {posReport.list.length===0?<div style={{textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>Продаж за период не было</div>:
+            posReport.list.map(s=>(
+              <div key={s.id} style={S.card}>
+                <div style={S.row}>
+                  <div>
+                    <p style={S.cardTitle}>№ {s.id} · {s.client_name||"Без клиента"}</p>
+                    <p style={S.cardSub}>{s.items.length} поз. · {s.created_by_name} · {new Date(s.created_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</p>
+                  </div>
+                  <p style={{margin:0,fontWeight:800,fontFamily:FH,color:C.navy}}>{s.total.toLocaleString()} ₸</p>
+                </div>
+                {s.fiscal_id
+                  ? <p style={{margin:"8px 0 0",fontSize:11,color:C.green}}>
+                      🧾 Чек пробит · признак {s.fiscal_id}
+                      {s.fiscal_return_id&&<><br/>↩️ Чек возврата пробит · признак {s.fiscal_return_id}</>}
+                    </p>
+                  : s.status!=="voided"&&(
+                    <div style={{marginTop:8}}>
+                      <p style={{margin:"0 0 6px",fontSize:11,color:s.payment_debt>0?C.textFaint:C.red}}>
+                        {s.payment_debt>0 ? "Чек не пробит (продажа с долгом — пробить можно после погашения)" : "⚠️ Чек не пробит"}
+                      </p>
+                      <button
+                        style={{...S.btnSecondary,padding:"6px 14px",fontSize:12,width:"auto",opacity:fiscalizingSaleId===s.id?0.6:1}}
+                        disabled={fiscalizingSaleId===s.id}
+                        onClick={()=>retryFiscal(s)}
+                      >{fiscalizingSaleId===s.id?"Пробиваю...":"🔁 Пробить чек"}</button>
+                      {fiscalErrorBySale[s.id]&&<p style={{margin:"6px 0 0",fontSize:11,color:C.red}}>{fiscalErrorBySale[s.id]}</p>}
+                    </div>
+                  )}
+                <button style={{...S.btnDanger,marginTop:10,padding:"8px",fontSize:12}} onClick={()=>voidSale(s)}>Отменить продажу</button>
+              </div>
+          ))}
+        </div>
+        <div style={{maxWidth: desktop?560:"none"}}>
+          <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>Сдача кассы по водителям</p>
           {driverCashList.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Нет закрытых водителями заявок за период</div>:
             driverCashList.map((d,i)=>(
               <div key={i} style={S.card}>
@@ -1801,10 +3835,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
             Название из 1С меняется от поставки к поставке — задай здесь постоянное имя, которое увидят торгпреды.
           </p>
           <input
+            type="search"
             style={{...S.input,marginBottom:12}}
             placeholder="Поиск по названию или коду..."
             value={aliasSearch}
             onChange={e=>setAliasSearch(e.target.value)}
+            autoComplete="off"
+            name="alias-search"
           />
           {(() => {
             const renderProductCard = (p) => {
@@ -1820,6 +3857,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   price2={getField(p,'price2')}
                   price3={getField(p,'price3')}
                   commission={getField(p,'commission')}
+                  cost={getField(p,'cost')}
                   onChange={updateField}
                   onEditRequest={onEditRequest}
                   onSave={saveAlias}
@@ -1875,6 +3913,245 @@ function AdminCabinet({ user, onLogout, desktop }) {
           {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
         </div>
       </>}
+      {tab==="catalog"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Каталог</p>}
+        <div style={{maxWidth:"none"}}>
+          <p style={{fontSize:12,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
+            Название и код — из 1С, как есть. Здесь — только то, что видит покупатель при выборе: фото и раздел каталога.
+          </p>
+          <input
+            type="search"
+            style={{...S.input,marginBottom:12}}
+            placeholder="Поиск по названию, коду или штрихкоду..."
+            value={catalogAdminSearch}
+            onChange={e=>setCatalogAdminSearch(e.target.value)}
+            autoComplete="off"
+            name="catalog-admin-search"
+          />
+          <div style={{...S.row,marginBottom:10}}>
+            <span style={{fontSize:12,color:C.textSub}}>{categoryOptions.length>0?`${categoryOptions.length} раздел(ов)`:"Разделов пока нет"}</span>
+            <button onClick={()=>setShowCategoryManager(s=>!s)} style={{...S.btnSecondary,padding:"5px 12px",fontSize:12}}>{showCategoryManager?"✕ Закрыть":"⚙ Управление разделами"}</button>
+          </div>
+          {showCategoryManager&&(
+            <div style={{...S.card,marginBottom:12}}>
+              <div style={{display:"flex",gap:6,marginBottom:categoryOptions.length>0?12:0}}>
+                <input
+                  style={{...S.input,padding:"7px 10px",fontSize:13,flex:1}}
+                  placeholder="Название нового раздела"
+                  value={newCategoryName}
+                  onChange={e=>setNewCategoryName(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==='Enter'){ createCategory(newCategoryName); setNewCategoryName(""); } }}
+                />
+                <button
+                  style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap"}}
+                  onClick={()=>{ createCategory(newCategoryName); setNewCategoryName(""); }}
+                >+ Раздел</button>
+              </div>
+              {categoryOptions.map(cat=>(
+                <div key={cat} style={{...S.row,padding:"7px 0",borderTop:`1px solid ${C.border}`}}>
+                  <span style={{fontSize:13,color:C.textMid}}>{cat}</span>
+                  <div style={{display:"flex",gap:6}}>
+                    <button
+                      title="Переименовать"
+                      onClick={()=>{ const next=window.prompt(`Новое название для «${cat}»`, cat); if(next!=null) renameCategory(cat, next); }}
+                      style={{width:28,height:28,border:`1px solid ${C.border}`,borderRadius:8,background:C.white,cursor:"pointer",fontSize:13}}
+                    >✎</button>
+                    <button
+                      title="Удалить"
+                      onClick={()=>deleteCategory(cat)}
+                      style={{width:28,height:28,border:`1px solid ${C.border}`,borderRadius:8,background:C.white,color:C.red,cursor:"pointer",fontSize:13}}
+                    >🗑</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {categoryOptions.length>0&&(
+            <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+              <button onClick={()=>setCatalogAdminSection("")} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${catalogAdminSection===""?C.navy:C.border}`,background:catalogAdminSection===""?C.navy:C.white,color:catalogAdminSection===""?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>Все</button>
+              {categoryOptions.map(cat=>(
+                <button key={cat} onClick={()=>setCatalogAdminSection(cat)} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${catalogAdminSection===cat?C.navy:C.border}`,background:catalogAdminSection===cat?C.navy:C.white,color:catalogAdminSection===cat?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>{cat}</button>
+              ))}
+              <button onClick={()=>setCatalogAdminSection("__none__")} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${catalogAdminSection==="__none__"?C.red:C.border}`,background:catalogAdminSection==="__none__"?"#FEF2F2":C.white,color:catalogAdminSection==="__none__"?C.red:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>Без раздела</button>
+            </div>
+          )}
+          {(() => {
+            const q = catalogAdminSearch.trim().toLowerCase();
+            const filtered = products.filter(p =>
+              (!q || p.name.toLowerCase().includes(q) || (p.code||'').includes(q) || (p.barcode||'').includes(q)) &&
+              (!catalogAdminSection || (catalogAdminSection==="__none__" ? !p.group : p.group===catalogAdminSection))
+            );
+            return filtered.length===0
+              ? <div style={{textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>{q?"Ничего не найдено":"Пусто"}</div>
+              : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(200px, 1fr))",gap:14}}>
+                {filtered.map(p=>(
+                  <ProductCatalogCard
+                    key={p.code}
+                    p={p}
+                    category={getField(p,'category')}
+                    barcode={getField(p,'barcode')}
+                    categoryOptions={categoryOptions}
+                    saving={savingCategoryCode===p.code}
+                    onChangeCategory={updateField}
+                    onSaveCategory={saveCategory}
+                    onUploadPhoto={uploadProductPhoto}
+                    onRemovePhoto={removeProductPhoto}
+                  />
+                ))}
+              </div>;
+          })()}
+          {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
+        </div>
+      </>}
+      {tab==="nkt"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Коды НКТ</p>}
+        <div style={{maxWidth:"none"}}>
+          <p style={{fontSize:12,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
+            Код НКТ (NTIN) ищется в Национальном каталоге товаров по штрихкоду. Найденное — это то же
+            значение, что в 1С в поле "Код НКТ" карточки номенклатуры. Можно поправить вручную и подобрать
+            по названию, если по штрихкоду не нашлось.
+          </p>
+          {(() => {
+            const total = products.length;
+            const withBarcode = products.filter(p=>p.barcode).length;
+            const matched = products.filter(p=>p.nkt_status==='matched').length;
+            const manual = products.filter(p=>p.nkt_status==='manual').length;
+            const notFound = products.filter(p=>p.nkt_status==='not_found').length;
+            const unchecked = total - matched - manual - notFound;
+            return (
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+                {[["Всего",total,C.textMid],["Со штрихкодом",withBarcode,C.textMid],["Найдено",matched,C.green],["Вручную",manual,C.navy],["Не найдено",notFound,C.red],["Не проверено",unchecked,C.textFaint]].map(([label,val,color])=>(
+                  <div key={label} style={{...S.card,padding:"8px 12px",display:"flex",flexDirection:"column",gap:2,minWidth:88}}>
+                    <span style={{fontSize:11,color:C.textSub}}>{label}</span>
+                    <span style={{fontSize:16,fontWeight:800,fontFamily:FH,color}}>{val}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <div style={{...S.card,marginBottom:12,display:"flex",flexDirection:"column",gap:8}}>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <button
+                style={{...S.btnPrimary,width:"auto",padding:"9px 16px",marginTop:0,boxShadow:"none",opacity:nktRunning?0.6:1}}
+                disabled={nktRunning}
+                onClick={runNktMatch}
+              >▶ Подобрать коды НКТ по штрихкодам</button>
+              {nktRunning&&(
+                <button
+                  style={{...S.btnSecondary,width:"auto",padding:"9px 16px"}}
+                  onClick={()=>{ nktStopRef.current = true; }}
+                >■ Остановить</button>
+              )}
+              {nktProgress&&(
+                <span style={{fontSize:12,color:C.textSub}}>
+                  {nktRunning?"Идёт подбор: ":"Готово: "}{nktProgress.done} / {nktProgress.total}
+                  {" "}(найдено {nktProgress.matched}, не найдено {nktProgress.notFound}, ошибок {nktProgress.errors})
+                </span>
+              )}
+            </div>
+            <p style={{fontSize:11,color:C.textFaint,margin:0}}>
+              Обрабатывает только товары со штрихкодом, у которых код НКТ ещё не заполнен. Товары без штрихкода
+              и уже заполненные — не трогает; для них ищите вручную кнопкой "🔍" по названию.
+            </p>
+          </div>
+          <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+            <input
+              type="search"
+              style={{...S.input,flex:1,minWidth:200}}
+              placeholder="Поиск по названию, коду 1С или штрихкоду..."
+              value={nktSearch}
+              onChange={e=>setNktSearch(e.target.value)}
+              autoComplete="off"
+              name="nkt-search"
+            />
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:C.textMid,whiteSpace:"nowrap"}}>
+              <input type="checkbox" checked={nktOnlyMissing} onChange={e=>setNktOnlyMissing(e.target.checked)}/>
+              Только без кода НКТ
+            </label>
+          </div>
+          {(() => {
+            const q = nktSearch.trim().toLowerCase();
+            const filtered = products.filter(p =>
+              (!q || p.name.toLowerCase().includes(q) || (p.code||'').includes(q) || (p.barcode||'').includes(q)) &&
+              (!nktOnlyMissing || !p.nkt_code)
+            );
+            const STATUS_LABEL = { matched:"Найден", manual:"Вручную", not_found:"Не найден" };
+            const STATUS_COLOR = { matched:C.green, manual:C.navy, not_found:C.red };
+            if (filtered.length === 0) {
+              return <div style={{textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>{q||nktOnlyMissing?"Ничего не найдено":"Пусто"}</div>;
+            }
+            // Плоская таблица, не карточки с фото — на 3000+ позициях это заметно легче.
+            return (
+              <div style={{...S.card,padding:0,overflow:"hidden"}}>
+                <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{background:C.surface,textAlign:"left"}}>
+                      {["Название","Код 1С","Штрихкод","Код НКТ","Статус",""].map(h=>(
+                        <th key={h} style={{padding:"8px 10px",fontWeight:700,color:C.textSub,whiteSpace:"nowrap"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.slice(0,500).map(p=>(
+                      <tr key={p.code} className="rowh" style={{borderTop:`1px solid ${C.border}`}}>
+                        <td style={{padding:"6px 10px",maxWidth:280}}>{p.name}</td>
+                        <td style={{padding:"6px 10px",color:C.textFaint,whiteSpace:"nowrap"}}>{p.code}</td>
+                        <td style={{padding:"6px 10px",color:C.textFaint,whiteSpace:"nowrap"}}>{p.barcode||"—"}</td>
+                        <td style={{padding:"6px 10px",minWidth:150}}>
+                          <input
+                            defaultValue={p.nkt_code}
+                            key={p.code+':'+p.nkt_code}
+                            style={{...S.input,padding:"5px 8px",fontSize:12,width:150}}
+                            placeholder="не указан"
+                            onBlur={e=>{ if(e.target.value !== (p.nkt_code||'')) saveNktCodeManually(p.code, e.target.value.trim()); }}
+                          />
+                        </td>
+                        <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>
+                          {p.nkt_status
+                            ? <span style={{fontSize:11,fontWeight:700,color:STATUS_COLOR[p.nkt_status]||C.textFaint,background:(STATUS_COLOR[p.nkt_status]||C.textFaint)+"22",padding:"2px 8px",borderRadius:99}}>{STATUS_LABEL[p.nkt_status]||p.nkt_status}</span>
+                            : <span style={{fontSize:11,color:C.textFaint}}>—</span>}
+                        </td>
+                        <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>
+                          <button
+                            title="Искать в НКТ по штрихкоду/названию"
+                            onClick={()=>searchNktForProduct(p)}
+                            style={{width:26,height:26,border:`1px solid ${C.border}`,borderRadius:8,background:C.white,cursor:"pointer",fontSize:12}}
+                          >🔍</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </div>
+                {filtered.length>500&&(
+                  <div style={{padding:"8px 10px",fontSize:11,color:C.textFaint,borderTop:`1px solid ${C.border}`}}>
+                    Показаны первые 500 из {filtered.length} — сузьте поиск, чтобы увидеть остальные.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+        {nktPicker&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16}} onClick={()=>setNktPicker(null)}>
+            <div style={{...S.card,width:"100%",maxWidth:480,maxHeight:"70vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <span style={{fontSize:14,fontWeight:700,color:C.navy}}>Результаты поиска в НКТ</span>
+                <button onClick={()=>setNktPicker(null)} style={{border:"none",background:"none",fontSize:16,cursor:"pointer",color:C.textFaint}}>✕</button>
+              </div>
+              {nktPicker.loading&&<div style={{textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>Ищу...</div>}
+              {!nktPicker.loading&&nktPicker.error&&<div style={{textAlign:"center",padding:"20px 0",color:C.red,fontSize:13}}>{nktPicker.error}</div>}
+              {!nktPicker.loading&&nktPicker.results.map((r,i)=>(
+                <div key={i} onClick={()=>pickNktResult(nktPicker.code, r.ntin_code)} style={{padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,marginBottom:6,cursor:"pointer"}}>
+                  <div style={{fontSize:12,fontWeight:600,color:C.textMid}}>{r.name_ru||r.name_kk||'Без названия'}</div>
+                  <div style={{fontSize:11,color:C.textFaint,marginTop:2}}>NTIN: {r.ntin_code||'—'} · GTIN: {r.gtin||'—'}{r.is_markedeac?' · маркированный':''}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </>}
       {tab==="employees"&&<>
         {!desktop&&<p style={S.sectionTitle}>Сотрудники</p>}
         <div style={{maxWidth: desktop?560:"none"}}>
@@ -1882,15 +4159,20 @@ function AdminCabinet({ user, onLogout, desktop }) {
             ФИО приходит из 1С. Для новых сотрудников задай роль, логин и пароль — появится рабочий вход на сайт.
           </p>
           <input
+            type="search"
             style={{...S.input,marginBottom:16}}
             placeholder="Поиск по ФИО или коду..."
             value={empSearch}
             onChange={e=>setEmpSearch(e.target.value)}
+            autoComplete="off"
+            name="emp-search"
           />
           {(() => {
             const q = empSearch.trim().toLowerCase();
             const noAccount = employees.filter(e=>!e.has_account&&(!q||e.name.toLowerCase().includes(q)||(e.code||'').includes(q)));
             const accounts = users.filter(u=>!q||u.name.toLowerCase().includes(q)||u.login.toLowerCase().includes(q));
+            const storeClientCodes = new Set(users.filter(u=>u.role==="store").map(u=>u.client_code));
+            const noStoreAccount = clients.filter(cl=>!storeClientCodes.has(cl.code)&&(!q||cl.name.toLowerCase().includes(q)||(cl.code||'').includes(q)));
 
             // ВАЖНО: обычная функция, возвращающая JSX, а НЕ JSX-компонент (не
             // вызывается как <EmpSection/>). Раньше здесь была
@@ -1997,6 +4279,25 @@ function AdminCabinet({ user, onLogout, desktop }) {
                     </div>
                   ))
               })}
+
+              {renderEmpSection({ id:"noStoreAccount", title:"Магазины без кабинета", badgeColor:C.red, count:noStoreAccount.length, children:
+                noStoreAccount.length===0
+                  ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:13}}>{q?"Ничего не найдено":(clients.length===0?"Клиенты из 1С ещё не загружены":"Все магазины уже с кабинетами")}</div>
+                  : noStoreAccount.map((cl)=>{
+                      const formKey = 'store_'+cl.code;
+                      return (
+                      <div key={formKey} style={{...S.card,padding:10,marginBottom:6}}>
+                        <div style={{fontSize:11,color:C.textFaint,marginBottom:2}}>Код 1С: {cl.code}</div>
+                        <div style={{fontSize:13,fontWeight:600,marginBottom:8,color:C.textMid}}>{cl.name}</div>
+                        <div style={{display:"flex",gap:6}}>
+                          <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Логин" value={(empForm[formKey]||{}).login||''} onChange={e=>updateEmpForm(formKey,'login',e.target.value)}/>
+                          <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="Пароль" value={(empForm[formKey]||{}).password||''} onChange={e=>updateEmpForm(formKey,'password',e.target.value)}/>
+                          <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap",opacity:savingEmp===formKey?0.5:1}} disabled={savingEmp===formKey} onClick={()=>createStoreAccount(cl,formKey)}>Создать</button>
+                        </div>
+                      </div>
+                      );
+                    })
+              })}
             </>;
           })()}
         </div>
@@ -2004,12 +4305,14 @@ function AdminCabinet({ user, onLogout, desktop }) {
     </>
   );
 
-  const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", admin:"Администратор", manager:"Менеджер" };
+  const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", cashier:"Кассир", admin:"Администратор", manager:"Менеджер", store:"Магазин" };
 
   if (desktop) {
     return (
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
+        <AutofillDecoy/>
         {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+        {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         <aside style={S.side}>
           <div style={{marginBottom:34}}><Brand size={44}/></div>
           <nav style={{flex:1}}>
@@ -2035,12 +4338,14 @@ function AdminCabinet({ user, onLogout, desktop }) {
 
   return (
     <div style={{paddingBottom:72}}>
+      <AutofillDecoy/>
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+      {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       <div style={S.page}>
         {content}
       </div>
       <div style={S.nav}>
-        {[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["employees","👤","Сотр."]].map(([k,ic,lb])=>(
+        {[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["catalog","🗂","Каталог"],["employees","👤","Сотр."]].map(([k,ic,lb])=>(
           <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
@@ -2124,7 +4429,7 @@ function App() {
       setTimeout(() => setPushMsg(''), 8000);
     });
   };
-  const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", admin:"Администратор", manager:"Менеджер" };
+  const ROLE_LABEL = { sales:"Торговый представитель", driver:"Водитель", cashier:"Кассир", admin:"Администратор", manager:"Менеджер", store:"Магазин" };
 
   if (checking) return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.surface}}>
@@ -2200,6 +4505,29 @@ function App() {
     );
   }
 
+  // магазин на большом экране — тоже версия с сайдбаром
+  if (user.role==="store" && isDesktop) {
+    return (
+      <div style={S.app}>
+        {(pushStatus==="default" || pushMsg) && (
+          <div style={{background:C.accent,color:"#fff",padding:"10px 16px",fontSize:13}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+              <span>Включите уведомления, чтобы не пропускать статус заказов</span>
+              <button onClick={enablePush} style={{background:"#fff",color:C.accent,border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Включить</button>
+            </div>
+            {pushMsg && <div style={{marginTop:6,fontSize:12,opacity:0.95}}>{pushMsg}</div>}
+          </div>
+        )}
+        {pushStatus==="denied" && (
+          <div style={{background:"#78716C",color:"#fff",padding:"10px 16px",fontSize:12,lineHeight:1.4}}>
+            Уведомления заблокированы в настройках телефона. Зайдите в настройки уведомлений приложения "Жайык" в системе и разрешите их вручную.
+          </div>
+        )}
+        <StoreCabinet user={user} onLogout={handleLogout} desktop={true}/>
+      </div>
+    );
+  }
+
   return (
     <div style={S.app}>
       {(pushStatus==="default" || pushMsg) && (
@@ -2224,7 +4552,9 @@ function App() {
         </div>
       </div>
       {user.role==="sales"&&<SalesCabinet user={user} onLogout={handleLogout}/>}
+      {user.role==="store"&&<StoreCabinet user={user} onLogout={handleLogout}/>}
       {user.role==="driver"&&<DriverCabinet user={user} onLogout={handleLogout}/>}
+      {user.role==="cashier"&&<CashierCabinet user={user} onLogout={handleLogout}/>}
       {(user.role==="admin"||user.role==="manager")&&<AdminCabinet user={user} onLogout={handleLogout} desktop={false}/>}
     </div>
   );
