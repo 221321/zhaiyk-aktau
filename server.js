@@ -54,12 +54,22 @@ console.log('✅ База данных готова');
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Нет токена' });
+  let payload;
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
+    payload = jwt.verify(token, JWT_SECRET);
   } catch {
-    res.status(401).json({ error: 'Неверный токен' });
+    return res.status(401).json({ error: 'Неверный токен' });
   }
+  // Роль и активность всегда берём из базы, а не из токена: токен живёт 7 дней,
+  // и без этой проверки смена должности сотруднику или его отключение
+  // администратором не подействует, пока сотрудник сам не перезайдёт —
+  // всё это время он продолжит работать со старыми правами
+  const user = db.get('users').find({ id: payload.id }).value();
+  if (!user || user.active === false) {
+    return res.status(401).json({ error: 'Неверный токен' });
+  }
+  req.user = { id: user.id, login: user.login, name: user.name, role: user.role, region: user.region };
+  next();
 }
 
 // ===== PUSH: подписки и отправка =====
