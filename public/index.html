@@ -908,9 +908,17 @@ function SalesCabinet({ user, token, onLogout }) {
       setSalesDateTo(todayStr);
     }
   };
-  const visibleOrders = orders.filter(o=>o.status==="new"||o.status==="in_transit"||(["cancelled","returned"].includes(o.status)&&o.date===todayStr));
+  const [salesRepFilter, setSalesRepFilter] = useState("");
+  const salesReps = useMemo(() => {
+    if (user.role!=="senior_sales") return [];
+    const map = {};
+    orders.forEach(o=>{ if(o.sales_id!=null) map[o.sales_id] = o.sales_name || map[o.sales_id]; });
+    return Object.entries(map).map(([id,name])=>({id,name})).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ru'));
+  }, [orders, user.role]);
+  const scopedOrders = (user.role==="senior_sales" && salesRepFilter) ? orders.filter(o=>String(o.sales_id)===salesRepFilter) : orders;
+  const visibleOrders = scopedOrders.filter(o=>o.status==="new"||o.status==="in_transit"||(["cancelled","returned"].includes(o.status)&&o.date===todayStr));
   const stats = {total:visibleOrders.length,delivered:visibleOrders.filter(o=>o.status==="delivered").length,inTransit:visibleOrders.filter(o=>o.status==="in_transit").length,new:visibleOrders.filter(o=>o.status==="new").length};
-  const periodDeliveredOrders = orders.filter(o=>o.status==="delivered"&&o.date>=salesDateFrom&&o.date<=salesDateTo);
+  const periodDeliveredOrders = scopedOrders.filter(o=>o.status==="delivered"&&o.date>=salesDateFrom&&o.date<=salesDateTo);
   const todaySales = periodDeliveredOrders.reduce((s,o)=>s+(o.total||0),0);
   const [showSalesList, setShowSalesList] = useState(false);
   const [expandedClients, setExpandedClients] = useState({});
@@ -950,6 +958,14 @@ function SalesCabinet({ user, token, onLogout }) {
           <button style={S.bigCreate} onClick={()=>{window.history.pushState({view:'new'},'','');setTab("new");}}><span style={S.bigCreatePlus}>+</span> Создать заявку</button>
           {submitted&&<div style={S.alertSuccess}>Заявка успешно создана!</div>}
           {loading?<div style={S.loadingWrap}>Загрузка...</div>:<>
+            {salesReps.length>1&&(
+              <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+                <button onClick={()=>setSalesRepFilter("")} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${salesRepFilter===""?C.navy:C.border}`,background:salesRepFilter===""?C.navy:C.white,color:salesRepFilter===""?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>Все торговые</button>
+                {salesReps.map(r=>(
+                  <button key={r.id} onClick={()=>setSalesRepFilter(String(r.id))} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${salesRepFilter===String(r.id)?C.navy:C.border}`,background:salesRepFilter===String(r.id)?C.navy:C.white,color:salesRepFilter===String(r.id)?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>{r.name}</button>
+                ))}
+              </div>
+            )}
             <div style={S.statsRow}>
               <div style={S.statCard()}><p style={S.statNum()}>{stats.total}</p><p style={S.statLabel}>Всего заявок</p></div>
               <div style={S.statCard()}><p style={S.statNum(C.green)}>{stats.delivered}</p><p style={S.statLabel}>Доставлено</p></div>
@@ -1010,7 +1026,7 @@ function SalesCabinet({ user, token, onLogout }) {
                 </div>
               ))}
             </>}
-            <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>{user.role==="senior_sales"?"Заявки всех торговых":"Мои заявки"}</p>
+            <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>{user.role==="senior_sales"?(salesRepFilter?`Заявки: ${salesReps.find(r=>r.id===salesRepFilter)?.name||''}`:"Заявки всех торговых"):"Мои заявки"}</p>
             {visibleOrders.length===0?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заявок пока нет</p></div>
               :visibleOrders.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder} onEdit={o.status==="new"&&(user.role!=="senior_sales"||o.sales_id===user.id)?setEditOrder:null}/>)}
           </>}
@@ -4412,15 +4428,19 @@ function WarehouseCabinet({ user, onLogout }) {
       return (a.display_name||a.name||'').localeCompare(b.display_name||b.name||'');
     });
 
+  const [driverFilter, setDriverFilter] = useState("");
   const queueOrders = orders.filter(o=>o.status==="new");
   const activeOrders = orders.filter(o=>o.status==="in_transit");
   const byDriver = {};
   activeOrders.forEach(o=>{
     const key = o.driver_id || 'unassigned';
-    if (!byDriver[key]) byDriver[key] = { name: o.driver_name || 'Без назначенного водителя', orders: [] };
+    if (!byDriver[key]) byDriver[key] = { key, name: o.driver_name || 'Без назначенного водителя', orders: [] };
     byDriver[key].orders.push(o);
   });
-  const driverGroups = Object.values(byDriver).sort((a,b)=>b.orders.length-a.orders.length);
+  const driverGroups = Object.values(byDriver)
+    .filter(g=>!driverFilter || String(g.key)===driverFilter)
+    .sort((a,b)=>b.orders.length-a.orders.length);
+  const allDriverGroups = Object.values(byDriver).sort((a,b)=>b.orders.length-a.orders.length);
 
   return (
     <div style={{paddingBottom:72}}>
@@ -4480,10 +4500,18 @@ function WarehouseCabinet({ user, onLogout }) {
               <p style={{margin:0,fontSize:13,fontWeight:600,color:C.accentDark}}>⏳ Ожидают назначения водителя: {queueOrders.length}</p>
             </div>
           )}
+          {allDriverGroups.length>1&&(
+            <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+              <button onClick={()=>setDriverFilter("")} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${driverFilter===""?C.navy:C.border}`,background:driverFilter===""?C.navy:C.white,color:driverFilter===""?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>Все водители</button>
+              {allDriverGroups.map(g=>(
+                <button key={g.key} onClick={()=>setDriverFilter(String(g.key))} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${driverFilter===String(g.key)?C.navy:C.border}`,background:driverFilter===String(g.key)?C.navy:C.white,color:driverFilter===String(g.key)?C.white:C.textMid,fontSize:12,fontWeight:600,cursor:"pointer"}}>{g.name}</button>
+              ))}
+            </div>
+          )}
           {loadingOrders?<div style={S.loadingWrap}>Загрузка...</div>
             :driverGroups.length===0?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>🚚</div><p>Нет заявок в работе</p></div>
-            :driverGroups.map((g,i)=>(
-              <div key={i} style={S.card}>
+            :driverGroups.map((g)=>(
+              <div key={g.key} style={S.card}>
                 <p style={S.cardTitle}>{g.name}</p>
                 <p style={S.cardSub}>{g.orders.length} {g.orders.length===1?'заявка':'заявок'} в работе</p>
                 <button onClick={()=>printLoadingList(g.orders,g.name)} style={{marginTop:10,width:"100%",padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист</button>
