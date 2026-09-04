@@ -4581,8 +4581,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
   // товаров/каталога/НКТ/сотрудников (и бэкенд эти эндпоинты ему не отдаёт).
   const TABS = user.role==="operator"
     ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"]]
-    : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["employees","👤","Сотрудники"]];
-  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",catalog:"Каталог",nkt:"Коды НКТ",employees:"Сотрудники"};
+    : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотрудники"]];
+  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",employees:"Сотрудники"};
 
   const dateRangeInputs = (
     <div style={{marginBottom:16,maxWidth:420}}>
@@ -5034,6 +5034,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
           {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
         </div>
       </>}
+      {tab==="stock"&&<StockPanel/>}
       {tab==="catalog"&&<>
         {!desktop&&<p style={S.sectionTitle}>Каталог</p>}
         <div style={{maxWidth:"none"}}>
@@ -5480,7 +5481,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
       <div style={S.nav}>
         {(user.role==="operator"
           ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"]]
-          : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["employees","👤","Сотр."]]
+          : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотр."]]
         ).map(([k,ic,lb])=>(
           <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
