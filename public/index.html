@@ -4697,10 +4697,20 @@ function WarehouseCabinet({ user, onLogout }) {
   const [weightForm, setWeightForm] = useState({});
   const [savingWeights, setSavingWeights] = useState(false);
   const orderItemsOf = (o) => typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
+  // it.is_weight_item — снимок на момент создания заявки; у заявок, оформленных
+  // до того как товар отметили "Весовой" в карточке, снимок остался false, хотя
+  // товар физически весовой. Подстраховываемся текущим состоянием карточки
+  // товара (products грузится из /api/products и содержит priced_by_weight),
+  // иначе такие заявки молча пропадают из формы ввода веса (сервер их тоже
+  // принимает по этой же живой проверке, см. POST /api/orders/weights).
+  const productByCode = useMemo(() => {
+    const m = {}; products.forEach(p => { m[p.code] = p; }); return m;
+  }, [products]);
+  const isWeightItem = (it) => !!(it.is_weight_item || (productByCode[it.code] && productByCode[it.code].priced_by_weight));
   const saveWeights = async (group) => {
     const entries = [];
     group.orders.forEach(o=>{
-      orderItemsOf(o).filter(it=>it.is_weight_item).forEach(it=>{
+      orderItemsOf(o).filter(isWeightItem).forEach(it=>{
         const key = `${o.id}_${it.code}`;
         const val = weightForm[key];
         if (val !== undefined && val !== '') entries.push({ orderId: o.id, code: it.code, weight: val });
@@ -4838,17 +4848,27 @@ function WarehouseCabinet({ user, onLogout }) {
                   <button onClick={()=>printLoadingList(g.orders,g.name)} style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист</button>
                   <button onClick={()=>setExpandedWeightsFor(k=>k===g.key?null:g.key)} style={{flex:1,padding:"11px",background:expanded?C.debtAmber:C.white,color:expanded?"#92400E":C.navy,border:`1.5px solid ${C.navy}`,borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>⚖️ {expanded?"Скрыть":"Ввести вес"}</button>
                 </div>
-                {expanded&&(
+                {expanded&&(()=>{
+                  // Показываем только весовые позиции — у остальных qty
+                  // остаётся в коробах/штуках, и это поле не для них
+                  // (раньше показывалось для любого товара заявки, подписанное
+                  // просто "кг", хотя вводить туда следовало только факт. вес
+                  // весового товара). isWeightItem учитывает и снимок на
+                  // заявке, и текущую карточку товара — старые заявки, у
+                  // которых снимок не проставился, тоже не пропадают отсюда.
+                  const ordersWithWeightItems = g.orders
+                    .map(o=>({ order:o, weightItems: orderItemsOf(o).filter(isWeightItem) }))
+                    .filter(x=>x.weightItems.length>0);
+                  if (ordersWithWeightItems.length===0) {
+                    return (
+                      <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+                        <p style={{margin:0,fontSize:12,color:C.textFaint}}>В заявках этого водителя нет весовых товаров — вводить вес не нужно.</p>
+                      </div>
+                    );
+                  }
+                  return (
                   <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
-                    {g.orders.map(o=>{
-                      // Показываем только весовые позиции (is_weight_item) — у
-                      // остальных qty остаётся в коробах/штуках, и это поле не
-                      // для них: раньше показывалось для любого товара заявки,
-                      // подписанное просто "кг", хотя вводить туда следовало
-                      // только факт. вес весового товара.
-                      const weightItems = orderItemsOf(o).filter(it=>it.is_weight_item);
-                      if (weightItems.length === 0) return null;
-                      return (
+                    {ordersWithWeightItems.map(({order:o,weightItems})=>(
                       <div key={o.id} style={{marginBottom:12}}>
                         <p style={{margin:"0 0 6px",fontSize:12,fontWeight:700,color:C.textSub}}>№ {o.id} · {o.client_name}</p>
                         {weightItems.map(it=>(
@@ -4865,11 +4885,11 @@ function WarehouseCabinet({ user, onLogout }) {
                           </div>
                         ))}
                       </div>
-                      );
-                    })}
+                    ))}
                     <button onClick={()=>saveWeights(g)} disabled={savingWeights} style={{...S.btnPrimary,marginTop:4,opacity:savingWeights?0.6:1}}>{savingWeights?"Сохраняю...":"Сохранить вес"}</button>
                   </div>
-                )}
+                  );
+                })()}
               </div>
               );
             })
