@@ -914,6 +914,26 @@ function printWaybill(order) {
   openPrintOverlay(buildWaybillInnerHtml(order), WAYBILL_STYLE, true);
 }
 
+// Пачка накладных сразу по нескольким заявкам (например, по всем заявкам
+// одного водителя за день, после отбора по водителю в списке заявок) — та
+// же накладная, что печатается по одной (buildWaybillInnerHtml), просто
+// несколько подряд в одном оверлее с разрывом страницы между ними, чтобы
+// при печати/сохранении в PDF каждая ушла на свою страницу.
+function printWaybillsBatch(orders) {
+  if (!orders.length) { alert('Нет заявок для печати'); return; }
+  const pendingOrders = orders.filter(o => {
+    const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
+    return items.some(it => it.is_weight_item && !it.weight_confirmed);
+  });
+  if (pendingOrders.length > 0) {
+    if (!window.confirm(`По ${pendingOrders.length} ${pendingOrders.length===1?'заявке':'заявкам'} (№${pendingOrders.map(o=>o.id).join(', №')}) вес ещё не подтверждён складом — суммы могут быть неточными.\n\nВсё равно напечатать накладные по всем ${orders.length}?`)) return;
+  } else if (!window.confirm(`Напечатать накладные по ${orders.length} ${orders.length===1?'заявке':'заявкам'}?`)) {
+    return;
+  }
+  const html = orders.map((o,i) => `<div${i<orders.length-1?' style="page-break-after:always;"':''}>${buildWaybillInnerHtml(o)}</div>`).join('');
+  openPrintOverlay(html, WAYBILL_STYLE, true);
+}
+
 function buildLoadingListHtml(orders, driverName) {
   const totals = {};
   orders.forEach(o=>{
@@ -4518,6 +4538,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {searchInput}
         {filterChips}
         {driverFilterChips}
+        {!loading&&filtered.length>0&&(
+          <button onClick={()=>printWaybillsBatch(filtered)} style={{...S.btnOutline,width:"auto",marginTop:0,marginBottom:16,padding:"9px 16px",fontSize:14}}>🖨 Печать накладных ({filtered.length})</button>
+        )}
         {loading?<div style={S.loadingWrap}>Загрузка...</div>
           :desktop
             ? ordersTable
