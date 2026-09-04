@@ -230,21 +230,34 @@ app.post('/api/orders', authMiddleware, (req, res) => {
   // отчёт по прибыли не зависел от того, поменяется ли закупочная цена
   // товара позже.
   const costMap = getCostMap();
-  finalItems = finalItems.map(it => ({
-    ...it,
-    cost: costMap[it.code] != null ? costMap[it.code] : null,
+  finalItems = finalItems.map(it => {
     // Снимок признака "весовой товар" на момент создания заявки — не
     // ссылка на текущую карточку товара, чтобы если менеджер потом снимет
     // флаг, уже созданные заявки не "забыли" сами, что их кол-во условное
     // до факт. взвешивания (см. POST /api/orders/weights и печать накладной).
-    is_weight_item: !!(aliasMap[it.code] && aliasMap[it.code].priced_by_weight)
-  }));
+    const isWeightItem = !!(aliasMap[it.code] && aliasMap[it.code].priced_by_weight);
+    return {
+      ...it,
+      cost: costMap[it.code] != null ? costMap[it.code] : null,
+      is_weight_item: isWeightItem,
+      // Для весового товара qty при создании — это ОЦЕНКА веса в кг
+      // (кол-во коробов × примерный вес короба, который вписывает торговый,
+      // см. форму заявки), а не количество тары. boxes — реальное кол-во
+      // коробов, и именно оно резервирует остаток на складе ниже: остаток
+      // до факт. взвешивания (POST /api/orders/weights) считается в
+      // коробах (stock.qty), а не в кг. Если клиент не прислал boxes
+      // (например, самозаказ магазина) — считаем как раньше, что qty уже
+      // и есть кол-во коробов.
+      boxes: isWeightItem ? (it.boxes != null ? Number(it.boxes) : (Number(it.qty) || 0)) : undefined,
+    };
+  });
 
   const availableMap = computeAvailableStock();
   for (const it of finalItems) {
     if (!it.code) continue;
     const avail = availableMap[it.code] != null ? availableMap[it.code] : 0;
-    if (Number(it.qty) > avail) {
+    const checkQty = it.is_weight_item ? (it.boxes || 0) : (Number(it.qty) || 0);
+    if (checkQty > avail) {
       return res.status(400).json({ error: `Недостаточно остатка: "${it.name}" (доступно ${avail})` });
     }
   }
@@ -317,12 +330,51 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   const orderBefore = db.get('orders').find({ id: orderId }).value();
   if (!orderBefore) return res.status(404).json({ error: 'Заявка не найдена' });
 
+  // Кто вообще вправе поменять статус ЭТОЙ заявки. Раньше это проверялось
+  // только для перехода в "new" (см. isOwner/isManager) — остальные переходы
+  // (delivered/cancelled/returned/revoked/in_transit) мог вызвать любой
+  // залогиненный пользователь любой роли на чужой заявке напрямую через API:
+  // кнопки на фронте скрыты по роли/владельцу, но это не защита сервера.
+  const isManagerRole = ['admin', 'manager', 'operator'].includes(req.user.role);
+  const isOwnerDriver = req.user.role === 'driver' && orderBefore.driver_id === req.user.id;
+  const isOwnerSales = ['sales', 'store', 'senior_sales'].includes(req.user.role) && orderBefore.sales_id === req.user.id;
+  const canChange = {
+    in_transit: (req.user.role === 'driver' && orderBefore.status === 'new') || isManagerRole,
+    new: isOwnerDriver || isManagerRole,
+    delivered: isOwnerDriver || isManagerRole,
+    cancelled: isOwnerDriver || isManagerRole,
+    returned: isOwnerDriver || isManagerRole,
+    revoked: isOwnerSales || isManagerRole,
+  };
+  if (!canChange[status]) {
+    return res.status(403).json({ error: 'Нет доступа к изменению этой заявки' });
+  }
+
+  // Переходы, для которых заявка обязана сейчас быть в конкретном
+  // предыдущем статусе — иначе можно, например, "довезти" уже отменённую
+  // заявку или повторно закрыть уже доставленную с другой суммой оплаты.
+  if (['delivered', 'cancelled', 'returned'].includes(status) && orderBefore.status !== 'in_transit') {
+    return res.status(400).json({ error: 'Действие доступно только для заявки в статусе "В работе"' });
+  }
+  if (status === 'revoked' && orderBefore.status !== 'new') {
+    return res.status(400).json({ error: 'Отозвать можно только заявку, которая ещё не взята в доставку' });
+  }
+
   if (status === 'delivered') {
-    if (!payment || (Number(payment.cash) || 0) + (Number(payment.qr) || 0) + (Number(payment.debt) || 0) <= 0) {
+    const cash = Number(payment && payment.cash) || 0;
+    const qr = Number(payment && payment.qr) || 0;
+    const debt = Number(payment && payment.debt) || 0;
+    if (!payment || cash + qr + debt <= 0) {
       return res.status(400).json({ error: 'Укажите способ оплаты (нал/QR/долг) перед подтверждением доставки' });
     }
     if (!orderBefore.delivery_photo) {
       return res.status(400).json({ error: 'Сфотографируйте подписанную накладную перед подтверждением доставки' });
+    }
+    // Нал+QR+долг обязаны совпасть с суммой заявки — иначе касса/долги
+    // разъедутся с тем, что реально доставлено (для продаж кассы такая
+    // сверка уже была, см. POST /api/sales; для доставки её не хватало).
+    if (Math.abs((cash + qr + debt) - (orderBefore.total || 0)) > 1) {
+      return res.status(400).json({ error: `Сумма оплаты (${cash + qr + debt}) не совпадает с суммой заявки (${orderBefore.total || 0})` });
     }
   }
 
@@ -342,17 +394,6 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     }
     if (assignedDriver.active === false) {
       return res.status(400).json({ error: 'Этот водитель отключён' });
-    }
-  }
-
-  if (status === 'new') {
-    if (orderBefore.status !== 'in_transit') {
-      return res.status(400).json({ error: 'Вернуть в очередь можно только заявку в статусе "В работе"' });
-    }
-    const isOwner = req.user.role === 'driver' && orderBefore.driver_id === req.user.id;
-    const isManager = ['admin', 'manager', 'operator'].includes(req.user.role);
-    if (!isOwner && !isManager) {
-      return res.status(403).json({ error: 'Вернуть заявку может только водитель, который её взял, либо менеджер' });
     }
   }
 
@@ -454,10 +495,14 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Нет данных для сохранения' });
   }
 
-  // availableMap — считаем один раз и уменьшаем по ходу пачки: если в одной
-  // пачке две правки увеличивают вес одного и того же кода в разных
-  // заявках, вторая должна видеть остаток уже с учётом первой.
-  const availableMap = computeAvailableStock();
+  // Остаток для сверки веса — отдельный, В КГ (см. computeAvailableWeightKg):
+  // qty позиции здесь заказан в коробах (единица остатка stock.qty), а
+  // вводимое здесь число — факт. вес в кг, сверять его нужно с кг-остатком
+  // (stock.weight_kg), а не с остатком в коробах — иначе почти любой вес
+  // будет выглядеть как "не хватает остатка". Считаем один раз и уменьшаем
+  // по ходу пачки: если в одной пачке две правки идут по одному коду в
+  // разных заявках, вторая должна видеть остаток уже с учётом первой.
+  const weightAvailableMap = computeAvailableWeightKg();
   const updatedOrders = [];
   const errors = [];
   entries.forEach(entry => {
@@ -480,14 +525,32 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
     const item = items.find(it => it.code === code);
     if (!item) return;
-    const newWeight = Number(weight);
-    const delta = newWeight - (Number(item.qty) || 0);
-    const avail = availableMap[code] != null ? availableMap[code] : 0;
-    if (delta > avail) {
-      errors.push(`"${item.name}" в заявке №${orderId}: не хватает остатка (нужно ещё ${(delta - avail).toLocaleString()}, доступно ${avail.toLocaleString()})`);
+    // Эндпоинт только для позиций, помеченных как весовой товар на момент
+    // создания заявки (is_weight_item, см. POST /api/orders) — у обычной
+    // позиции qty остаётся в коробах/штуках, вписывать сюда "кг" для неё
+    // означало бы молча подменить количество совсем другим числом.
+    if (!item.is_weight_item) {
+      errors.push(`"${item.name}" в заявке №${orderId}: не весовой товар, правка веса недоступна`);
       return;
     }
-    availableMap[code] = avail - delta;
+    const newWeight = Number(weight);
+    // До первого подтверждения qty позиции — это короба (другая единица,
+    // другой пул), поэтому в кг-пуле она ещё ничего не резервирует: дельта
+    // против кг-остатка — это весь вводимый вес. После подтверждения qty
+    // уже в кг сам, и повторная правка — обычная дельта.
+    const oldKgQty = item.weight_confirmed ? (Number(item.qty) || 0) : 0;
+    const deltaKg = newWeight - oldKgQty;
+    // Кг-остаток известен только если склад заполнил "Вес, кг" в "Остатках"
+    // (PUT /api/stock/:code) — если нет, сверять не с чем, пропускаем
+    // проверку, а не блокируем ввод веса из-за отсутствующих данных.
+    if (Object.prototype.hasOwnProperty.call(weightAvailableMap, code)) {
+      const avail = weightAvailableMap[code];
+      if (deltaKg > avail) {
+        errors.push(`"${item.name}" в заявке №${orderId}: не хватает остатка по весу (нужно ещё ${(deltaKg - avail).toLocaleString()} кг, доступно ${avail.toLocaleString()} кг)`);
+        return;
+      }
+      weightAvailableMap[code] = avail - deltaKg;
+    }
     item.qty = newWeight;
     // Помечаем позицию подтверждённой — печать накладной по заявкам с
     // весовым товаром предупреждает, пока это не выставлено на всех
@@ -1359,6 +1422,19 @@ function computeAvailableStock() {
     const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
     items.forEach(it => {
       if (!it.code) return;
+      if (it.is_weight_item) {
+        // Позиция с подтверждённым факт. весом (weight_confirmed, см. POST
+        // /api/orders/weights) хранит qty уже в кг, а не в единице остатка
+        // (обычно короба) — считать её здесь означало бы вычитать кг-число
+        // из остатка в коробах, как будто это тоже короба. Расход такой
+        // позиции отслеживается отдельно, см. computeAvailableWeightKg.
+        if (it.weight_confirmed) return;
+        // До подтверждения qty у весовой позиции — оценка веса в кг (см.
+        // POST /api/orders), реальное кол-во коробов лежит в it.boxes —
+        // короба резервируем им, а не оценкой веса.
+        reservedMap[it.code] = (reservedMap[it.code] || 0) + (Number(it.boxes) || 0);
+        return;
+      }
       reservedMap[it.code] = (reservedMap[it.code] || 0) + (Number(it.qty) || 0);
     });
   });
@@ -1379,6 +1455,39 @@ function computeAvailableStock() {
   const availableMap = {};
   Object.keys(stockMap).forEach(code => {
     availableMap[code] = Math.max(0, stockMap[code] - (reservedMap[code] || 0));
+  });
+  return availableMap;
+}
+
+// Доступный остаток В КГ для весовых товаров (priced_by_weight) — отдельный
+// пул от computeAvailableStock. У весового товара 1С/склад считают остаток
+// короба́ми (stock.qty), а факт. вес узнаётся только на весах при отгрузке
+// (POST /api/orders/weights); склад отдельно фиксирует, сколько реально кг
+// в остатке, в stock.weight_kg (см. PUT /api/stock/:code, поле "Вес, кг").
+// После подтверждения веса позиция заявки хранит вес в кг — сверять его
+// нужно с этим кг-остатком, а не с остатком в коробах, иначе 40+ кг веса
+// сравнивались бы с 10-15 доступными коробами и почти всегда "не хватало бы
+// остатка", хотя по весу товара физически достаточно.
+function computeAvailableWeightKg() {
+  const stock = db.get('stock').value();
+  const weightMap = {};
+  stock.forEach(s => { if (s.weight_kg != null) weightMap[s.code] = Number(s.weight_kg) || 0; });
+
+  const reservedKg = {};
+  const orders = db.get('orders').value();
+  orders.forEach(o => {
+    if (['cancelled', 'revoked', 'returned'].includes(o.status)) return;
+    if (o.realized_in_1c) return;
+    const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
+    items.forEach(it => {
+      if (!it.code || !it.is_weight_item || !it.weight_confirmed) return;
+      reservedKg[it.code] = (reservedKg[it.code] || 0) + (Number(it.qty) || 0);
+    });
+  });
+
+  const availableMap = {};
+  Object.keys(weightMap).forEach(code => {
+    availableMap[code] = Math.max(0, weightMap[code] - (reservedKg[code] || 0));
   });
   return availableMap;
 }

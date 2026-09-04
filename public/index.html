@@ -776,7 +776,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
             </a>
           </div>
         )}
-        {currentUser.role==="driver" && order.status==="in_transit" && (
+        {currentUser.role==="driver" && order.status==="in_transit" && order.driver_id===currentUser.id && (
           <DriverPaymentBlock order={order} onUpdateStatus={onUpdateStatus}/>
         )}
         {currentUser.role==="driver" && order.status==="in_transit" && order.driver_id===currentUser.id && (
@@ -845,7 +845,7 @@ function SalesCabinet({ user, token, onLogout }) {
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [editOrder, setEditOrder] = useState(null);
-  const newLine = () => ({uid:Math.random(),productId:null,name:"",qty:"",price:"",search:"",showDrop:false});
+  const newLine = () => ({uid:Math.random(),productId:null,name:"",qty:"",price:"",search:"",showDrop:false,pricedByWeight:false,weightPerBox:""});
   const [lines, setLines] = useState([newLine()]);
 
   const [clients, setClients] = useState([]);
@@ -888,7 +888,14 @@ function SalesCabinet({ user, token, onLogout }) {
     code: p.code,
     stock: p.stock,
     photo: p.photo || null,
-    barcode: p.barcode || ''
+    barcode: p.barcode || '',
+    // Весовой товар (короб/тара, а цена — за кг): факт. вес узнаётся точно
+    // только на складе при отгрузке (см. POST /api/orders/weights), но
+    // торговый обычно примерно знает вес короба — даём сразу прикинуть
+    // сумму заявки по кол-ву коробов × примерный вес, а не только по
+    // кол-ву коробов (что для цены "за кг" не имеет смысла).
+    pricedByWeight: !!p.priced_by_weight,
+    avgWeightPerBox: (p.stock_weight_kg != null && p.stock > 0) ? (p.stock_weight_kg / p.stock) : null
   }))))
   .catch(() => {});
   }, []);
@@ -909,17 +916,33 @@ function SalesCabinet({ user, token, onLogout }) {
   const addLine = () => setLines(ls=>[...ls,newLine()]);
   const selectProduct = (uid,prod) => {
     if (prod.stock !== null && prod.stock !== undefined && prod.stock <= 0) return;
-    updateLine(uid,{productId:prod.id,code:prod.code,name:prod.name,price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock});
+    updateLine(uid,{
+      productId:prod.id,code:prod.code,name:prod.name,
+      price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",
+      search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock,
+      pricedByWeight:!!prod.pricedByWeight,
+      weightPerBox: prod.avgWeightPerBox!=null ? String(Math.round(prod.avgWeightPerBox*100)/100) : ""
+    });
   };
 
-  const filledLines = lines.filter(l=>l.name&&Number(l.qty)>0&&Number(l.price)>0);
-  const total = filledLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
+  // Для весового товара (короб/тара, цена за кг) реальный вес заявки — это
+  // кол-во коробов × примерный вес короба, который торговый вписывает сам
+  // (см. selectProduct — предзаполняется средним по остатку, если известен).
+  // Это только оценка для суммы заявки на этом этапе: факт. вес всё равно
+  // потом подтверждает склад при отгрузке (POST /api/orders/weights) и
+  // сумма заявки пересчитывается по нему.
+  const estWeightOf = (l) => l.pricedByWeight ? (Number(l.qty)||0)*(Number(l.weightPerBox)||0) : (Number(l.qty)||0);
+  const filledLines = lines.filter(l=>l.name&&Number(l.qty)>0&&Number(l.price)>0&&(!l.pricedByWeight||Number(l.weightPerBox)>0));
+  const total = filledLines.reduce((s,l)=>s+estWeightOf(l)*Number(l.price),0);
 
   const handleSubmit = async () => {
     if (submitting) return;
     if (!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()) return;
     const client = clients.find(c=>c.code===clientId);
-    const items = filledLines.map(l=>({id:l.productId,code:l.code,name:l.name,qty:Number(l.qty),price:Number(l.price),commission:l.commission||0}));
+    const items = filledLines.map(l=>l.pricedByWeight
+      ? {id:l.productId,code:l.code,name:l.name,qty:estWeightOf(l),boxes:Number(l.qty),price:Number(l.price),commission:l.commission||0}
+      : {id:l.productId,code:l.code,name:l.name,qty:Number(l.qty),price:Number(l.price),commission:l.commission||0}
+    );
     setSubmitting(true);
     try {
       await apiCall('POST','/api/orders',{clientName:client.name,clientCode:client.code,address:client.address||'',timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment,contactName,contactPhone});
@@ -1176,7 +1199,8 @@ function SalesCabinet({ user, token, onLogout }) {
             </div>
             {lines.map(line=>{
               const matched=line.search.length>0?products.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):products.slice(0,50);
-              const lineTotal=Number(line.qty)>0&&Number(line.price)>0?Number(line.qty)*Number(line.price):null;
+              const lineWeight=estWeightOf(line);
+              const lineTotal=lineWeight>0&&Number(line.price)>0?lineWeight*Number(line.price):null;
               return(
                 <div key={line.uid} style={{marginBottom:8}}>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,alignItems:"center"}}>
@@ -1199,7 +1223,7 @@ function SalesCabinet({ user, token, onLogout }) {
                         </div>
                       )}
                     </div>
-                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"center"}} placeholder="кол" value={line.qty} type="number" min="1" max={line.stock!=null?line.stock:undefined}
+                    <input style={{...S.input,padding:"8px 6px",fontSize:13,textAlign:"center"}} placeholder={line.pricedByWeight?"кор":"кол"} value={line.qty} type="number" min="1" max={line.stock!=null?line.stock:undefined}
                       onChange={e=>{
                         let v = e.target.value;
                         if (line.stock!=null && Number(v) > line.stock) v = String(line.stock);
@@ -1214,7 +1238,17 @@ function SalesCabinet({ user, token, onLogout }) {
                     />
                     <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
                   </div>
-                  {line.stock!=null&&<div style={{fontSize:11,color:C.textFaint,marginTop:2}}>На складе: {line.stock}</div>}
+                  {line.stock!=null&&<div style={{fontSize:11,color:C.textFaint,marginTop:2}}>На складе: {line.stock} {line.pricedByWeight?'кор':''}</div>}
+                  {line.pricedByWeight&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>
+                      <span style={{fontSize:11,color:C.textSub,whiteSpace:"nowrap"}}>⚖️ Вес короба, кг (примерно)</span>
+                      <input style={{...S.input,width:80,padding:"6px 8px",fontSize:12,textAlign:"center"}} placeholder="кг" value={line.weightPerBox} type="number"
+                        onChange={e=>updateLine(line.uid,{weightPerBox:e.target.value})}
+                        onFocus={e=>e.target.select()}
+                      />
+                      {lineWeight>0&&<span style={{fontSize:11,color:C.textFaint}}>≈ {lineWeight.toLocaleString()} кг</span>}
+                    </div>
+                  )}
                   {lineTotal&&<div style={{textAlign:"right",fontSize:11,color:C.textSub,marginTop:2,paddingRight:34}}>= <strong style={{color:C.navy}}>{lineTotal.toLocaleString()} ₸</strong></div>}
                   {line.priceOptions&&line.priceOptions.length>0&&(
                     <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
@@ -3633,15 +3667,27 @@ function AdminCabinet({ user, onLogout, desktop }) {
       bucket[key].orders += 1;
       const orderItems = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
       orderItems.forEach(it=>{
-        const liveCommission = it.code && commissionByCode[it.code] !== undefined ? commissionByCode[it.code] : (it.commission||0);
+        // Комиссия фиксируется на позиции заявки в момент оформления (см.
+        // POST /api/orders, commission_total) — используем этот снимок, а
+        // не текущую ставку из карточки товара, точно так же как cost
+        // (себестоимость) не пересчитывается задним числом (см.
+        // sumItemsProfit). Раньше отчёт брал ЖИВУЮ ставку commissionByCode
+        // в приоритете, и правка комиссии у товара молча переписывала уже
+        // начисленный/выплаченный бонус торговых за прошлые периоды.
+        // commissionByCode остаётся только запасным вариантом для старых
+        // заявок, оформленных до того, как commission стало сохраняться
+        // на позиции.
+        const frozenCommission = it.commission != null
+          ? Number(it.commission)
+          : (it.code && commissionByCode[it.code] !== undefined ? commissionByCode[it.code] : 0);
         bucket[key].items.push({
           name: it.name,
           qty: it.qty,
           price: it.price,
-          commission: liveCommission,
+          commission: frozenCommission,
           // Комиссия — фиксированная сумма в ₸ за единицу товара, а не % от
           // суммы строки (раньше было qty*price*commission/100).
-          bonus: (Number(it.qty)||0)*(Number(liveCommission)||0)
+          bonus: (Number(it.qty)||0)*frozenCommission
         });
       });
     });
@@ -4654,7 +4700,7 @@ function WarehouseCabinet({ user, onLogout }) {
   const saveWeights = async (group) => {
     const entries = [];
     group.orders.forEach(o=>{
-      orderItemsOf(o).forEach(it=>{
+      orderItemsOf(o).filter(it=>it.is_weight_item).forEach(it=>{
         const key = `${o.id}_${it.code}`;
         const val = weightForm[key];
         if (val !== undefined && val !== '') entries.push({ orderId: o.id, code: it.code, weight: val });
@@ -4794,10 +4840,18 @@ function WarehouseCabinet({ user, onLogout }) {
                 </div>
                 {expanded&&(
                   <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
-                    {g.orders.map(o=>(
+                    {g.orders.map(o=>{
+                      // Показываем только весовые позиции (is_weight_item) — у
+                      // остальных qty остаётся в коробах/штуках, и это поле не
+                      // для них: раньше показывалось для любого товара заявки,
+                      // подписанное просто "кг", хотя вводить туда следовало
+                      // только факт. вес весового товара.
+                      const weightItems = orderItemsOf(o).filter(it=>it.is_weight_item);
+                      if (weightItems.length === 0) return null;
+                      return (
                       <div key={o.id} style={{marginBottom:12}}>
                         <p style={{margin:"0 0 6px",fontSize:12,fontWeight:700,color:C.textSub}}>№ {o.id} · {o.client_name}</p>
-                        {orderItemsOf(o).map(it=>(
+                        {weightItems.map(it=>(
                           <div key={it.code} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
                             <span style={{flex:1,minWidth:0,fontSize:12,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name} <span style={{color:C.textFaint}}>(было {it.qty})</span></span>
                             <input
@@ -4811,7 +4865,8 @@ function WarehouseCabinet({ user, onLogout }) {
                           </div>
                         ))}
                       </div>
-                    ))}
+                      );
+                    })}
                     <button onClick={()=>saveWeights(g)} disabled={savingWeights} style={{...S.btnPrimary,marginTop:4,opacity:savingWeights?0.6:1}}>{savingWeights?"Сохраняю...":"Сохранить вес"}</button>
                   </div>
                 )}
