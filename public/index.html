@@ -3790,9 +3790,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
       </>}
       {tab==="cashbox"&&<>
         {!desktop&&<p style={S.sectionTitle}>Касса</p>}
-        <div style={{maxWidth: desktop?560:"none"}}>
+        {user.role!=="operator"&&<div style={{maxWidth: desktop?560:"none"}}>
           <button style={{...S.bigCreate,marginBottom:16}} onClick={()=>setShowPosModal(true)}><span style={S.bigCreatePlus}>+</span> Новая продажа</button>
-        </div>
+        </div>}
         {dateRangeInputs}
         <div style={{maxWidth: desktop?560:"none"}}>
           <p style={{...S.sectionTitle,fontSize:15}}>Касса за период (заявки + продажи)</p>
@@ -3849,16 +3849,24 @@ function AdminCabinet({ user, onLogout, desktop }) {
           ))}
         </div>
         <div style={{maxWidth: desktop?560:"none"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginTop:20}}>
-            <p style={{...S.sectionTitle,fontSize:15,margin:0}}>{cashboxGroupBy==="driver"?"Сдача кассы по водителям":"Сдача кассы по торговым"}</p>
-            <div style={{display:"flex",gap:6}}>
-              {[["driver","По водителям"],["rep","По торговым"]].map(([k,lb])=>(
-                <button key={k} onClick={()=>setCashboxGroupBy(k)} style={{padding:"5px 11px",borderRadius:99,border:`1px solid ${cashboxGroupBy===k?C.navy:C.border}`,cursor:"pointer",fontSize:11.5,fontWeight:600,background:cashboxGroupBy===k?C.navy:C.white,color:cashboxGroupBy===k?C.white:C.textMid}}>{lb}</button>
-              ))}
-            </div>
-          </div>
-          {(cashboxGroupBy==="driver"?driverCashList:repCashList).length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>{cashboxGroupBy==="driver"?"Нет закрытых водителями заявок за период":"Нет доставленных заявок по торговым за период"}</div>:
-            (cashboxGroupBy==="driver"?driverCashList:repCashList).map((d,i)=>(
+          {(() => {
+            // Оператору "по водителям" не нужен — он работает с торговыми
+            // (заявки/долги/аналитика), сдачу наличности от водителей
+            // курирует менеджер/админ, поэтому у оператора переключателя
+            // нет вовсе, всегда разрез по торговым.
+            const groupBy = user.role==="operator" ? "rep" : cashboxGroupBy;
+            const list = groupBy==="driver" ? driverCashList : repCashList;
+            return <>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginTop:20}}>
+                <p style={{...S.sectionTitle,fontSize:15,margin:0}}>{groupBy==="driver"?"Сдача кассы по водителям":"Сдача кассы по торговым"}</p>
+                {user.role!=="operator"&&<div style={{display:"flex",gap:6}}>
+                  {[["driver","По водителям"],["rep","По торговым"]].map(([k,lb])=>(
+                    <button key={k} onClick={()=>setCashboxGroupBy(k)} style={{padding:"5px 11px",borderRadius:99,border:`1px solid ${cashboxGroupBy===k?C.navy:C.border}`,cursor:"pointer",fontSize:11.5,fontWeight:600,background:cashboxGroupBy===k?C.navy:C.white,color:cashboxGroupBy===k?C.white:C.textMid}}>{lb}</button>
+                  ))}
+                </div>}
+              </div>
+              {list.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>{groupBy==="driver"?"Нет закрытых водителями заявок за период":"Нет доставленных заявок по торговым за период"}</div>:
+                list.map((d,i)=>(
               <div key={i} style={S.card}>
                 <p style={S.cardTitle}>{d.name}</p>
                 <p style={S.cardSub}>{d.orders} заявок доставлено</p>
@@ -3877,7 +3885,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   </div>
                 </div>
               </div>
-          ))}
+                ))}
+            </>;
+          })()}
           <div style={{marginTop:20}}><DebtsPanel/></div>
         </div>
       </>}
