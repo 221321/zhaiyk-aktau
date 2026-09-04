@@ -1110,8 +1110,10 @@ db.defaults({ clients: [], clientAddresses: [], clientContacts: [] }).write();
 // запрос скачивал данные всех магазинов). Нужен только тем, кто оформляет
 // заказ за произвольного клиента (sales) или администрирует карточки
 // (admin/manager) — своя карточка магазина теперь отдельно, см. /api/my-client.
+// driver — для оформления возврата в свободной форме (см. POST
+// /api/returns), когда нужно найти клиента без конкретной заявки под рукой.
 app.get('/api/clients', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'operator', 'sales', 'senior_sales', 'cashier'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'operator', 'sales', 'senior_sales', 'cashier', 'driver'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const clients = db.get('clients').value();
@@ -1477,6 +1479,18 @@ function computeAvailableStock() {
     });
   });
 
+  // Возвраты (см. RETURNS) — товар физически вернулся на склад, поэтому
+  // возвращённое количество приходуем обратно: отрицательный резерв
+  // увеличивает доступный остаток, а не только ждёт следующей синхронизации
+  // с 1С (там возврат проведут отдельным документом позже).
+  const returns = db.get('returns').value() || [];
+  returns.forEach(r => {
+    (r.items || []).forEach(it => {
+      if (!it.code) return;
+      reservedMap[it.code] = (reservedMap[it.code] || 0) - (Number(it.qty) || 0);
+    });
+  });
+
   const availableMap = {};
   Object.keys(stockMap).forEach(code => {
     availableMap[code] = Math.max(0, stockMap[code] - (reservedMap[code] || 0));
@@ -1534,6 +1548,163 @@ function getCostMap() {
   });
   return costMap;
 }
+
+// Комиссия торгового на момент возврата — та же логика снимка, что у
+// getCostMap: используется только при создании возврата (см. RETURNS), чтобы
+// вычесть бонус из отчёта по актуальной на сегодня ставке (сама ставка на
+// заявке уже заморожена при продаже, см. commissionByCode в отчёте фронта).
+function getCommissionMap() {
+  const products = db.get('products').value();
+  const aliases = db.get('productAliases').value();
+  const aliasMap = {};
+  aliases.forEach(a => { aliasMap[a.code] = a; });
+  const map = {};
+  products.forEach(p => {
+    const rec = aliasMap[p.code];
+    map[p.code] = rec && rec.commission != null ? rec.commission : 4;
+  });
+  return map;
+}
+
+// ===== ВОЗВРАТЫ (частичные, отдельно от статуса заявки) =====
+// Раньше единственный способ оформить возврат — статус заявки "returned",
+// который снимает ВСЮ заявку целиком (см. PUT /api/orders/:id/status).
+// В жизни магазин часто возвращает 1-2 позиции из 5, а порча товара
+// обнаруживается через дни после доставки, когда заявка уже отработана —
+// под оба случая нужен отдельный, независимый от статуса заявки объект:
+// конкретные позиции/количество, с датой и причиной, который просто
+// уменьшает выручку/бонус нужного торгового и возвращает товар в остаток
+// (см. computeAvailableStock), не трогая саму заявку и её статус.
+db.defaults({ returns: [], nextReturnId: 1 }).write();
+
+app.get('/api/returns', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'operator', 'driver', 'sales', 'senior_sales'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  let list = db.get('returns').value();
+  // Водитель/торговый видят только свои возвраты (сам оформил / его продажи) —
+  // как и с заявками, полный список — только у admin/manager/operator.
+  if (req.user.role === 'driver') list = list.filter(r => r.created_by_id === req.user.id);
+  if (req.user.role === 'sales') list = list.filter(r => r.sales_id === req.user.id);
+  res.json(list.slice().reverse());
+});
+
+app.post('/api/returns', authMiddleware, (req, res) => {
+  // Оформить возврат может водитель (обнаружил порчу/забрал у магазина) —
+  // прямая просьба, ради которой это всё затевалось — и admin/manager/operator.
+  if (!['admin', 'manager', 'operator', 'driver'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { orderId, clientCode, clientName, salesId, items, reason, date, refundCash, refundQr } = req.body;
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Укажите хотя бы одну позицию для возврата' });
+  }
+
+  let finalClientCode = clientCode || '';
+  let finalClientName = clientName || '';
+  let finalSalesId = salesId != null && salesId !== '' ? Number(salesId) : null;
+  let finalSalesName = null;
+  let order = null;
+
+  if (orderId) {
+    order = db.get('orders').find({ id: Number(orderId) }).value();
+    if (!order) return res.status(400).json({ error: 'Заявка не найдена' });
+    // Возврат по заявке имеет смысл только после того, как товар реально
+    // доставлен клиенту — до этого действует обычная логика заявки
+    // (статусы cancelled/returned на самой заявке, см. PUT .../status).
+    if (order.status !== 'delivered') {
+      return res.status(400).json({ error: 'Возврат по заявке доступен только после статуса "Доставлено"' });
+    }
+    // Клиента и торгового при возврате по заявке берём из самой заявки, а не
+    // из тела запроса — иначе можно было бы приписать возврат/минус бонуса
+    // не тому торговому.
+    finalClientCode = order.client_code;
+    finalClientName = order.client_name;
+    finalSalesId = order.sales_id;
+    finalSalesName = order.sales_name;
+  } else if (finalSalesId) {
+    const rep = db.get('users').find({ id: finalSalesId }).value();
+    if (!rep) return res.status(400).json({ error: 'Торговый не найден' });
+    finalSalesName = rep.name;
+  }
+  if (!finalClientName || !finalClientName.trim()) {
+    return res.status(400).json({ error: 'Укажите клиента' });
+  }
+
+  // Сколько по этой заявке уже возвращали раньше — чтобы нельзя было вернуть
+  // больше, чем реально было доставлено (в т.ч. по частям, за несколько раз).
+  const alreadyReturned = {};
+  let orderItemsParsed = [];
+  if (order) {
+    orderItemsParsed = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+    db.get('returns').filter({ order_id: order.id }).value().forEach(r => {
+      (r.items || []).forEach(it => {
+        if (!it.code) return;
+        alreadyReturned[it.code] = (alreadyReturned[it.code] || 0) + (Number(it.qty) || 0);
+      });
+    });
+  }
+
+  const costMap = getCostMap();
+  const commissionMap = getCommissionMap();
+  const cleanItems = [];
+  for (const it of (items || [])) {
+    const qty = Number(it.qty) || 0;
+    const price = Number(it.price) || 0;
+    const name = (it.name || '').trim();
+    if (!name || qty <= 0) continue;
+    if (order) {
+      const orderItem = orderItemsParsed.find(oi => oi.code === it.code);
+      const delivered = orderItem ? (Number(orderItem.qty) || 0) : 0;
+      const already = alreadyReturned[it.code] || 0;
+      if (qty > delivered - already) {
+        return res.status(400).json({ error: `"${name}": нельзя вернуть больше, чем доставлено (доставлено ${delivered}, уже возвращено ${already})` });
+      }
+    }
+    cleanItems.push({
+      code: it.code || '',
+      name,
+      qty,
+      price,
+      sum: qty * price,
+      // Себестоимость/комиссия — снимок на момент ВОЗВРАТА (не самой
+      // продажи): это отдельная от заявки операция, и для свободного
+      // формата (без orderId) снимка на продаже вообще нет.
+      cost: it.code && costMap[it.code] != null ? costMap[it.code] : null,
+      commission: it.code && commissionMap[it.code] != null ? commissionMap[it.code] : 0,
+    });
+  }
+  if (cleanItems.length === 0) return res.status(400).json({ error: 'Нет корректных позиций для возврата' });
+
+  const total = cleanItems.reduce((s, it) => s + it.sum, 0);
+  const id = db.get('nextReturnId').value();
+  const ret = {
+    id,
+    order_id: order ? order.id : null,
+    client_code: finalClientCode,
+    client_name: finalClientName,
+    sales_id: finalSalesId,
+    sales_name: finalSalesName,
+    items: cleanItems,
+    total,
+    reason: (reason || '').trim(),
+    refund_cash: Number(refundCash) || 0,
+    refund_qr: Number(refundQr) || 0,
+    date: date || new Date().toISOString().slice(0, 10),
+    created_by_id: req.user.id,
+    created_by_name: req.user.name,
+    created_at: new Date().toISOString(),
+  };
+  db.get('returns').push(ret).write();
+  db.set('nextReturnId', id + 1).write();
+  res.json(ret);
+});
+
+app.delete('/api/returns/:id', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Только администратор может удалять возвраты' });
+  db.get('returns').remove({ id: parseInt(req.params.id) }).write();
+  res.json({ success: true });
+});
 
 // ===== СМЕНЫ КАССИРА (открыть/закрыть кассу) =====
 // Чисто учётная обёртка вокруг sales — не блокирует продажу (кассир мог
