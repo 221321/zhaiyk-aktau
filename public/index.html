@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ЖАЙЫК АКТАУ</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1DA851">
@@ -305,6 +305,13 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
   const [photoUrl, setPhotoUrl] = useState(order.delivery_photo || null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
+  // Фото полученной наличности — отдельно от фото накладной (та подтверждает
+  // только передачу товара, а не сумму денег), обязательно только если
+  // выбрана оплата наличными (см. проверку canConfirm ниже и на сервере,
+  // POST /api/orders/:id/cash-photo).
+  const [cashPhotoUrl, setCashPhotoUrl] = useState(order.cash_photo || null);
+  const [cashPhotoUploading, setCashPhotoUploading] = useState(false);
+  const [cashPhotoError, setCashPhotoError] = useState("");
   const [statusBusy, setStatusBusy] = useState(false);
   const total = order.total || 0;
   const cashPaid = payType.cash ? Number(payAmounts.cash)||0 : 0;
@@ -319,7 +326,7 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
   // чтобы водитель видел причину сразу, не отправляя запрос).
   const orderItems = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const pendingWeightItems = orderItems.filter(it=>it.is_weight_item && !it.weight_confirmed);
-  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl && pendingWeightItems.length===0;
+  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl && (!payType.cash || !!cashPhotoUrl) && pendingWeightItems.length===0;
 
   const toggleCashQr = (key) => {
     const turningOn = !payType[key];
@@ -353,6 +360,28 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
       setPhotoError(err.message || 'Не удалось загрузить фото');
     }
     setPhotoUploading(false);
+  };
+
+  const onCashPhotoSelected = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setCashPhotoError("");
+    setCashPhotoUploading(true);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = ev => resolve(ev.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const compressed = await compressImage(dataUrl, 1280, 0.75);
+      const res = await apiCall('POST', `/api/orders/${order.id}/cash-photo`, { imageBase64: compressed });
+      setCashPhotoUrl(res.url);
+    } catch(err) {
+      setCashPhotoError(err.message || 'Не удалось загрузить фото');
+    }
+    setCashPhotoUploading(false);
   };
 
   const changeStatus = async (status, payment, confirmMsg) => {
@@ -413,8 +442,22 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
         </button>
         {photoError&&<p style={{margin:"6px 0 0",fontSize:14,color:C.red}}>{photoError}</p>}
       </div>
+      {payType.cash&&(
+        <div style={{marginBottom:14}}>
+          <p style={{margin:"0 0 8px",fontSize:15,fontWeight:700,color:C.navy}}>Фото полученной наличности: {!cashPhotoUrl&&<span style={{color:C.red,fontWeight:400}}>(обязательно при оплате налом)</span>}</p>
+          {cashPhotoUrl&&(
+            <div style={{marginBottom:8}}>
+              <img src={cashPhotoUrl} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`}}/>
+            </div>
+          )}
+          <input type="file" accept="image/*" capture="environment" id={`cashPhotoInput_${order.id}`} style={{display:"none"}} onChange={onCashPhotoSelected}/>
+          <button type="button" disabled={cashPhotoUploading} onClick={()=>document.getElementById(`cashPhotoInput_${order.id}`).click()} style={{...S.btnOutline,opacity:cashPhotoUploading?0.5:1,cursor:cashPhotoUploading?"not-allowed":"pointer"}}>
+            {cashPhotoUploading?"Загрузка...":(cashPhotoUrl?"💵 Переснять фото":"💵 Сфотографировать наличность")}
+          </button>
+          {cashPhotoError&&<p style={{margin:"6px 0 0",fontSize:14,color:C.red}}>{cashPhotoError}</p>}
+        </div>
+      )}
       <button style={{...S.btnSuccess,opacity:(canConfirm&&!statusBusy)?1:0.4,cursor:(canConfirm&&!statusBusy)?"pointer":"not-allowed"}} disabled={!canConfirm||statusBusy} onClick={()=>changeStatus("delivered",{cash:cashPaid,qr:qrPaid,debt:debtAmount})}>{statusBusy?"Сохранение...":"✅ Подтвердить доставку"}</button>
-      <button style={{...S.btnDanger,opacity:statusBusy?0.5:1,cursor:statusBusy?"not-allowed":"pointer"}} disabled={statusBusy} onClick={()=>changeStatus("cancelled",null,`Отметить заявку № ${order.id} как "Отказ при получении"? Действие нельзя отменить.`)}>❌ Не удалось доставить</button>
       <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:8,opacity:statusBusy?0.5:1,cursor:statusBusy?"not-allowed":"pointer"}} disabled={statusBusy} onClick={()=>changeStatus("returned",null,`Оформить возврат по заявке № ${order.id}? Действие нельзя отменить.`)}>↩️ Оформить возврат</button>
     </div>
   );
@@ -1025,6 +1068,14 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
             <p style={{margin:"0 0 8px",fontSize:14,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>Фото накладной</p>
             <a href={order.delivery_photo} target="_blank" rel="noopener noreferrer">
               <img src={order.delivery_photo} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`}}/>
+            </a>
+          </div>
+        )}
+        {order.cash_photo && !(currentUser.role==="driver" && order.status==="in_transit") && (
+          <div style={{marginTop:14}}>
+            <p style={{margin:"0 0 8px",fontSize:14,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>Фото наличности</p>
+            <a href={order.cash_photo} target="_blank" rel="noopener noreferrer">
+              <img src={order.cash_photo} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`}}/>
             </a>
           </div>
         )}
