@@ -1127,7 +1127,10 @@ app.get('/api/debts', authMiddleware, (req, res) => {
 });
 
 app.post('/api/debts/settle', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'operator', 'driver'].includes(req.user.role)) {
+  // Закрывать долг (частично/полностью) может только оператор/менеджер/админ —
+  // раньше это ошибочно разрешалось и водителю, но водитель и торговый
+  // должны только видеть должников, справочно (см. GET /api/debts).
+  if (!['admin', 'manager', 'operator'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const { orderId, saleId, amount, method } = req.body;

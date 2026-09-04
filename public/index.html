@@ -408,7 +408,7 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
   );
 }
 
-function DebtsPanel() {
+function DebtsPanel({ readOnly }) {
   const [debts, setDebts] = useState([]);
   const [loadingDebts, setLoadingDebts] = useState(true);
   const [settleAmounts, setSettleAmounts] = useState({});
@@ -429,6 +429,8 @@ function DebtsPanel() {
     const amount = Number(settleAmounts[key] ?? d.remaining);
     const method = settleMethod[key] || 'cash';
     if (!amount || amount<=0) return;
+    const full = amount >= d.remaining;
+    if (!window.confirm(`Погасить ${full?'весь':'частично'} долг «${d.client_name}» на ${amount.toLocaleString()} ₸ (${method==='cash'?'наличными':'безналом'})?`)) return;
     setSavingId(key);
     try {
       await apiCall('POST', '/api/debts/settle', { orderId: d.order_id||undefined, saleId: d.sale_id||undefined, amount, method });
@@ -453,14 +455,16 @@ function DebtsPanel() {
               </div>
               <p style={{margin:0,fontWeight:800,fontFamily:FH,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
             </div>
-            <div style={{display:"flex",gap:6,marginTop:10}}>
-              <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder={`До ${d.remaining}`} value={settleAmounts[key]||''} onFocus={e=>e.target.select()} onChange={e=>setSettleAmounts(a=>({...a,[key]:e.target.value}))}/>
-              <select style={{...S.select,padding:"7px 8px",fontSize:12,width:110}} value={settleMethod[key]||'cash'} onChange={e=>setSettleMethod(m=>({...m,[key]:e.target.value}))}>
-                <option value="cash">Нал</option>
-                <option value="qr">Безнал</option>
-              </select>
-              <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,width:"auto",whiteSpace:"nowrap",marginTop:0,boxShadow:"none",opacity:savingId===key?0.5:1}} disabled={savingId===key} onClick={()=>settle(d)}>Погасить</button>
-            </div>
+            {!readOnly&&(
+              <div style={{display:"flex",gap:6,marginTop:10}}>
+                <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder={`До ${d.remaining}`} value={settleAmounts[key]||''} onFocus={e=>e.target.select()} onChange={e=>setSettleAmounts(a=>({...a,[key]:e.target.value}))}/>
+                <select style={{...S.select,padding:"7px 8px",fontSize:12,width:110}} value={settleMethod[key]||'cash'} onChange={e=>setSettleMethod(m=>({...m,[key]:e.target.value}))}>
+                  <option value="cash">Нал</option>
+                  <option value="qr">Безнал</option>
+                </select>
+                <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,width:"auto",whiteSpace:"nowrap",marginTop:0,boxShadow:"none",opacity:savingId===key?0.5:1}} disabled={savingId===key} onClick={()=>settle(d)}>Погасить</button>
+              </div>
+            )}
           </div>
           );
         })
@@ -772,7 +776,11 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
               <option value="">— выберите водителя —</option>
               {(drivers||[]).map(d=>(<option key={d.id} value={d.id}>{d.name}</option>))}
             </select>
-            <button style={{...S.btnOutline,opacity:selectedDriverId?1:0.5,cursor:selectedDriverId?"pointer":"not-allowed"}} disabled={!selectedDriverId} onClick={()=>onUpdateStatus(order.id,"in_transit",null,Number(selectedDriverId))}>🚚 Передать водителю</button>
+            <button style={{...S.btnOutline,opacity:selectedDriverId?1:0.5,cursor:selectedDriverId?"pointer":"not-allowed"}} disabled={!selectedDriverId} onClick={()=>{
+              const driverName = (drivers||[]).find(d=>String(d.id)===String(selectedDriverId))?.name || '';
+              if (!window.confirm(`Передать заявку № ${order.id} водителю «${driverName}»?`)) return;
+              onUpdateStatus(order.id,"in_transit",null,Number(selectedDriverId));
+            }}>🚚 Передать водителю</button>
             {(!drivers||drivers.length===0)&&<p style={{margin:"8px 0 0",fontSize:12,color:C.red}}>Нет активных водителей в системе</p>}
           </div>
         )}
@@ -1906,7 +1914,7 @@ function DriverCabinet({ user, onLogout }) {
               </div>
             ))}
           </>}
-          <div style={{marginTop:20}}><DebtsPanel/></div>
+          <div style={{marginTop:20}}><DebtsPanel readOnly/></div>
         </>}
       </div>
       <div style={S.nav}>
@@ -3129,6 +3137,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   };
 
   const toggleUser = async (u) => {
+    if (!window.confirm(`${u.active===false?'Включить':'Отключить'} доступ для «${u.name}»?`)) return;
     setTogglingUser(u.id);
     try {
       await apiCall('PUT', `/api/users/${u.id}/toggle`, {});
@@ -3140,6 +3149,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const changeRole = async (u) => {
     const role = roleEdits[u.id];
     if (!role || role === u.role) return;
+    if (!window.confirm(`Сменить роль «${u.name}» на «${ROLE_LABEL[role]||role}»?`)) return;
     setSavingRole(u.id);
     try {
       await apiCall('PUT', `/api/users/${u.id}/role`, { role });
@@ -3152,6 +3162,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const changePassword = async (u) => {
     const pwd = (passwordEdits[u.id]||'').trim();
     if (!pwd || pwd.length < 4) { alert('Пароль минимум 4 символа'); return; }
+    if (!window.confirm(`Сменить пароль для «${u.name}»?`)) return;
     setChangingPwd(u.id);
     try {
       await apiCall('PUT', `/api/users/${u.id}/password`, { password: pwd });
