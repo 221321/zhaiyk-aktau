@@ -320,9 +320,9 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     return res.status(409).json({ error: 'Заявка уже взята другим водителем' });
   }
 
-  // Менеджер/админ передаёт заявку конкретному водителю — водитель обязателен
+  // Менеджер/админ/оператор передаёт заявку конкретному водителю — водитель обязателен
   let assignedDriver = null;
-  if (status === 'in_transit' && (req.user.role === 'admin' || req.user.role === 'manager')) {
+  if (status === 'in_transit' && ['admin', 'manager', 'operator'].includes(req.user.role)) {
     if (!driverId) {
       return res.status(400).json({ error: 'Выберите водителя, которому передать заявку' });
     }
@@ -340,7 +340,7 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
       return res.status(400).json({ error: 'Вернуть в очередь можно только заявку в статусе "В работе"' });
     }
     const isOwner = req.user.role === 'driver' && orderBefore.driver_id === req.user.id;
-    const isManager = req.user.role === 'admin' || req.user.role === 'manager';
+    const isManager = ['admin', 'manager', 'operator'].includes(req.user.role);
     if (!isOwner && !isManager) {
       return res.status(403).json({ error: 'Вернуть заявку может только водитель, который её взял, либо менеджер' });
     }
@@ -476,7 +476,7 @@ app.put('/api/users/:id/toggle', authMiddleware, (req, res) => {
   res.json({ success: true, active: newActive });
 });
 
-const USER_ROLES = ['sales', 'senior_sales', 'driver', 'cashier', 'warehouse', 'manager', 'admin', 'store'];
+const USER_ROLES = ['sales', 'senior_sales', 'driver', 'cashier', 'warehouse', 'manager', 'operator', 'admin', 'store'];
 
 app.put('/api/users/:id/role', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
@@ -905,7 +905,7 @@ db.defaults({ clients: [], clientAddresses: [], clientContacts: [] }).write();
 // заказ за произвольного клиента (sales) или администрирует карточки
 // (admin/manager) — своя карточка магазина теперь отдельно, см. /api/my-client.
 app.get('/api/clients', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'sales', 'cashier'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'operator', 'sales', 'cashier'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const clients = db.get('clients').value();
@@ -1044,7 +1044,7 @@ app.post('/api/client-contacts', authMiddleware, (req, res) => {
 db.defaults({ debtSettlements: [] }).write();
 
 app.get('/api/debts', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'driver', 'sales', 'senior_sales'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'operator', 'driver', 'sales', 'senior_sales'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const orders = db.get('orders').value();
@@ -1103,7 +1103,7 @@ app.get('/api/debts', authMiddleware, (req, res) => {
 });
 
 app.post('/api/debts/settle', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'driver'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'operator', 'driver'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const { orderId, saleId, amount, method } = req.body;
@@ -1146,7 +1146,7 @@ app.post('/api/debts/settle', authMiddleware, (req, res) => {
 
 // Полная история погашений долгов — для выгрузки в 1С (просто данные, без проводок)
 app.get('/api/debt-settlements', authMiddleware, (req, res) => {
-  if (!['admin', 'manager'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'operator'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   res.json(db.get('debtSettlements').value());
@@ -1300,7 +1300,7 @@ app.post('/api/cashier-shift/:id/close', authMiddleware, (req, res) => {
 db.defaults({ sales: [], nextSaleId: 1 }).write();
 
 app.get('/api/sales', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'cashier'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'operator', 'cashier'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   // Кассир видит только свои продажи — история других кассиров и клиентов
@@ -1312,7 +1312,7 @@ app.get('/api/sales', authMiddleware, (req, res) => {
 });
 
 app.post('/api/sales', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'cashier'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'operator', 'cashier'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const { items, paymentCash, paymentQr, paymentDebt, clientCode } = req.body;
@@ -1379,7 +1379,7 @@ app.post('/api/sales', authMiddleware, (req, res) => {
 });
 
 app.post('/api/sales/:id/void', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'cashier'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'operator', 'cashier'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const id = parseInt(req.params.id);
@@ -1424,7 +1424,7 @@ app.post('/api/sales/:id/mark-realized', (req, res) => {
 // E-Kassa/ОФД) — поэтому чек пробивает браузер кассира напрямую на
 // 127.0.0.1, а сюда только присылает результат (fiscal_id/QR) для учёта.
 app.post('/api/sales/:id/fiscal', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'cashier'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'operator', 'cashier'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const id = parseInt(req.params.id);

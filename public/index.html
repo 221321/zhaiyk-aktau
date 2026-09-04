@@ -765,7 +765,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
             <button style={S.btnDanger} onClick={()=>{if(window.confirm('Отозвать заявку № '+order.id+'? Действие нельзя отменить.'))onUpdateStatus(order.id,"revoked",null);}}>🗑 Отозвать заявку</button>
           </div>
         )}
-        {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="new" && (
+        {(currentUser.role==="admin"||currentUser.role==="manager"||currentUser.role==="operator") && order.status==="new" && (
           <div style={{marginTop:20}}>
             <label style={{...S.label,marginBottom:6}}>Назначить водителя</label>
             <select style={{...S.select,marginBottom:10}} value={selectedDriverId} onChange={e=>setSelectedDriverId(e.target.value)}>
@@ -776,7 +776,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
             {(!drivers||drivers.length===0)&&<p style={{margin:"8px 0 0",fontSize:12,color:C.red}}>Нет активных водителей в системе</p>}
           </div>
         )}
-        {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="in_transit" && (
+        {(currentUser.role==="admin"||currentUser.role==="manager"||currentUser.role==="operator") && order.status==="in_transit" && (
           <div style={{marginTop:20,display:"flex",flexDirection:"column",gap:8}}>
             <button style={{...S.btnOutline,borderColor:"#6B7280",color:"#6B7280"}} onClick={()=>{if(window.confirm('Вернуть заявку в очередь? Другой водитель сможет её забрать.'))onUpdateStatus(order.id,"new",null);}}>🔄 Вернуть в очередь</button>
             <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED"}} onClick={()=>{if(window.confirm('Оформить возврат по заявке № '+order.id+'? Действие нельзя отменить.'))onUpdateStatus(order.id,"returned",null);}}>↩️ Оформить возврат</button>
@@ -3098,7 +3098,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   }, []);
   useEffect(() => { loadEmployees(); loadUsers(); }, []);
 
-  const ROLE_OPTIONS = [["sales","Торговый представитель"],["senior_sales","Старший торговый представитель"],["driver","Водитель"],["cashier","Кассир"],["warehouse","Зав. склад"],["manager","Менеджер"],["admin","Администратор"],["store","Магазин"]];
+  const ROLE_OPTIONS = [["sales","Торговый представитель"],["senior_sales","Старший торговый представитель"],["driver","Водитель"],["cashier","Кассир"],["warehouse","Зав. склад"],["operator","Оператор"],["manager","Менеджер"],["admin","Администратор"],["store","Магазин"]];
 
   const updateEmpForm = (formKey, field, value) => setEmpForm(f => ({...f, [formKey]: {...f[formKey], [field]: value}}));
 
@@ -3519,7 +3519,11 @@ function AdminCabinet({ user, onLogout, desktop }) {
   }, [orders, sales, products, dateFrom, dateTo]);
 
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
-  const TABS=[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["catalog","🗂","Каталог"],["nkt","🌐","НКТ"],["employees","👤","Сотрудники"]];
+  // Оператор — урезанная версия менеджера: только заявки/отчёт/касса, без
+  // товаров/каталога/НКТ/сотрудников (и бэкенд эти эндпоинты ему не отдаёт).
+  const TABS = user.role==="operator"
+    ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"]]
+    : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["catalog","🗂","Каталог"],["nkt","🌐","НКТ"],["employees","👤","Сотрудники"]];
   const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",catalog:"Каталог",nkt:"Коды НКТ",employees:"Сотрудники"};
 
   const dateRangeInputs = (
@@ -4285,7 +4289,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     </>
   );
 
-  const ROLE_LABEL = { sales:"Торговый представитель", senior_sales:"Старший торговый представитель", driver:"Водитель", cashier:"Кассир", warehouse:"Зав. склад", admin:"Администратор", manager:"Менеджер", store:"Магазин" };
+  const ROLE_LABEL = { sales:"Торговый представитель", senior_sales:"Старший торговый представитель", driver:"Водитель", cashier:"Кассир", warehouse:"Зав. склад", operator:"Оператор", admin:"Администратор", manager:"Менеджер", store:"Магазин" };
 
   if (desktop) {
     return (
@@ -4325,7 +4329,10 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {content}
       </div>
       <div style={S.nav}>
-        {[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["catalog","🗂","Каталог"],["employees","👤","Сотр."]].map(([k,ic,lb])=>(
+        {(user.role==="operator"
+          ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"]]
+          : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["catalog","🗂","Каталог"],["employees","👤","Сотр."]]
+        ).map(([k,ic,lb])=>(
           <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>
@@ -4610,7 +4617,7 @@ function App() {
       setTimeout(() => setPushMsg(''), 8000);
     });
   };
-  const ROLE_LABEL = { sales:"Торговый представитель", senior_sales:"Старший торговый представитель", driver:"Водитель", cashier:"Кассир", warehouse:"Зав. склад", admin:"Администратор", manager:"Менеджер", store:"Магазин" };
+  const ROLE_LABEL = { sales:"Торговый представитель", senior_sales:"Старший торговый представитель", driver:"Водитель", cashier:"Кассир", warehouse:"Зав. склад", operator:"Оператор", admin:"Администратор", manager:"Менеджер", store:"Магазин" };
 
   if (checking) return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.surface}}>
@@ -4663,8 +4670,8 @@ function App() {
     </div>
   );
 
-  // менеджер/админ на большом экране — версия с сайдбаром
-  if ((user.role==="admin"||user.role==="manager") && isDesktop) {
+  // менеджер/админ/оператор на большом экране — версия с сайдбаром
+  if ((user.role==="admin"||user.role==="manager"||user.role==="operator") && isDesktop) {
     return (
       <div style={S.app}>
         {(pushStatus==="default" || pushMsg) && (
@@ -4737,7 +4744,7 @@ function App() {
       {user.role==="driver"&&<DriverCabinet user={user} onLogout={handleLogout}/>}
       {user.role==="cashier"&&<CashierCabinet user={user} onLogout={handleLogout}/>}
       {user.role==="warehouse"&&<WarehouseCabinet user={user} onLogout={handleLogout}/>}
-      {(user.role==="admin"||user.role==="manager")&&<AdminCabinet user={user} onLogout={handleLogout} desktop={false}/>}
+      {(user.role==="admin"||user.role==="manager"||user.role==="operator")&&<AdminCabinet user={user} onLogout={handleLogout} desktop={false}/>}
     </div>
   );
 }
