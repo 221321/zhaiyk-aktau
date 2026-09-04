@@ -3272,6 +3272,19 @@ function AdminCabinet({ user, onLogout, desktop }) {
   }, []);
   useEffect(() => { loadSales(); }, []);
 
+  // Погашения долгов (нал/QR) — нужны, чтобы в отчёте долг показывался как
+  // остаток на сейчас, а не как изначально выданная сумма, и чтобы
+  // погашенное наличкой/QR добавлялось в кассовую выручку того же периода.
+  const [debtSettlements, setDebtSettlements] = useState([]);
+  const loadDebtSettlements = useCallback(async () => {
+    try {
+      const data = await apiCall('GET', '/api/debt-settlements');
+      setDebtSettlements(data);
+    } catch(e) {}
+  }, []);
+  useEffect(() => { loadDebtSettlements(); }, []);
+  useRefetchOnVisible(loadDebtSettlements);
+
   const [fiscalizingSaleId, setFiscalizingSaleId] = useState(null);
   const [fiscalErrorBySale, setFiscalErrorBySale] = useState({});
   const retryFiscal = useCallback(async (sale) => {
@@ -3400,6 +3413,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   };
 
   const [expandedSales, setExpandedSales] = useState({});
+  const [cashboxGroupBy, setCashboxGroupBy] = useState("driver");
 
   // Эти вычисления раньше выполнялись при каждом рендере компонента (в т.ч. на
   // каждое нажатие клавиши в других вкладках, например "Товары"), потому что
@@ -3416,7 +3430,27 @@ function AdminCabinet({ user, onLogout, desktop }) {
       || (o.driver_name||'').toLowerCase().includes(q)
       || (o.address||'').toLowerCase().includes(q)), [orders, filter, q]);
 
-  const { stats, repList, storeList, driverCashList, posReport, returnsInfo } = useMemo(() => {
+  const { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo } = useMemo(() => {
+    // Погашение долга нал/QR "перетекает" из долга в наличку/QR того же
+    // заказа/продажи — иначе касса за период не сходится с тем, что
+    // оператор реально погасил, а долг в сводке зависает на изначальной
+    // сумме, даже если по нему уже расплатились.
+    const settledByOrder = {};
+    const settledBySale = {};
+    debtSettlements.forEach(s => {
+      const bucket = s.order_id ? settledByOrder : settledBySale;
+      const key = s.order_id || s.sale_id;
+      if (!bucket[key]) bucket[key] = { cash: 0, qr: 0, total: 0 };
+      if (s.method === 'qr') bucket[key].qr += s.amount; else bucket[key].cash += s.amount;
+      bucket[key].total += s.amount;
+    });
+    const orderSettledCash = o => (settledByOrder[o.id]||{}).cash || 0;
+    const orderSettledQr = o => (settledByOrder[o.id]||{}).qr || 0;
+    const orderRemainingDebt = o => Math.max(0, (o.payment_debt||0) - ((settledByOrder[o.id]||{}).total||0));
+    const saleSettledCash = s => (settledBySale[s.id]||{}).cash || 0;
+    const saleSettledQr = s => (settledBySale[s.id]||{}).qr || 0;
+    const saleRemainingDebt = s => Math.max(0, (s.payment_debt||0) - ((settledBySale[s.id]||{}).total||0));
+
     const periodOrders = orders.filter(o=>o.date>=dateFrom&&o.date<=dateTo);
     const stats = {
       total:periodOrders.length,
@@ -3425,9 +3459,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
       cancelled:periodOrders.filter(o=>o.status==="cancelled").length,
       returned:periodOrders.filter(o=>o.status==="returned").length,
       revenue:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.total||0),0),
-      cashTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_cash||0),0),
-      qrTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_qr||0),0),
-      debtTotal:periodOrders.reduce((s,o)=>s+(o.payment_debt||0),0),
+      cashTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_cash||0)+orderSettledCash(o),0),
+      qrTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_qr||0)+orderSettledQr(o),0),
+      debtTotal:periodOrders.reduce((s,o)=>s+orderRemainingDebt(o),0),
     };
     const deliveredOrders = periodOrders.filter(o=>o.status==="delivered");
     const ordersProfit = sumItemsProfit(deliveredOrders);
@@ -3442,13 +3476,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
     const posReport = {
       count: periodSales.length,
       revenue: periodSales.reduce((s,o)=>s+(o.total||0),0),
-      cashTotal: periodSales.reduce((s,o)=>s+(o.payment_cash||0),0),
-      qrTotal: periodSales.reduce((s,o)=>s+(o.payment_qr||0),0),
-      debtTotal: periodSales.reduce((s,o)=>s+(o.payment_debt||0),0),
+      cashTotal: periodSales.reduce((s,o)=>s+(o.payment_cash||0)+saleSettledCash(o),0),
+      qrTotal: periodSales.reduce((s,o)=>s+(o.payment_qr||0)+saleSettledQr(o),0),
+      debtTotal: periodSales.reduce((s,o)=>s+saleRemainingDebt(o),0),
       list: periodSales.slice().sort((a,b)=>b.id-a.id),
-      combinedCash: stats.cashTotal + periodSales.reduce((s,o)=>s+(o.payment_cash||0),0),
-      combinedQr: stats.qrTotal + periodSales.reduce((s,o)=>s+(o.payment_qr||0),0),
-      combinedDebt: stats.debtTotal + periodSales.reduce((s,o)=>s+(o.payment_debt||0),0),
+      combinedCash: stats.cashTotal + periodSales.reduce((s,o)=>s+(o.payment_cash||0)+saleSettledCash(o),0),
+      combinedQr: stats.qrTotal + periodSales.reduce((s,o)=>s+(o.payment_qr||0)+saleSettledQr(o),0),
+      combinedDebt: stats.debtTotal + periodSales.reduce((s,o)=>s+saleRemainingDebt(o),0),
       combinedRevenue: stats.revenue + periodSales.reduce((s,o)=>s+(o.total||0),0),
     };
     const salesProfit = sumItemsProfit(periodSales);
@@ -3472,8 +3506,12 @@ function AdminCabinet({ user, onLogout, desktop }) {
     periodOrders.filter(o=>o.status==="delivered").forEach(o=>{
       const bucket = o.source === "store" ? storeBreakdown : repBreakdown;
       const key = o.sales_id;
-      if(!bucket[key]) bucket[key] = { name: o.sales_name, revenue: 0, items: [] };
+      if(!bucket[key]) bucket[key] = { name: o.sales_name, revenue: 0, items: [], cash: 0, qr: 0, debt: 0, orders: 0 };
       bucket[key].revenue += (o.total||0);
+      bucket[key].cash += (o.payment_cash||0) + orderSettledCash(o);
+      bucket[key].qr += (o.payment_qr||0) + orderSettledQr(o);
+      bucket[key].debt += orderRemainingDebt(o);
+      bucket[key].orders += 1;
       const orderItems = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
       orderItems.forEach(it=>{
         const liveCommission = it.code && commissionByCode[it.code] !== undefined ? commissionByCode[it.code] : (it.commission||0);
@@ -3519,15 +3557,22 @@ function AdminCabinet({ user, onLogout, desktop }) {
     periodOrders.filter(o=>o.status==="delivered"&&o.driver_id).forEach(o=>{
       const key = o.driver_id;
       if(!cashByDriver[key]) cashByDriver[key] = { name: o.driver_name, cash:0, qr:0, debt:0, orders:0 };
-      cashByDriver[key].cash += (o.payment_cash||0);
-      cashByDriver[key].qr += (o.payment_qr||0);
-      cashByDriver[key].debt += (o.payment_debt||0);
+      cashByDriver[key].cash += (o.payment_cash||0) + orderSettledCash(o);
+      cashByDriver[key].qr += (o.payment_qr||0) + orderSettledQr(o);
+      cashByDriver[key].debt += orderRemainingDebt(o);
       cashByDriver[key].orders += 1;
     });
     const driverCashList = Object.values(cashByDriver).sort((a,b)=>b.cash-a.cash);
+    // Та же сдача кассы, но сгруппированная по торговым представителям —
+    // переключатель в разделе "Сдача кассы" даёт выбрать разрез (по
+    // водителям, кто физически привёз наличку, или по торговым, чьи это
+    // продажи и кому считать план/бонус).
+    const repCashList = Object.entries(repBreakdown)
+      .map(([id,v])=>({ id, name: v.name, cash: v.cash, qr: v.qr, debt: v.debt, orders: v.orders }))
+      .sort((a,b)=>b.cash-a.cash);
 
-    return { stats, repList, storeList, driverCashList, posReport, returnsInfo };
-  }, [orders, sales, products, dateFrom, dateTo]);
+    return { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo };
+  }, [orders, sales, products, dateFrom, dateTo, debtSettlements]);
 
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
   // Оператор — урезанная версия менеджера: только заявки/отчёт/касса, без
@@ -3697,6 +3742,20 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   <p style={{margin:0,fontSize:11,color:C.textFaint}}>{expandedSales[s.id]?"▲ Свернуть":"▼ Подробнее"}</p>
                 </div>
               </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:10}}>
+                <div style={{background:C.cashGreen,borderRadius:10,padding:"8px 10px"}}>
+                  <p style={{margin:"0 0 2px",fontSize:10,color:"#15803D",fontWeight:700}}>НАЛИЧКА</p>
+                  <p style={{margin:0,fontSize:14,fontWeight:800,fontFamily:FH,color:"#15803D"}}>{(s.cash||0).toLocaleString()} ₸</p>
+                </div>
+                <div style={{background:C.qrBlue,borderRadius:10,padding:"8px 10px"}}>
+                  <p style={{margin:"0 0 2px",fontSize:10,color:"#1D4ED8",fontWeight:700}}>QR</p>
+                  <p style={{margin:0,fontSize:14,fontWeight:800,fontFamily:FH,color:"#1D4ED8"}}>{(s.qr||0).toLocaleString()} ₸</p>
+                </div>
+                <div style={{background:C.debtAmber,borderRadius:10,padding:"8px 10px"}}>
+                  <p style={{margin:"0 0 2px",fontSize:10,color:"#92400E",fontWeight:700}}>ДОЛГ</p>
+                  <p style={{margin:0,fontSize:14,fontWeight:800,fontFamily:FH,color:"#92400E"}}>{(s.debt||0).toLocaleString()} ₸</p>
+                </div>
+              </div>
               {expandedSales[s.id]&&(
                 <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
                   {s.items.map((it,i)=>(
@@ -3790,9 +3849,16 @@ function AdminCabinet({ user, onLogout, desktop }) {
           ))}
         </div>
         <div style={{maxWidth: desktop?560:"none"}}>
-          <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>Сдача кассы по водителям</p>
-          {driverCashList.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Нет закрытых водителями заявок за период</div>:
-            driverCashList.map((d,i)=>(
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginTop:20}}>
+            <p style={{...S.sectionTitle,fontSize:15,margin:0}}>{cashboxGroupBy==="driver"?"Сдача кассы по водителям":"Сдача кассы по торговым"}</p>
+            <div style={{display:"flex",gap:6}}>
+              {[["driver","По водителям"],["rep","По торговым"]].map(([k,lb])=>(
+                <button key={k} onClick={()=>setCashboxGroupBy(k)} style={{padding:"5px 11px",borderRadius:99,border:`1px solid ${cashboxGroupBy===k?C.navy:C.border}`,cursor:"pointer",fontSize:11.5,fontWeight:600,background:cashboxGroupBy===k?C.navy:C.white,color:cashboxGroupBy===k?C.white:C.textMid}}>{lb}</button>
+              ))}
+            </div>
+          </div>
+          {(cashboxGroupBy==="driver"?driverCashList:repCashList).length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>{cashboxGroupBy==="driver"?"Нет закрытых водителями заявок за период":"Нет доставленных заявок по торговым за период"}</div>:
+            (cashboxGroupBy==="driver"?driverCashList:repCashList).map((d,i)=>(
               <div key={i} style={S.card}>
                 <p style={S.cardTitle}>{d.name}</p>
                 <p style={S.cardSub}>{d.orders} заявок доставлено</p>
