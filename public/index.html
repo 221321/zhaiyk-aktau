@@ -4666,7 +4666,7 @@ function WarehouseCabinet({ user, onLogout }) {
   const saveWeights = async (group) => {
     const entries = [];
     group.orders.forEach(o=>{
-      orderItemsOf(o).forEach(it=>{
+      orderItemsOf(o).filter(it=>it.is_weight_item).forEach(it=>{
         const key = `${o.id}_${it.code}`;
         const val = weightForm[key];
         if (val !== undefined && val !== '') entries.push({ orderId: o.id, code: it.code, weight: val });
@@ -4806,10 +4806,18 @@ function WarehouseCabinet({ user, onLogout }) {
                 </div>
                 {expanded&&(
                   <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
-                    {g.orders.map(o=>(
+                    {g.orders.map(o=>{
+                      // Показываем только весовые позиции (is_weight_item) — у
+                      // остальных qty остаётся в коробах/штуках, и это поле не
+                      // для них: раньше показывалось для любого товара заявки,
+                      // подписанное просто "кг", хотя вводить туда следовало
+                      // только факт. вес весового товара.
+                      const weightItems = orderItemsOf(o).filter(it=>it.is_weight_item);
+                      if (weightItems.length === 0) return null;
+                      return (
                       <div key={o.id} style={{marginBottom:12}}>
                         <p style={{margin:"0 0 6px",fontSize:12,fontWeight:700,color:C.textSub}}>№ {o.id} · {o.client_name}</p>
-                        {orderItemsOf(o).map(it=>(
+                        {weightItems.map(it=>(
                           <div key={it.code} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
                             <span style={{flex:1,minWidth:0,fontSize:12,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name} <span style={{color:C.textFaint}}>(было {it.qty})</span></span>
                             <input
@@ -4823,7 +4831,8 @@ function WarehouseCabinet({ user, onLogout }) {
                           </div>
                         ))}
                       </div>
-                    ))}
+                      );
+                    })}
                     <button onClick={()=>saveWeights(g)} disabled={savingWeights} style={{...S.btnPrimary,marginTop:4,opacity:savingWeights?0.6:1}}>{savingWeights?"Сохраняю...":"Сохранить вес"}</button>
                   </div>
                 )}

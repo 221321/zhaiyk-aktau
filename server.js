@@ -482,10 +482,14 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Нет данных для сохранения' });
   }
 
-  // availableMap — считаем один раз и уменьшаем по ходу пачки: если в одной
-  // пачке две правки увеличивают вес одного и того же кода в разных
-  // заявках, вторая должна видеть остаток уже с учётом первой.
-  const availableMap = computeAvailableStock();
+  // Остаток для сверки веса — отдельный, В КГ (см. computeAvailableWeightKg):
+  // qty позиции здесь заказан в коробах (единица остатка stock.qty), а
+  // вводимое здесь число — факт. вес в кг, сверять его нужно с кг-остатком
+  // (stock.weight_kg), а не с остатком в коробах — иначе почти любой вес
+  // будет выглядеть как "не хватает остатка". Считаем один раз и уменьшаем
+  // по ходу пачки: если в одной пачке две правки идут по одному коду в
+  // разных заявках, вторая должна видеть остаток уже с учётом первой.
+  const weightAvailableMap = computeAvailableWeightKg();
   const updatedOrders = [];
   const errors = [];
   entries.forEach(entry => {
@@ -508,14 +512,32 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
     const item = items.find(it => it.code === code);
     if (!item) return;
-    const newWeight = Number(weight);
-    const delta = newWeight - (Number(item.qty) || 0);
-    const avail = availableMap[code] != null ? availableMap[code] : 0;
-    if (delta > avail) {
-      errors.push(`"${item.name}" в заявке №${orderId}: не хватает остатка (нужно ещё ${(delta - avail).toLocaleString()}, доступно ${avail.toLocaleString()})`);
+    // Эндпоинт только для позиций, помеченных как весовой товар на момент
+    // создания заявки (is_weight_item, см. POST /api/orders) — у обычной
+    // позиции qty остаётся в коробах/штуках, вписывать сюда "кг" для неё
+    // означало бы молча подменить количество совсем другим числом.
+    if (!item.is_weight_item) {
+      errors.push(`"${item.name}" в заявке №${orderId}: не весовой товар, правка веса недоступна`);
       return;
     }
-    availableMap[code] = avail - delta;
+    const newWeight = Number(weight);
+    // До первого подтверждения qty позиции — это короба (другая единица,
+    // другой пул), поэтому в кг-пуле она ещё ничего не резервирует: дельта
+    // против кг-остатка — это весь вводимый вес. После подтверждения qty
+    // уже в кг сам, и повторная правка — обычная дельта.
+    const oldKgQty = item.weight_confirmed ? (Number(item.qty) || 0) : 0;
+    const deltaKg = newWeight - oldKgQty;
+    // Кг-остаток известен только если склад заполнил "Вес, кг" в "Остатках"
+    // (PUT /api/stock/:code) — если нет, сверять не с чем, пропускаем
+    // проверку, а не блокируем ввод веса из-за отсутствующих данных.
+    if (Object.prototype.hasOwnProperty.call(weightAvailableMap, code)) {
+      const avail = weightAvailableMap[code];
+      if (deltaKg > avail) {
+        errors.push(`"${item.name}" в заявке №${orderId}: не хватает остатка по весу (нужно ещё ${(deltaKg - avail).toLocaleString()} кг, доступно ${avail.toLocaleString()} кг)`);
+        return;
+      }
+      weightAvailableMap[code] = avail - deltaKg;
+    }
     item.qty = newWeight;
     // Помечаем позицию подтверждённой — печать накладной по заявкам с
     // весовым товаром предупреждает, пока это не выставлено на всех
@@ -1387,6 +1409,12 @@ function computeAvailableStock() {
     const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
     items.forEach(it => {
       if (!it.code) return;
+      // Позиция с подтверждённым факт. весом (weight_confirmed, см. POST
+      // /api/orders/weights) хранит qty уже в кг, а не в единице остатка
+      // (обычно короба) — считать её здесь означало бы вычитать кг-число
+      // из остатка в коробах, как будто это тоже короба. Расход такой
+      // позиции отслеживается отдельно, см. computeAvailableWeightKg.
+      if (it.is_weight_item && it.weight_confirmed) return;
       reservedMap[it.code] = (reservedMap[it.code] || 0) + (Number(it.qty) || 0);
     });
   });
@@ -1407,6 +1435,39 @@ function computeAvailableStock() {
   const availableMap = {};
   Object.keys(stockMap).forEach(code => {
     availableMap[code] = Math.max(0, stockMap[code] - (reservedMap[code] || 0));
+  });
+  return availableMap;
+}
+
+// Доступный остаток В КГ для весовых товаров (priced_by_weight) — отдельный
+// пул от computeAvailableStock. У весового товара 1С/склад считают остаток
+// короба́ми (stock.qty), а факт. вес узнаётся только на весах при отгрузке
+// (POST /api/orders/weights); склад отдельно фиксирует, сколько реально кг
+// в остатке, в stock.weight_kg (см. PUT /api/stock/:code, поле "Вес, кг").
+// После подтверждения веса позиция заявки хранит вес в кг — сверять его
+// нужно с этим кг-остатком, а не с остатком в коробах, иначе 40+ кг веса
+// сравнивались бы с 10-15 доступными коробами и почти всегда "не хватало бы
+// остатка", хотя по весу товара физически достаточно.
+function computeAvailableWeightKg() {
+  const stock = db.get('stock').value();
+  const weightMap = {};
+  stock.forEach(s => { if (s.weight_kg != null) weightMap[s.code] = Number(s.weight_kg) || 0; });
+
+  const reservedKg = {};
+  const orders = db.get('orders').value();
+  orders.forEach(o => {
+    if (['cancelled', 'revoked', 'returned'].includes(o.status)) return;
+    if (o.realized_in_1c) return;
+    const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
+    items.forEach(it => {
+      if (!it.code || !it.is_weight_item || !it.weight_confirmed) return;
+      reservedKg[it.code] = (reservedKg[it.code] || 0) + (Number(it.qty) || 0);
+    });
+  });
+
+  const availableMap = {};
+  Object.keys(weightMap).forEach(code => {
+    availableMap[code] = Math.max(0, weightMap[code] - (reservedKg[code] || 0));
   });
   return availableMap;
 }
