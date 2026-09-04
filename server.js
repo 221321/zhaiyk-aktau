@@ -453,16 +453,41 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Нет данных для сохранения' });
   }
 
+  // availableMap — считаем один раз и уменьшаем по ходу пачки: если в одной
+  // пачке две правки увеличивают вес одного и того же кода в разных
+  // заявках, вторая должна видеть остаток уже с учётом первой.
+  const availableMap = computeAvailableStock();
   const updatedOrders = [];
+  const errors = [];
   entries.forEach(entry => {
     const { orderId, code, weight } = entry || {};
     if (!orderId || !code || weight === undefined || weight === null || weight === '') return;
     const order = db.get('orders').find({ id: Number(orderId) }).value();
     if (!order) return;
+    // Вес должен быть введён ДО того, как заявка доставлена и/или ушла в
+    // реализацию 1С — иначе сумма и остаток разъедутся с тем, что уже
+    // зафиксировано (оплата у водителя, документ в 1С), и это никак не
+    // всплывёт как долг или ошибка синхронизации.
+    if (!['new', 'in_transit'].includes(order.status)) {
+      errors.push(`№${orderId}: вес можно вводить только пока заявка не доставлена (сейчас "${order.status}")`);
+      return;
+    }
+    if (order.realized_in_1c) {
+      errors.push(`№${orderId}: уже реализована в 1С, правка веса недоступна`);
+      return;
+    }
     const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
     const item = items.find(it => it.code === code);
     if (!item) return;
-    item.qty = Number(weight);
+    const newWeight = Number(weight);
+    const delta = newWeight - (Number(item.qty) || 0);
+    const avail = availableMap[code] != null ? availableMap[code] : 0;
+    if (delta > avail) {
+      errors.push(`"${item.name}" в заявке №${orderId}: не хватает остатка (нужно ещё ${(delta - avail).toLocaleString()}, доступно ${avail.toLocaleString()})`);
+      return;
+    }
+    availableMap[code] = avail - delta;
+    item.qty = newWeight;
     // Помечаем позицию подтверждённой — печать накладной по заявкам с
     // весовым товаром предупреждает, пока это не выставлено на всех
     // весовых позициях заявки (см. is_weight_item, снимок при создании).
@@ -472,7 +497,7 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     if (!updatedOrders.includes(Number(orderId))) updatedOrders.push(Number(orderId));
   });
 
-  res.json({ success: true, updatedOrders });
+  res.json({ success: true, updatedOrders, errors: errors.length ? errors : undefined });
 });
 
 app.delete('/api/orders/:id', authMiddleware, (req, res) => {
