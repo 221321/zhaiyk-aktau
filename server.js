@@ -253,7 +253,8 @@ app.post('/api/orders', authMiddleware, (req, res) => {
   const finalTotal = req.user.role === 'store'
     ? finalItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0)
     : (total || 0);
-  const commissionTotal = finalItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0) * (Number(it.commission) || 0) / 100, 0);
+  // Комиссия — фиксированная сумма в ₸ за единицу товара, а не % от суммы строки.
+  const commissionTotal = finalItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.commission) || 0), 0);
   const order = {
     id,
     sales_id: req.user.id,
@@ -693,9 +694,10 @@ app.get('/api/products', (req, res) => {
       price1: rec && rec.price1 != null ? rec.price1 : null,
       price2: rec && rec.price2 != null ? rec.price2 : null,
       price3: rec && rec.price3 != null ? rec.price3 : null,
-      // Комиссия — процент от суммы строки заказа сотруднику (см. commissionTotal
-      // в POST /api/orders); по умолчанию 4%, пока менеджер не переопределит
-      // в карточке товара на вкладке "Товары".
+      // Комиссия — фиксированная сумма в ₸ за единицу товара сотруднику
+      // (см. commissionTotal в POST /api/orders и bonus в отчёте
+      // AdminCabinet), не % от суммы строки. По умолчанию 4 ₸, пока
+      // менеджер не переопределит в карточке товара на вкладке "Товары".
       commission: rec && rec.commission != null ? rec.commission : 4,
       // Весовой товар — цена за кг, но заказывают коробками/штуками, точный
       // вес узнаётся только на складе (см. POST /api/orders/weights).
