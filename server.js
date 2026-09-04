@@ -590,9 +590,12 @@ app.get('/api/products', (req, res) => {
   const availableMap = computeAvailableStock();
   const aliasMap = {};
   aliases.forEach(a => { aliasMap[a.code] = a; });
+  const stockMap = {};
+  db.get('stock').value().forEach(s => { stockMap[s.code] = s; });
 
   const result = products.map(p => {
     const rec = aliasMap[p.code];
+    const stockRec = stockMap[p.code];
     const hasAlias = !!(rec && rec.alias && rec.alias.trim());
     // categoryCleared — раздел явно очищен на сайте (например, раздел
     // удалили в "Управлении разделами"), даже если у товара есть непустая
@@ -621,6 +624,12 @@ app.get('/api/products', (req, res) => {
       // в карточке товара на вкладке "Товары".
       commission: rec && rec.commission != null ? rec.commission : 4,
       stock: availableMap[p.code] != null ? availableMap[p.code] : 0,
+      // Единица измерения и вес остатка — правит зав. склад вручную на
+      // экране "Остатки" (см. PUT /api/stock/:code), 1С шлёт только qty.
+      // Нужно, когда товар физически весовой, а 1С отдаёт его коробками/
+      // штуками — склад фиксирует, сколько реально килограммов в остатке.
+      stock_unit: stockRec && stockRec.unit ? stockRec.unit : (p.unit || null),
+      stock_weight_kg: stockRec && stockRec.weight_kg != null ? stockRec.weight_kg : null,
       photo: rec && rec.photo ? rec.photo : null,
       // Код НКТ (NTIN) — подбирается по штрихкоду/названию через nct.gov.kz
       // (см. /api/nkt/*), либо вводится вручную. nkt_status: 'matched'
@@ -1207,6 +1216,32 @@ app.post('/api/stock/sync', (req, res) => {
     }
   });
   res.json({ success: true, count: (items || []).length });
+});
+
+// Зав. склад правит остаток вручную — 1С шлёт только qty в её единице
+// измерения (может быть "коробки"), а по факту часть товара весовая
+// (реальный вес узнаётся только на складе). unit/weight_kg — сайт-only
+// надстройка поверх qty из 1С, тем же паттерном что productAliases поверх
+// products: /api/stock/sync трогает только qty через assign(), эти два
+// поля переживают ресинк остатков.
+app.put('/api/stock/:code', authMiddleware, (req, res) => {
+  if (!['warehouse', 'admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { code } = req.params;
+  const { qty, unit, weight_kg } = req.body;
+  const patch = {};
+  if (qty !== undefined) patch.qty = Number(qty) || 0;
+  if (unit !== undefined) patch.unit = unit || null;
+  if (weight_kg !== undefined) patch.weight_kg = weight_kg === '' || weight_kg === null ? null : Number(weight_kg);
+
+  const stockCol = db.get('stock');
+  if (stockCol.find({ code }).value()) {
+    stockCol.find({ code }).assign(patch).write();
+  } else {
+    stockCol.push({ code, qty: 0, ...patch }).write();
+  }
+  res.json({ success: true });
 });
 
 // 1С вызывает этот эндпоинт сразу после того, как реально создала и провела
