@@ -140,6 +140,13 @@ async function apiCall(method, path, body) {
 // закроют и не откроют заново вручную. Дёргаем переданные загрузчики
 // заново при возврате видимости — то же самое происходит и при обычном
 // переключении вкладок в браузере, что тоже безвредно (просто лишний GET).
+//
+// На практике одних только visibilitychange/focus мало: в установленном
+// на iOS PWA (Safari) переключение между приложениями не всегда честно
+// шлёт эти события странице — и список опять "зависал" старым, пока не
+// перезайдёшь руками. Поэтому вдобавок держим обычный интервал-опрос,
+// пока вкладка видима — не зависит ни от каких платформенных нюансов
+// жизненного цикла, просто гарантированно подтягивает свежие данные.
 function useRefetchOnVisible(...loaders) {
   useEffect(() => {
     const handler = () => {
@@ -147,9 +154,13 @@ function useRefetchOnVisible(...loaders) {
     };
     document.addEventListener('visibilitychange', handler);
     window.addEventListener('focus', handler);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') loaders.forEach(fn => fn && fn());
+    }, 20000);
     return () => {
       document.removeEventListener('visibilitychange', handler);
       window.removeEventListener('focus', handler);
+      clearInterval(interval);
     };
   }, loaders);
 }
