@@ -34,6 +34,7 @@ const API = '';
 const FH = "'Manrope', sans-serif"; /* шрифт заголовков и цифр */
 
 const TIME_SLOTS = ["До обеда (09:00 – 14:00)", "После обеда (14:00 – 19:00)"];
+const PICKUP_SLOT = "Самовывоз";
 
 const SL = { new: "Ожидает", in_transit: "В работе", delivered: "Доставлено", cancelled: "Отказ при получении", returned: "Возврат", revoked: "Отозвана" };
 const SC = { new: "#DA1A10", in_transit: "#B45309", delivered: "#15803D", cancelled: "#DC2626", returned: "#7C3AED", revoked: "#6B7280" };
@@ -1539,7 +1540,7 @@ function SalesCabinet({ user, token, onLogout }) {
             <div style={S.formGroup}>
               <label style={S.label}>Время доставки</label>
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                {TIME_SLOTS.map(slot=>(
+                {[...TIME_SLOTS,PICKUP_SLOT].map(slot=>(
                   <button key={slot} onClick={()=>setTimeSlot(slot)} style={{padding:"12px",borderRadius:10,border:`1.5px solid ${timeSlot===slot?C.navy:C.border}`,background:timeSlot===slot?C.navy:C.white,color:timeSlot===slot?C.white:C.textMid,fontSize:16,fontWeight:500,cursor:"pointer",textAlign:"left"}}>{slot}</button>
                 ))}
               </div>
@@ -1556,7 +1557,8 @@ function SalesCabinet({ user, token, onLogout }) {
               {["Наименование","Кол-во","Цена ₸",""].map((h,i)=><div key={i} style={{fontSize:12,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
             </div>
             {lines.map(line=>{
-              const matched=line.search.length>0?products.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):products.slice(0,50);
+              const inStock=products.filter(p=>p.stock>0);
+              const matched=line.search.length>0?inStock.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):inStock.slice(0,50);
               const lineWeight=estWeightOf(line);
               const lineTotal=lineWeight>0&&Number(line.price)>0?lineWeight*Number(line.price):null;
               return(
