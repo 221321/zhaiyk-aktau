@@ -230,21 +230,34 @@ app.post('/api/orders', authMiddleware, (req, res) => {
   // отчёт по прибыли не зависел от того, поменяется ли закупочная цена
   // товара позже.
   const costMap = getCostMap();
-  finalItems = finalItems.map(it => ({
-    ...it,
-    cost: costMap[it.code] != null ? costMap[it.code] : null,
+  finalItems = finalItems.map(it => {
     // Снимок признака "весовой товар" на момент создания заявки — не
     // ссылка на текущую карточку товара, чтобы если менеджер потом снимет
     // флаг, уже созданные заявки не "забыли" сами, что их кол-во условное
     // до факт. взвешивания (см. POST /api/orders/weights и печать накладной).
-    is_weight_item: !!(aliasMap[it.code] && aliasMap[it.code].priced_by_weight)
-  }));
+    const isWeightItem = !!(aliasMap[it.code] && aliasMap[it.code].priced_by_weight);
+    return {
+      ...it,
+      cost: costMap[it.code] != null ? costMap[it.code] : null,
+      is_weight_item: isWeightItem,
+      // Для весового товара qty при создании — это ОЦЕНКА веса в кг
+      // (кол-во коробов × примерный вес короба, который вписывает торговый,
+      // см. форму заявки), а не количество тары. boxes — реальное кол-во
+      // коробов, и именно оно резервирует остаток на складе ниже: остаток
+      // до факт. взвешивания (POST /api/orders/weights) считается в
+      // коробах (stock.qty), а не в кг. Если клиент не прислал boxes
+      // (например, самозаказ магазина) — считаем как раньше, что qty уже
+      // и есть кол-во коробов.
+      boxes: isWeightItem ? (it.boxes != null ? Number(it.boxes) : (Number(it.qty) || 0)) : undefined,
+    };
+  });
 
   const availableMap = computeAvailableStock();
   for (const it of finalItems) {
     if (!it.code) continue;
     const avail = availableMap[it.code] != null ? availableMap[it.code] : 0;
-    if (Number(it.qty) > avail) {
+    const checkQty = it.is_weight_item ? (it.boxes || 0) : (Number(it.qty) || 0);
+    if (checkQty > avail) {
       return res.status(400).json({ error: `Недостаточно остатка: "${it.name}" (доступно ${avail})` });
     }
   }
@@ -1409,12 +1422,19 @@ function computeAvailableStock() {
     const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
     items.forEach(it => {
       if (!it.code) return;
-      // Позиция с подтверждённым факт. весом (weight_confirmed, см. POST
-      // /api/orders/weights) хранит qty уже в кг, а не в единице остатка
-      // (обычно короба) — считать её здесь означало бы вычитать кг-число
-      // из остатка в коробах, как будто это тоже короба. Расход такой
-      // позиции отслеживается отдельно, см. computeAvailableWeightKg.
-      if (it.is_weight_item && it.weight_confirmed) return;
+      if (it.is_weight_item) {
+        // Позиция с подтверждённым факт. весом (weight_confirmed, см. POST
+        // /api/orders/weights) хранит qty уже в кг, а не в единице остатка
+        // (обычно короба) — считать её здесь означало бы вычитать кг-число
+        // из остатка в коробах, как будто это тоже короба. Расход такой
+        // позиции отслеживается отдельно, см. computeAvailableWeightKg.
+        if (it.weight_confirmed) return;
+        // До подтверждения qty у весовой позиции — оценка веса в кг (см.
+        // POST /api/orders), реальное кол-во коробов лежит в it.boxes —
+        // короба резервируем им, а не оценкой веса.
+        reservedMap[it.code] = (reservedMap[it.code] || 0) + (Number(it.boxes) || 0);
+        return;
+      }
       reservedMap[it.code] = (reservedMap[it.code] || 0) + (Number(it.qty) || 0);
     });
   });
