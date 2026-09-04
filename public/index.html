@@ -312,7 +312,14 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
   const remainder = Math.max(0, total - cashPaid - qrPaid);
   const debtAmount = payType.debt ? remainder : 0;
   const hasSelection = payType.cash || payType.qr || payType.debt;
-  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl;
+  // Пока склад не подтвердил факт. вес весовой позиции (см. POST
+  // /api/orders/weights), сумма заявки — ещё оценка, а не факт: довезти
+  // такую заявку нельзя, иначе оценка навсегда останется финальной (сервер
+  // это тоже блокирует, см. PUT /api/orders/:id/status — здесь только
+  // чтобы водитель видел причину сразу, не отправляя запрос).
+  const orderItems = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
+  const pendingWeightItems = orderItems.filter(it=>it.is_weight_item && !it.weight_confirmed);
+  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl && pendingWeightItems.length===0;
 
   const toggleCashQr = (key) => {
     const turningOn = !payType[key];
@@ -361,6 +368,11 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
 
   return (
     <div style={{marginTop:20}}>
+      {pendingWeightItems.length>0&&(
+        <div style={{background:"#FEF3C7",border:"1px solid #FDE68A",borderRadius:10,padding:"10px 12px",marginBottom:14,fontSize:12,color:"#92400E",fontWeight:600}}>
+          ⚖️ Склад ещё не подтвердил факт. вес: {pendingWeightItems.map(it=>it.name).join(', ')}. Доставка недоступна, пока склад не введёт вес.
+        </div>
+      )}
       <p style={{margin:"0 0 12px",fontSize:13,fontWeight:700,color:C.navy}}>Способ оплаты: {!hasSelection&&<span style={{color:C.red,fontWeight:400}}>(выберите хотя бы один)</span>}</p>
       {[{key:"cash",label:"Наличка",icon:"💵",bg:C.cashGreen,col:"#15803D"},{key:"qr",label:"QR код",icon:"📲",bg:C.qrBlue,col:"#1D4ED8"}].map(({key,label,icon,bg,col})=>(
         <div key={key} style={{marginBottom:10}}>
