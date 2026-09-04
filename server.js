@@ -1784,21 +1784,30 @@ app.post('/api/receipts', authMiddleware, (req, res) => {
   if (!['admin', 'manager', 'warehouse'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const { items, supplier, comment, date } = req.body;
+  const { items, supplier, supplierCode, comment, date } = req.body;
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Укажите хотя бы одну позицию прихода' });
   }
   const cleanItems = [];
   for (const it of items) {
     const qty = Number(it.qty) || 0;
+    // Для весового товара (короб/тара, а фактический вес — отдельный кг-пул,
+    // см. is_weight_item в заявках) приход может прийти и коробами, и кг, и
+    // тем и другим сразу — склад мог получить только довес без новых
+    // коробов, или наоборот. Для обычного товара короба-поле остаётся
+    // единственным количеством, как раньше.
+    const weightKg = (it.weightKg !== undefined && it.weightKg !== '' && it.weightKg !== null) ? Number(it.weightKg) : null;
     const name = (it.name || '').trim();
     // Код обязателен — без него нечего увеличивать в остатке (в отличие от
     // возвратов, у прихода нет "свободного формата" без привязки к товару).
-    if (!name || !it.code || qty <= 0) continue;
+    if (!name || !it.code) continue;
+    if (qty <= 0 && !(weightKg > 0)) continue;
     cleanItems.push({
       code: it.code,
       name,
       qty,
+      weight_kg: weightKg,
+      is_weight_item: !!it.isWeightItem,
       purchase_price: (it.purchasePrice !== undefined && it.purchasePrice !== '' && it.purchasePrice !== null) ? Number(it.purchasePrice) : null,
     });
   }
@@ -1808,9 +1817,12 @@ app.post('/api/receipts', authMiddleware, (req, res) => {
   cleanItems.forEach(it => {
     const rec = stockCol.find({ code: it.code }).value();
     if (rec) {
-      stockCol.find({ code: it.code }).assign({ qty: (Number(rec.qty) || 0) + it.qty }).write();
+      const patch = {};
+      if (it.qty > 0) patch.qty = (Number(rec.qty) || 0) + it.qty;
+      if (it.weight_kg != null) patch.weight_kg = (rec.weight_kg != null ? Number(rec.weight_kg) : 0) + it.weight_kg;
+      if (Object.keys(patch).length) stockCol.find({ code: it.code }).assign(patch).write();
     } else {
-      stockCol.push({ code: it.code, qty: it.qty }).write();
+      stockCol.push({ code: it.code, qty: it.qty || 0, ...(it.weight_kg != null ? { weight_kg: it.weight_kg } : {}) }).write();
     }
   });
 
@@ -1819,6 +1831,12 @@ app.post('/api/receipts', authMiddleware, (req, res) => {
     id,
     items: cleanItems,
     supplier: (supplier || '').trim(),
+    // Поставщик — необязательная привязка к контрагенту из того же
+    // справочника, что и покупатели (см. GET /api/clients): 1С ведёт
+    // контрагентов одним списком без разделения ролей. Код сохраняется
+    // только если реально выбрали из подсказки — свободный текст (например,
+    // разовый поставщик без карточки) остаётся просто строкой без кода.
+    supplier_code: supplierCode || '',
     comment: (comment || '').trim(),
     date: date || new Date().toISOString().slice(0, 10),
     created_by_id: req.user.id,
@@ -1835,13 +1853,17 @@ app.delete('/api/receipts/:id', authMiddleware, (req, res) => {
   const id = parseInt(req.params.id);
   const receipt = db.get('receipts').find({ id }).value();
   if (!receipt) return res.status(404).json({ error: 'Приход не найден' });
-  // Откатываем количество обратно — приход мутирует stock.qty напрямую
-  // (см. POST выше), поэтому удаление должно симметрично его вычесть,
-  // иначе остаток на складе останется задвоенным.
+  // Откатываем количество обратно — приход мутирует stock.qty/weight_kg
+  // напрямую (см. POST выше), поэтому удаление должно симметрично их
+  // вычесть, иначе остаток на складе останется задвоенным.
   const stockCol = db.get('stock');
   (receipt.items || []).forEach(it => {
     const rec = stockCol.find({ code: it.code }).value();
-    if (rec) stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - (Number(it.qty) || 0)) }).write();
+    if (!rec) return;
+    const patch = {};
+    if (it.qty > 0) patch.qty = Math.max(0, (Number(rec.qty) || 0) - it.qty);
+    if (it.weight_kg != null && rec.weight_kg != null) patch.weight_kg = Math.max(0, (Number(rec.weight_kg) || 0) - it.weight_kg);
+    if (Object.keys(patch).length) stockCol.find({ code: it.code }).assign(patch).write();
   });
   db.get('receipts').remove({ id }).write();
   res.json({ success: true });
