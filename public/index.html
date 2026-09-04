@@ -4724,10 +4724,15 @@ function WarehouseCabinet({ user, onLogout }) {
                     ? <button onClick={()=>startEditStock(p)} style={{marginTop:8,padding:"6px 12px",fontSize:12,fontWeight:600,background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:C.textMid,cursor:"pointer"}}>✏️ Редактировать</button>
                     : (
                       <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}>
+                        <div style={{display:"grid",gridTemplateColumns:stockEditForm.unit==='кг'?"1fr 1fr":"1fr 1fr 1fr",gap:6,marginBottom:8}}>
                           <div>
                             <label style={{...S.label,fontSize:10}}>Ед. изм.</label>
-                            <select style={{...S.select,padding:"7px 8px",fontSize:12}} value={stockEditForm.unit} onChange={e=>setStockEditForm(f=>({...f,unit:e.target.value}))}>
+                            <select style={{...S.select,padding:"7px 8px",fontSize:12}} value={stockEditForm.unit} onChange={e=>{
+                              const unit = e.target.value;
+                              // В кг вес — это и есть кол-во, отдельное поле только путает,
+                              // поэтому при переключении на кг сразу очищаем его.
+                              setStockEditForm(f=>({...f,unit,weight_kg: unit==='кг'?'':f.weight_kg}));
+                            }}>
                               <option value="">—</option>
                               {['шт','уп','кг','кор'].map(u=><option key={u} value={u}>{u}</option>)}
                               {stockEditForm.unit && !['шт','уп','кг','кор'].includes(stockEditForm.unit) && <option value={stockEditForm.unit}>{stockEditForm.unit}</option>}
@@ -4737,10 +4742,12 @@ function WarehouseCabinet({ user, onLogout }) {
                             <label style={{...S.label,fontSize:10}}>Кол-во</label>
                             <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} value={stockEditForm.qty} onChange={e=>setStockEditForm(f=>({...f,qty:e.target.value}))} onFocus={e=>e.target.select()}/>
                           </div>
-                          <div>
-                            <label style={{...S.label,fontSize:10}}>Вес, кг</label>
-                            <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="если весовой" value={stockEditForm.weight_kg} onChange={e=>setStockEditForm(f=>({...f,weight_kg:e.target.value}))} onFocus={e=>e.target.select()}/>
-                          </div>
+                          {stockEditForm.unit!=='кг'&&(
+                            <div>
+                              <label style={{...S.label,fontSize:10}}>Вес, кг</label>
+                              <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="если весовой" value={stockEditForm.weight_kg} onChange={e=>setStockEditForm(f=>({...f,weight_kg:e.target.value}))} onFocus={e=>e.target.select()}/>
+                            </div>
+                          )}
                         </div>
                         <div style={{display:"flex",gap:6}}>
                           <button onClick={()=>saveStockEdit(p.code)} disabled={savingStock} style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,width:"auto",boxShadow:"none",opacity:savingStock?0.6:1}}>{savingStock?"Сохраняю...":"Сохранить"}</button>
