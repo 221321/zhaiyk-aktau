@@ -133,6 +133,27 @@ async function apiCall(method, path, body) {
   return data;
 }
 
+// PWA "на весь экран" не перезагружает страницу при переключении на неё —
+// вкладка/установленное приложение просто размораживается ОС с тем же
+// React-состоянием, что было до сворачивания. Без этого хука пуш о новой
+// заявке показывается, но список заявок остаётся старым, пока страницу не
+// закроют и не откроют заново вручную. Дёргаем переданные загрузчики
+// заново при возврате видимости — то же самое происходит и при обычном
+// переключении вкладок в браузере, что тоже безвредно (просто лишний GET).
+function useRefetchOnVisible(...loaders) {
+  useEffect(() => {
+    const handler = () => {
+      if (document.visibilityState === 'visible') loaders.forEach(fn => fn && fn());
+    };
+    document.addEventListener('visibilitychange', handler);
+    window.addEventListener('focus', handler);
+    return () => {
+      document.removeEventListener('visibilitychange', handler);
+      window.removeEventListener('focus', handler);
+    };
+  }, loaders);
+}
+
 // Сжатие фото через canvas перед загрузкой: длинная сторона <= maxSide, JPEG с заданным качеством
 function compressImage(dataUrl, maxSide, quality) {
   return new Promise((resolve) => {
@@ -827,6 +848,7 @@ function SalesCabinet({ user, token, onLogout }) {
   }, []);
 
   useEffect(() => { loadOrders(); }, []);
+  useRefetchOnVisible(loadOrders);
 
   const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
   const removeLine = (uid) => setLines(ls=>ls.filter(l=>l.uid!==uid));
@@ -1305,6 +1327,7 @@ function StoreCabinet({ user, onLogout, desktop }) {
   }, []);
 
   useEffect(() => { loadOrders(); }, []);
+  useRefetchOnVisible(loadOrders);
 
   const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
   const removeLine = (uid) => setLines(ls=>ls.filter(l=>l.uid!==uid));
@@ -1803,6 +1826,7 @@ function DriverCabinet({ user, onLogout }) {
   }, []);
 
   useEffect(() => { loadOrders(); }, []);
+  useRefetchOnVisible(loadOrders);
 
   const handleUpdate = async (id, status, payment) => {
     try {
@@ -3242,6 +3266,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   }, []);
 
   useEffect(() => { loadOrders(); }, []);
+  useRefetchOnVisible(loadOrders);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -4407,6 +4432,7 @@ function WarehouseCabinet({ user, onLogout }) {
     setLoadingOrders(false);
   }, []);
   useEffect(() => { loadOrders(); }, []);
+  useRefetchOnVisible(loadProducts, loadOrders);
 
   const stockStats = products.reduce((acc,p)=>{
     acc.total++;
