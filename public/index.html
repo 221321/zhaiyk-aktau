@@ -563,6 +563,27 @@ const WAYBILL_STYLE = `
     .btnbar button{padding:12px 24px; font-size:15px; font-weight:700; cursor:pointer; border-radius:8px; border:none; color:#fff;}
     @media print { .btnbar{display:none;} }`;
 
+// Загрузочный лист — экран для склада/водителя, обычно открывается на
+// телефоне (не для печати на бумаге, как накладная, поэтому кнопка
+// "Печать" тут не нужна, а вёрстка должна помещаться на узком экране без
+// зума). Отдельный набор мобильных правил поверх WAYBILL_STYLE, чтобы не
+// затронуть накладную (buildWaybillInnerHtml/printWaybill) — там формат
+// официального документа и печать/PDF по-прежнему нужны.
+const LOADING_LIST_STYLE = WAYBILL_STYLE + `
+    .tablewrap{overflow-x:auto; -webkit-overflow-scrolling:touch;}
+    @media (max-width:480px) {
+      body{padding:12px 10px; font-size:11px;}
+      h1{font-size:13px; margin:10px 0;}
+      .headrow{flex-direction:column;}
+      .headrow > div{border-right:none; border-bottom:1px solid #333; padding:8px;}
+      .headrow > div:last-child{border-bottom:none;}
+      th,td{padding:5px 6px; font-size:10.5px;}
+      .btnbar{margin-bottom:14px;}
+      .btnbar button{flex:1; padding:13px; font-size:14px;}
+      .sign p{font-size:12px;}
+      .signline{min-width:120px;}
+    }`;
+
 function printWaybill(order) {
   const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Накладная №${order.id}</title>
   <style>${WAYBILL_STYLE}</style>
@@ -606,10 +627,12 @@ function buildLoadingListHtml(orders, driverName) {
       <div><div class="label">ВОДИТЕЛЬ</div>${driverName}</div>
       <div><div class="label">ЗАЯВОК В ПАРТИИ</div>${orders.length} шт (${orderNumbers})</div>
     </div>
+    <div class="tablewrap">
     <table>
       <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Кол-во к отгрузке</th><th>Вес, кг</th><th>Отметка склада</th></tr>
       ${rows}
     </table>
+    </div>
     <div class="sign">
       <p>Выдал (складовщик): <span class="signline">&nbsp;</span> подпись</p>
       <p>Принял (водитель): <span class="signline">${driverName}</span> подпись</p>
@@ -619,11 +642,10 @@ function buildLoadingListHtml(orders, driverName) {
 
 function printLoadingList(orders, driverName) {
   if (!orders.length) { alert('Нет заявок в статусе "В работе" для формирования листа'); return; }
-  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Загрузочный лист</title>
-  <style>${WAYBILL_STYLE}</style>
+  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Загрузочный лист</title>
+  <style>${LOADING_LIST_STYLE}</style>
   </head><body>
     <div class="btnbar">
-      <button onclick="window.print()" style="background:#1C1917;">🖨 Печать</button>
       <button onclick="window.close()" style="background:#6B7280;">✕ Закрыть</button>
     </div>
     ${buildLoadingListHtml(orders, driverName)}
@@ -4750,7 +4772,7 @@ function WarehouseCabinet({ user, onLogout }) {
           <p style={S.sectionTitle}>Остатки на складе</p>
           {!loadingProducts && products.length>0 && (
             <div style={S.statsRow}>
-              <div style={S.statCard()}><p style={S.statNum()}>{stockStats.total}</p><p style={S.statLabel}>Всего SKU</p></div>
+              <div style={S.statCard()}><p style={S.statNum()}>{stockStats.total}</p><p style={S.statLabel}>Всего позиций</p></div>
               <div style={S.statCard()}><p style={S.statNum(C.green)}>{stockStats.inStock}</p><p style={S.statLabel}>В наличии</p></div>
               <div style={S.statCard()}><p style={S.statNum(C.red)}>{stockStats.outOfStock}</p><p style={S.statLabel}>Нет в наличии</p></div>
             </div>
