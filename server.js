@@ -195,6 +195,42 @@ app.post('/api/orders/:id/photo', authMiddleware, (req, res) => {
   res.json({ url });
 });
 
+// Фото факт. переданной наличности — обязательно, если водитель принимает
+// оплату наличными: фото накладной подтверждает, что товар передан, но не
+// то, сколько денег реально получено — отдельное фото купюр закрывает этот
+// разрыв (см. проверку в PUT /api/orders/:id/status при payment.cash > 0).
+app.post('/api/orders/:id/cash-photo', authMiddleware, (req, res) => {
+  if (!['driver', 'admin', 'manager', 'operator'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const orderId = parseInt(req.params.id);
+  const order = db.get('orders').find({ id: orderId }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+  if (req.user.role === 'driver' && order.driver_id !== req.user.id) {
+    return res.status(403).json({ error: 'Это не ваша заявка' });
+  }
+
+  const { imageBase64 } = req.body || {};
+  if (!imageBase64) return res.status(400).json({ error: 'Нет фото' });
+
+  const raw = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+  const buf = Buffer.from(raw, 'base64');
+  if (buf.length > 3 * 1024 * 1024) {
+    return res.status(413).json({ error: 'Фото слишком большое' });
+  }
+
+  const fileName = `order${orderId}_cash_${Date.now()}.jpg`;
+  fs.writeFileSync(path.join(WAYBILL_PHOTOS_DIR, fileName), buf);
+  const url = '/uploads/waybill-photos/' + fileName;
+
+  db.get('orders').find({ id: orderId }).assign({
+    cash_photo: url,
+    cash_photo_at: new Date().toISOString()
+  }).write();
+
+  res.json({ url });
+});
+
 app.post('/api/orders', authMiddleware, (req, res) => {
   const { clientName, clientCode, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone } = req.body;
 
@@ -380,6 +416,12 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     }
     if (!orderBefore.delivery_photo) {
       return res.status(400).json({ error: 'Сфотографируйте подписанную накладную перед подтверждением доставки' });
+    }
+    // Фото накладной подтверждает только передачу товара, а не то, сколько
+    // денег реально получено наличными — отдельное фото купюр обязательно,
+    // если в оплате участвует нал (см. POST /api/orders/:id/cash-photo).
+    if (cash > 0 && !orderBefore.cash_photo) {
+      return res.status(400).json({ error: 'Сфотографируйте полученную наличность перед подтверждением доставки' });
     }
     // Нал+QR+долг обязаны совпасть с суммой заявки — иначе касса/долги
     // разъедутся с тем, что реально доставлено (для продаж кассы такая
