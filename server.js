@@ -1160,8 +1160,21 @@ app.post('/api/stock/sync', (req, res) => {
   if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  db.set('stock', items).write();
-  res.json({ success: true, count: items.length });
+  // 1С может присылать не полный снимок остатков, а только изменившиеся
+  // коды (как в этом обмене) — db.set() полностью заменял коллекцию, и
+  // все коды, отсутствующие в присланном пакете, молча обнулялись
+  // (см. computeAvailableStock: код без записи в stock = остаток 0).
+  // Обновляем/добавляем только присланные коды, остальные не трогаем.
+  const stockCol = db.get('stock');
+  (items || []).forEach(it => {
+    if (!it || !it.code) return;
+    if (stockCol.find({ code: it.code }).value()) {
+      stockCol.find({ code: it.code }).assign({ qty: it.qty }).write();
+    } else {
+      stockCol.push({ code: it.code, qty: it.qty }).write();
+    }
+  });
+  res.json({ success: true, count: (items || []).length });
 });
 
 // 1С вызывает этот эндпоинт сразу после того, как реально создала и провела
