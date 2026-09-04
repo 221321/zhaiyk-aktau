@@ -1211,16 +1211,6 @@ function SalesCabinet({ user, token, onLogout }) {
   useRefetchOnVisible(loadDebts);
   const selectedClientDebt = clientId ? debts.filter(d=>d.client_name===clients.find(c=>c.code===clientId)?.name && d.overdue).reduce((s,d)=>s+d.remaining,0) : 0;
 
-  // Полный каталог (без фильтра по алиасу) — только для старшего торгового:
-  // ему нужно видеть остатки по всей номенклатуре, а не только по позициям
-  // с выставленной ценой, которые попадают в форму заявки.
-  const [allProducts, setAllProducts] = useState([]);
-  const [productSearch, setProductSearch] = useState("");
-  useEffect(() => {
-    if (user.role !== "senior_sales") return;
-    fetch('/api/products').then(r=>r.json()).then(setAllProducts).catch(()=>{});
-  }, [user.role]);
-
   const [products, setProducts] = useState([]);
   useEffect(() => {
     fetch('/api/products')
@@ -1626,35 +1616,12 @@ function SalesCabinet({ user, token, onLogout }) {
           </div>
           <DebtsPanel readOnly/>
         </>}
-        {tab==="products"&&<>
-          <p style={S.sectionTitle}>Товары и остатки</p>
-          <input style={{...S.input,marginBottom:14}} placeholder="Поиск по названию..." value={productSearch} onChange={e=>setProductSearch(e.target.value)}/>
-          {(()=>{
-            const q = productSearch.trim().toLowerCase();
-            const list = (q ? allProducts.filter(p=>(p.display_name||p.name||'').toLowerCase().includes(q)) : allProducts).slice(0,200);
-            if (allProducts.length===0) return <div style={S.loadingWrap}>Загрузка...</div>;
-            if (list.length===0) return <div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Ничего не найдено</div>;
-            return list.map(p=>{
-              const outOfStock = p.stock !== null && p.stock !== undefined && p.stock <= 0;
-              return (
-                <div key={p.code} style={S.card}>
-                  <div style={S.row}>
-                    <div style={{flex:1,marginRight:10}}>
-                      <p style={S.cardTitle}>{p.display_name||p.name}</p>
-                      <p style={S.cardSub}>{p.unit||''}{p.group?' · '+p.group:''}</p>
-                    </div>
-                    {p.price1>0&&<p style={{margin:0,fontWeight:800,fontFamily:FH,color:C.navy,whiteSpace:"nowrap"}}>{p.price1.toLocaleString()} ₸</p>}
-                  </div>
-                  <p style={{margin:"8px 0 0",fontSize:14,fontWeight:600,color:outOfStock?C.red:C.textSub}}>{p.stock!==null&&p.stock!==undefined?(outOfStock?'Нет в наличии':`Остаток: ${p.stock}`):'Остаток неизвестен'}</p>
-                </div>
-              );
-            });
-          })()}
-        </>}
+        {tab==="aliases"&&<ProductAliasesPanel/>}
+        {tab==="stock"&&<StockPanel/>}
       </div>
       {user.role==="senior_sales"&&tab!=="new"&&(
         <div style={S.nav}>
-          {[["orders","📋","Заявки"],["cashbox","💵","Касса"],["products","📦","Товары"]].map(([k,ic,lb])=>(
+          {[["orders","📋","Заявки"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"]].map(([k,ic,lb])=>(
             <button key={k} style={{...S.navBtn(tab===k),flex:1}} onClick={()=>setTab(k)}>
               <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
             </button>
@@ -2515,6 +2482,296 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, ali
     </div>
   );
 });
+
+// Экран "Товары" (псевдонимы/цены/себестоимость/комиссия) — тот же
+// набор полей и логика сохранения, что у менеджера/админа (см. вкладку
+// "aliases" в AdminCabinet), вынесен в отдельный самодостаточный
+// компонент, чтобы его же мог открыть у себя старший торговый
+// представитель (см. SalesCabinet), не дублируя код руками. Компонент
+// сам грузит /api/products и сам знает, как сохранять правки — не
+// делит состояние с AdminCabinet (та вкладка остаётся работать как
+// была, отдельным куском состояния).
+function ProductAliasesPanel({ desktop }) {
+  const [products, setProducts] = useState([]);
+  const [aliasSearch, setAliasSearch] = useState("");
+  const [edits, setEdits] = useState({});
+  const [savingCode, setSavingCode] = useState(null);
+  const [editingCodes, setEditingCodes] = useState({});
+  const [aliasSectionsOpen, setAliasSectionsOpen] = useState({ unset: true, set: false });
+
+  const loadProducts = useCallback(async () => {
+    try { setProducts(await fetch('/api/products').then(r => r.json())); } catch(e) {}
+  }, []);
+  useEffect(() => { loadProducts(); }, []);
+  useRefetchOnVisible(loadProducts);
+
+  const getField = (p, field) => {
+    if (edits[p.code] && edits[p.code][field] !== undefined) return edits[p.code][field];
+    if (field === 'alias') return p.has_alias ? p.display_name : '';
+    if (field === 'priced_by_weight') return !!p.priced_by_weight;
+    return p[field] != null ? String(p[field]) : '';
+  };
+  const updateField = useCallback((code, field, value) => setEdits(e => ({...e, [code]: {...e[code], [field]: value}})), []);
+  const onEditRequest = useCallback((code) => setEditingCodes(e => ({...e, [code]: true})), []);
+
+  const editsRef = useRef(edits);
+  useEffect(() => { editsRef.current = edits; }, [edits]);
+
+  const saveAlias = useCallback(async (p) => {
+    const code = p.code;
+    const fieldsFromEdits = editsRef.current[code] || {};
+    const resolve = (field) => fieldsFromEdits[field] !== undefined
+      ? fieldsFromEdits[field]
+      : (field === 'alias' ? (p.has_alias ? p.display_name : '') : (field === 'priced_by_weight' ? !!p.priced_by_weight : (p[field] != null ? String(p[field]) : '')));
+    const alias = resolve('alias');
+    const price1 = resolve('price1');
+    const price2 = resolve('price2');
+    const price3 = resolve('price3');
+    const commission = resolve('commission');
+    const cost = resolve('cost');
+    const pricedByWeight = resolve('priced_by_weight');
+    setSavingCode(code);
+    try {
+      await apiCall('POST', '/api/product-aliases', {
+        code, alias,
+        price1: price1 === '' ? null : Number(price1),
+        price2: price2 === '' ? null : Number(price2),
+        price3: price3 === '' ? null : Number(price3),
+        commission: commission === '' ? 0 : Number(commission),
+        cost: cost === '' ? null : Number(cost),
+        priced_by_weight: !!pricedByWeight,
+      });
+      await loadProducts();
+      setEditingCodes(e => { const n = {...e}; delete n[code]; return n; });
+    } catch(e) { alert(e.message); }
+    setSavingCode(null);
+  }, [loadProducts]);
+
+  const renderProductCard = (p) => {
+    const locked = p.has_alias && !editingCodes[p.code];
+    return (
+      <ProductAliasCard
+        key={p.code}
+        p={p}
+        locked={locked}
+        saving={savingCode===p.code}
+        alias={getField(p,'alias')}
+        price1={getField(p,'price1')}
+        price2={getField(p,'price2')}
+        price3={getField(p,'price3')}
+        commission={getField(p,'commission')}
+        cost={getField(p,'cost')}
+        pricedByWeight={getField(p,'priced_by_weight')}
+        onChange={updateField}
+        onEditRequest={onEditRequest}
+        onSave={saveAlias}
+      />
+    );
+  };
+
+  // Та же защита от лишнего размонтирования карточек при вводе, что и в
+  // AdminCabinet — обычная функция, а не JSX-компонент, см. её комментарий там.
+  const renderAliasSection = ({ id, title, badgeColor, list }) => {
+    const open = !!aliasSectionsOpen[id];
+    return (
+      <div key={id} style={{...S.card, padding:0, marginBottom:12, overflow:"hidden"}}>
+        <div
+          onClick={()=>setAliasSectionsOpen(s=>({...s,[id]:!s[id]}))}
+          style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 14px",cursor:"pointer",background:C.surface}}
+        >
+          <span style={{fontSize:15,fontWeight:700,color:C.navy,display:"flex",alignItems:"center",gap:8}}>
+            {title}
+            <span style={{fontSize:13,fontWeight:700,color:badgeColor,background:badgeColor+"22",padding:"2px 8px",borderRadius:99}}>{list.length}</span>
+          </span>
+          <span style={{fontSize:14,color:C.textFaint}}>{open?"▲ Свернуть":"▼ Развернуть"}</span>
+        </div>
+        {open && (
+          <div style={{padding:10,maxHeight:520,overflowY:"auto",borderTop:`1px solid ${C.border}`}}>
+            {list.length===0
+              ? <div style={{textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:15}}>{aliasSearch.trim()?"Ничего не найдено":"Пусто"}</div>
+              : list.map(renderProductCard)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const q = aliasSearch.trim().toLowerCase();
+  const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.code||'').includes(q));
+  const withoutAlias = filtered.filter(p => !p.has_alias);
+  const withAlias = filtered.filter(p => p.has_alias);
+
+  return (
+    <>
+      {!desktop&&<p style={S.sectionTitle}>Псевдонимы товаров</p>}
+      <div style={{maxWidth: desktop?720:"none"}}>
+        <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
+          Название из 1С меняется от поставки к поставке — задай здесь постоянное имя, которое увидят торгпреды.
+        </p>
+        <input
+          type="search"
+          style={{...S.input,marginBottom:12}}
+          placeholder="Поиск по названию или коду..."
+          value={aliasSearch}
+          onChange={e=>setAliasSearch(e.target.value)}
+          autoComplete="off"
+          name="alias-search"
+        />
+        {renderAliasSection({ id:"unset", title:"⚠️ Цены не установлены", badgeColor:C.red, list:withoutAlias })}
+        {renderAliasSection({ id:"set", title:"✅ Цены установлены", badgeColor:C.green, list:withAlias })}
+        {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
+      </div>
+    </>
+  );
+}
+
+// Экран "Остатки на складе" — тот же, что у зав. склада (см.
+// WarehouseCabinet), вынесен в отдельный самодостаточный компонент по
+// той же причине, что и ProductAliasesPanel выше: старшему торговому
+// представителю нужен тот же экран у себя в кабинете.
+function StockPanel() {
+  const [products, setProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+  const [stockSearch, setStockSearch] = useState("");
+  const [stockCategory, setStockCategory] = useState("");
+  const [hideEmpty, setHideEmpty] = useState(false);
+
+  const loadProducts = useCallback(async () => {
+    try { setProducts(await fetch('/api/products').then(r => r.json())); } catch(e) {}
+    setLoadingProducts(false);
+  }, []);
+  useEffect(() => { loadProducts(); }, []);
+  useRefetchOnVisible(loadProducts);
+
+  const [editingStock, setEditingStock] = useState(null);
+  const [stockEditForm, setStockEditForm] = useState({ unit: '', qty: '', weight_kg: '' });
+  const [savingStock, setSavingStock] = useState(false);
+  const startEditStock = (p) => {
+    setEditingStock(p.code);
+    setStockEditForm({ unit: p.stock_unit || '', qty: p.stock!=null?String(p.stock):'', weight_kg: p.stock_weight_kg!=null?String(p.stock_weight_kg):'' });
+  };
+  const saveStockEdit = async (code) => {
+    setSavingStock(true);
+    try {
+      await apiCall('PUT', `/api/stock/${code}`, {
+        unit: stockEditForm.unit,
+        qty: stockEditForm.qty,
+        weight_kg: stockEditForm.weight_kg
+      });
+      setEditingStock(null);
+      loadProducts();
+    } catch(e) { alert(e.message); }
+    setSavingStock(false);
+  };
+
+  const stockStats = products.reduce((acc,p)=>{
+    acc.total++;
+    if (p.stock!=null && p.stock>0) acc.inStock++; else acc.outOfStock++;
+    return acc;
+  }, {total:0,inStock:0,outOfStock:0});
+
+  const stockCategories = Array.from(new Set(products.map(p=>p.group).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+
+  const q = stockSearch.trim().toLowerCase();
+  const filteredProducts = products
+    .filter(p => !q || (p.display_name||p.name||'').toLowerCase().includes(q) || (p.code||'').includes(q))
+    .filter(p => !stockCategory || p.group===stockCategory)
+    .filter(p => !hideEmpty || (p.stock!=null && p.stock>0))
+    .slice()
+    .sort((a,b)=>{
+      const aOut = !(a.stock>0), bOut = !(b.stock>0);
+      if (aOut!==bOut) return aOut?1:-1;
+      return (a.display_name||a.name||'').localeCompare(b.display_name||b.name||'');
+    });
+
+  return (
+    <>
+      <p style={S.sectionTitle}>Остатки на складе</p>
+      {!loadingProducts && products.length>0 && (
+        <div style={S.statsRow}>
+          <div style={S.statCard()}><p style={S.statNum()}>{stockStats.total}</p><p style={S.statLabel}>Всего позиций</p></div>
+          <div style={S.statCard()}><p style={S.statNum(C.green)}>{stockStats.inStock}</p><p style={S.statLabel}>В наличии</p></div>
+          <div style={S.statCard()}><p style={S.statNum(C.red)}>{stockStats.outOfStock}</p><p style={S.statLabel}>Нет в наличии</p></div>
+        </div>
+      )}
+      <input
+        style={{...S.input,marginBottom:12}}
+        placeholder="Поиск по названию или коду..."
+        value={stockSearch}
+        onChange={e=>setStockSearch(e.target.value)}
+      />
+      <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        {stockCategories.length>1&&<>
+          <button onClick={()=>setStockCategory("")} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${stockCategory===""?C.navy:C.border}`,background:stockCategory===""?C.navy:C.white,color:stockCategory===""?C.white:C.textMid,fontSize:14,fontWeight:600,cursor:"pointer"}}>Все разделы</button>
+          {stockCategories.map(cat=>(
+            <button key={cat} onClick={()=>setStockCategory(cat)} style={{padding:"5px 12px",borderRadius:99,border:`1px solid ${stockCategory===cat?C.navy:C.border}`,background:stockCategory===cat?C.navy:C.white,color:stockCategory===cat?C.white:C.textMid,fontSize:14,fontWeight:600,cursor:"pointer"}}>{cat}</button>
+          ))}
+        </>}
+        <button onClick={()=>setHideEmpty(h=>!h)} style={{marginLeft:"auto",padding:"5px 12px",borderRadius:99,border:`1px solid ${hideEmpty?C.green:C.border}`,background:hideEmpty?"#EAF5EE":C.white,color:hideEmpty?C.green:C.textMid,fontSize:14,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>{hideEmpty?"✓ ":""}Только в наличии</button>
+      </div>
+      {loadingProducts?<div style={S.loadingWrap}>Загрузка...</div>
+        :filteredProducts.length===0?<div style={{textAlign:"center",padding:"40px 0",color:C.textFaint}}>Ничего не найдено</div>
+        :filteredProducts.map(p=>{
+          const out = !(p.stock>0);
+          const low = !out && p.stock<=5;
+          const dot = out?C.red:(low?C.amber:C.green);
+          const editing = editingStock===p.code;
+          return (
+            <div key={p.code} style={{...S.card,opacity:(out&&!editing)?0.7:1}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                  <span style={{width:9,height:9,borderRadius:"50%",background:dot,flexShrink:0}}/>
+                  <div style={{minWidth:0}}>
+                    <p style={{...S.cardTitle,overflowWrap:"anywhere"}}>{p.display_name||p.name}</p>
+                    <p style={S.cardSub}>Код: {p.code}{p.group?' · '+p.group:''}</p>
+                  </div>
+                </div>
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <span style={{display:"inline-block",padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:FH,fontSize:17,background:out?C.redSoft:(low?"#FEF3C7":"#EAF5EE"),color:out?C.red:(low?C.amber:C.green)}}>{p.stock!=null?p.stock:'—'}</span>
+                  <p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>{p.stock_unit||''}</p>
+                </div>
+              </div>
+              {p.stock_weight_kg!=null&&<p style={{margin:"6px 0 0",fontSize:14,color:C.textSub,fontWeight:600}}>⚖️ Вес: {p.stock_weight_kg} кг</p>}
+              {!editing
+                ? <button onClick={()=>startEditStock(p)} style={{marginTop:8,padding:"6px 12px",fontSize:14,fontWeight:600,background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:C.textMid,cursor:"pointer"}}>✏️ Редактировать</button>
+                : (
+                  <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                    <div style={{display:"grid",gridTemplateColumns:stockEditForm.unit==='кг'?"1fr 1fr":"1fr 1fr 1fr",gap:6,marginBottom:8}}>
+                      <div>
+                        <label style={{...S.label,fontSize:12}}>Ед. изм.</label>
+                        <select style={{...S.select,padding:"7px 8px",fontSize:14}} value={stockEditForm.unit} onChange={e=>{
+                          const unit = e.target.value;
+                          setStockEditForm(f=>({...f,unit,weight_kg: unit==='кг'?'':f.weight_kg}));
+                        }}>
+                          <option value="">—</option>
+                          {['шт','уп','кг','кор'].map(u=><option key={u} value={u}>{u}</option>)}
+                          {stockEditForm.unit && !['шт','уп','кг','кор'].includes(stockEditForm.unit) && <option value={stockEditForm.unit}>{stockEditForm.unit}</option>}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{...S.label,fontSize:12}}>Кол-во</label>
+                        <input type="number" style={{...S.input,padding:"7px 8px",fontSize:14}} value={stockEditForm.qty} onChange={e=>setStockEditForm(f=>({...f,qty:e.target.value}))} onFocus={e=>e.target.select()}/>
+                      </div>
+                      {stockEditForm.unit!=='кг'&&(
+                        <div>
+                          <label style={{...S.label,fontSize:12}}>Вес, кг</label>
+                          <input type="number" style={{...S.input,padding:"7px 8px",fontSize:14}} placeholder="если весовой" value={stockEditForm.weight_kg} onChange={e=>setStockEditForm(f=>({...f,weight_kg:e.target.value}))} onFocus={e=>e.target.select()}/>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>saveStockEdit(p.code)} disabled={savingStock} style={{...S.btnPrimary,padding:"7px 14px",fontSize:14,width:"auto",boxShadow:"none",opacity:savingStock?0.6:1}}>{savingStock?"Сохраняю...":"Сохранить"}</button>
+                      <button onClick={()=>setEditingStock(null)} disabled={savingStock} style={{...S.btnSecondary,padding:"7px 14px",fontSize:14,width:"auto"}}>Отмена</button>
+                    </div>
+                  </div>
+                )}
+            </div>
+          );
+        })
+      }
+    </>
+  );
+}
 
 // Раздел (для каталога) и фото — отдельно от цен, во вкладке "Каталог"
 // (её видят и admin, и manager — они уже используют один и тот же
