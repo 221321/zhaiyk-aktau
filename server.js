@@ -317,12 +317,51 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   const orderBefore = db.get('orders').find({ id: orderId }).value();
   if (!orderBefore) return res.status(404).json({ error: 'Заявка не найдена' });
 
+  // Кто вообще вправе поменять статус ЭТОЙ заявки. Раньше это проверялось
+  // только для перехода в "new" (см. isOwner/isManager) — остальные переходы
+  // (delivered/cancelled/returned/revoked/in_transit) мог вызвать любой
+  // залогиненный пользователь любой роли на чужой заявке напрямую через API:
+  // кнопки на фронте скрыты по роли/владельцу, но это не защита сервера.
+  const isManagerRole = ['admin', 'manager', 'operator'].includes(req.user.role);
+  const isOwnerDriver = req.user.role === 'driver' && orderBefore.driver_id === req.user.id;
+  const isOwnerSales = ['sales', 'store', 'senior_sales'].includes(req.user.role) && orderBefore.sales_id === req.user.id;
+  const canChange = {
+    in_transit: (req.user.role === 'driver' && orderBefore.status === 'new') || isManagerRole,
+    new: isOwnerDriver || isManagerRole,
+    delivered: isOwnerDriver || isManagerRole,
+    cancelled: isOwnerDriver || isManagerRole,
+    returned: isOwnerDriver || isManagerRole,
+    revoked: isOwnerSales || isManagerRole,
+  };
+  if (!canChange[status]) {
+    return res.status(403).json({ error: 'Нет доступа к изменению этой заявки' });
+  }
+
+  // Переходы, для которых заявка обязана сейчас быть в конкретном
+  // предыдущем статусе — иначе можно, например, "довезти" уже отменённую
+  // заявку или повторно закрыть уже доставленную с другой суммой оплаты.
+  if (['delivered', 'cancelled', 'returned'].includes(status) && orderBefore.status !== 'in_transit') {
+    return res.status(400).json({ error: 'Действие доступно только для заявки в статусе "В работе"' });
+  }
+  if (status === 'revoked' && orderBefore.status !== 'new') {
+    return res.status(400).json({ error: 'Отозвать можно только заявку, которая ещё не взята в доставку' });
+  }
+
   if (status === 'delivered') {
-    if (!payment || (Number(payment.cash) || 0) + (Number(payment.qr) || 0) + (Number(payment.debt) || 0) <= 0) {
+    const cash = Number(payment && payment.cash) || 0;
+    const qr = Number(payment && payment.qr) || 0;
+    const debt = Number(payment && payment.debt) || 0;
+    if (!payment || cash + qr + debt <= 0) {
       return res.status(400).json({ error: 'Укажите способ оплаты (нал/QR/долг) перед подтверждением доставки' });
     }
     if (!orderBefore.delivery_photo) {
       return res.status(400).json({ error: 'Сфотографируйте подписанную накладную перед подтверждением доставки' });
+    }
+    // Нал+QR+долг обязаны совпасть с суммой заявки — иначе касса/долги
+    // разъедутся с тем, что реально доставлено (для продаж кассы такая
+    // сверка уже была, см. POST /api/sales; для доставки её не хватало).
+    if (Math.abs((cash + qr + debt) - (orderBefore.total || 0)) > 1) {
+      return res.status(400).json({ error: `Сумма оплаты (${cash + qr + debt}) не совпадает с суммой заявки (${orderBefore.total || 0})` });
     }
   }
 
@@ -342,17 +381,6 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     }
     if (assignedDriver.active === false) {
       return res.status(400).json({ error: 'Этот водитель отключён' });
-    }
-  }
-
-  if (status === 'new') {
-    if (orderBefore.status !== 'in_transit') {
-      return res.status(400).json({ error: 'Вернуть в очередь можно только заявку в статусе "В работе"' });
-    }
-    const isOwner = req.user.role === 'driver' && orderBefore.driver_id === req.user.id;
-    const isManager = ['admin', 'manager', 'operator'].includes(req.user.role);
-    if (!isOwner && !isManager) {
-      return res.status(403).json({ error: 'Вернуть заявку может только водитель, который её взял, либо менеджер' });
     }
   }
 

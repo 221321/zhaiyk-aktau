@@ -776,7 +776,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
             </a>
           </div>
         )}
-        {currentUser.role==="driver" && order.status==="in_transit" && (
+        {currentUser.role==="driver" && order.status==="in_transit" && order.driver_id===currentUser.id && (
           <DriverPaymentBlock order={order} onUpdateStatus={onUpdateStatus}/>
         )}
         {currentUser.role==="driver" && order.status==="in_transit" && order.driver_id===currentUser.id && (
@@ -3633,15 +3633,27 @@ function AdminCabinet({ user, onLogout, desktop }) {
       bucket[key].orders += 1;
       const orderItems = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
       orderItems.forEach(it=>{
-        const liveCommission = it.code && commissionByCode[it.code] !== undefined ? commissionByCode[it.code] : (it.commission||0);
+        // Комиссия фиксируется на позиции заявки в момент оформления (см.
+        // POST /api/orders, commission_total) — используем этот снимок, а
+        // не текущую ставку из карточки товара, точно так же как cost
+        // (себестоимость) не пересчитывается задним числом (см.
+        // sumItemsProfit). Раньше отчёт брал ЖИВУЮ ставку commissionByCode
+        // в приоритете, и правка комиссии у товара молча переписывала уже
+        // начисленный/выплаченный бонус торговых за прошлые периоды.
+        // commissionByCode остаётся только запасным вариантом для старых
+        // заявок, оформленных до того, как commission стало сохраняться
+        // на позиции.
+        const frozenCommission = it.commission != null
+          ? Number(it.commission)
+          : (it.code && commissionByCode[it.code] !== undefined ? commissionByCode[it.code] : 0);
         bucket[key].items.push({
           name: it.name,
           qty: it.qty,
           price: it.price,
-          commission: liveCommission,
+          commission: frozenCommission,
           // Комиссия — фиксированная сумма в ₸ за единицу товара, а не % от
           // суммы строки (раньше было qty*price*commission/100).
-          bonus: (Number(it.qty)||0)*(Number(liveCommission)||0)
+          bonus: (Number(it.qty)||0)*frozenCommission
         });
       });
     });
