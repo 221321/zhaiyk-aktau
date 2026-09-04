@@ -4109,7 +4109,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   // товаров/каталога/НКТ/сотрудников (и бэкенд эти эндпоинты ему не отдаёт).
   const TABS = user.role==="operator"
     ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"]]
-    : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["catalog","🗂","Каталог"],["nkt","🌐","НКТ"],["employees","👤","Сотрудники"]];
+    : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["catalog","🗂","Каталог"],["employees","👤","Сотрудники"]];
   const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",catalog:"Каталог",nkt:"Коды НКТ",employees:"Сотрудники"};
 
   const dateRangeInputs = (
