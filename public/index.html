@@ -804,25 +804,31 @@ function buildWaybillInnerHtml(order) {
     </div>`;
 }
 
+// Стили печатных форм (накладная/загрузочный лист) — селекторы намеренно
+// со scope-префиксом .printScope, а не голые body/table/h1: раньше эти
+// правила жили в HTML-документе отдельного window.open()-окна (там body{}
+// матчил только body ЭТОГО окна), но с переходом на оверлей в текущем
+// окне (см. openPrintOverlay ниже) голый body{}/table{}/h1{} наложился бы
+// на весь остальной сайт, пока оверлей открыт.
 const WAYBILL_STYLE = `
-    body{font-family:Arial, sans-serif; font-size:12px; padding:20px; color:#111; max-width:900px; margin:0 auto;}
-    .topright{text-align:right; font-size:11px; line-height:1.4; margin-bottom:10px;}
-    h1{font-size:15px; text-align:center; margin:16px 0;}
-    table{width:100%; border-collapse:collapse; margin:10px 0;}
-    th,td{border:1px solid #333; padding:5px 6px; font-size:11px;}
-    th{background:#f0f0f0; text-align:center;}
-    .headrow{display:flex; border:1px solid #333; margin-top:14px;}
-    .headrow > div{flex:1; border-right:1px solid #333; padding:6px;}
-    .headrow > div:last-child{border-right:none;}
-    .headrow .label{font-size:10px; color:#444; margin-bottom:4px;}
-    .toprow{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;}
-    .totals{margin-top:8px; font-size:12px;}
-    .sign{margin-top:24px;}
-    .sign p{margin:14px 0 2px;}
-    .signline{display:inline-block; min-width:220px; border-bottom:1px solid #333; margin:0 6px;}
-    .btnbar{text-align:center; margin-bottom:20px; display:flex; gap:10px; justify-content:center;}
-    .btnbar button{padding:12px 24px; font-size:15px; font-weight:700; cursor:pointer; border-radius:8px; border:none; color:#fff;}
-    @media print { .btnbar{display:none;} }`;
+    .printScope{font-family:Arial, sans-serif; font-size:12px; padding:20px; color:#111; max-width:900px; margin:0 auto; background:#fff;}
+    .printScope .topright{text-align:right; font-size:11px; line-height:1.4; margin-bottom:10px;}
+    .printScope h1{font-size:15px; text-align:center; margin:16px 0;}
+    .printScope table{width:100%; border-collapse:collapse; margin:10px 0;}
+    .printScope th,.printScope td{border:1px solid #333; padding:5px 6px; font-size:11px;}
+    .printScope th{background:#f0f0f0; text-align:center;}
+    .printScope .headrow{display:flex; border:1px solid #333; margin-top:14px;}
+    .printScope .headrow > div{flex:1; border-right:1px solid #333; padding:6px;}
+    .printScope .headrow > div:last-child{border-right:none;}
+    .printScope .headrow .label{font-size:10px; color:#444; margin-bottom:4px;}
+    .printScope .toprow{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;}
+    .printScope .totals{margin-top:8px; font-size:12px;}
+    .printScope .sign{margin-top:24px;}
+    .printScope .sign p{margin:14px 0 2px;}
+    .printScope .signline{display:inline-block; min-width:220px; border-bottom:1px solid #333; margin:0 6px;}
+    .printScope .btnbar{text-align:center; margin-bottom:20px; display:flex; gap:10px; justify-content:center;}
+    .printScope .btnbar button{padding:12px 24px; font-size:15px; font-weight:700; cursor:pointer; border-radius:8px; border:none; color:#fff;}
+    @media print { .printScope .btnbar{display:none;} }`;
 
 // Загрузочный лист — экран для склада/водителя, обычно открывается на
 // телефоне (не для печати на бумаге, как накладная, поэтому кнопка
@@ -831,33 +837,81 @@ const WAYBILL_STYLE = `
 // затронуть накладную (buildWaybillInnerHtml/printWaybill) — там формат
 // официального документа и печать/PDF по-прежнему нужны.
 const LOADING_LIST_STYLE = WAYBILL_STYLE + `
-    .tablewrap{overflow-x:auto; -webkit-overflow-scrolling:touch;}
+    .printScope .tablewrap{overflow-x:auto; -webkit-overflow-scrolling:touch;}
     @media (max-width:480px) {
-      body{padding:12px 10px; font-size:11px;}
-      h1{font-size:13px; margin:10px 0;}
-      .headrow{flex-direction:column;}
-      .headrow > div{border-right:none; border-bottom:1px solid #333; padding:8px;}
-      .headrow > div:last-child{border-bottom:none;}
-      th,td{padding:5px 6px; font-size:10.5px;}
-      .btnbar{margin-bottom:14px;}
-      .btnbar button{flex:1; padding:13px; font-size:14px;}
-      .sign p{font-size:12px;}
-      .signline{min-width:120px;}
+      .printScope{padding:12px 10px; font-size:11px;}
+      .printScope h1{font-size:13px; margin:10px 0;}
+      .printScope .headrow{flex-direction:column;}
+      .printScope .headrow > div{border-right:none; border-bottom:1px solid #333; padding:8px;}
+      .printScope .headrow > div:last-child{border-bottom:none;}
+      .printScope th,.printScope td{padding:5px 6px; font-size:10.5px;}
+      .printScope .btnbar{margin-bottom:14px;}
+      .printScope .btnbar button{flex:1; padding:13px; font-size:14px;}
+      .printScope .sign p{font-size:12px;}
+      .printScope .signline{min-width:120px;}
     }`;
 
+// Печатные формы раньше открывались в новом окне (window.open('','_blank')
+// + document.write). В установленном как PWA приложении на Android
+// ("display":"standalone" в manifest.json) у нового окна нет вкладки
+// браузера, куда его открыть — ОС/Chrome вместо полноценного окна создают
+// маленький попап не по размеру экрана ("маленький квадратик"), и контент
+// в нём либо не помещается, либо не рендерится нормально. Вместо этого
+// показываем форму оверлеем поверх ТЕКУЩЕГО окна (тот же приём, что уже
+// использовался для html2canvas в shareWaybillPdf) — новое окно вообще не
+// открывается, поэтому эта проблема пропадает на любой платформе.
+function openPrintOverlay(bodyHtml, styleText, showPrintButton) {
+  const host = document.createElement('div');
+  host.id = 'printOverlayHost';
+  host.className = 'printScope';
+  host.style.cssText = 'position:fixed;inset:0;z-index:99999;overflow:auto;background:#fff;';
+
+  const styleEl = document.createElement('style');
+  styleEl.textContent = styleText;
+  host.appendChild(styleEl);
+
+  // Печать текущего окна как есть напечатала бы весь остальной сайт вместе
+  // с оверлеем — на время, пока оверлей открыт, прячем всё остальное.
+  const printRule = document.createElement('style');
+  printRule.textContent = `@media print {
+    body > *:not(#printOverlayHost) { display:none !important; }
+    #printOverlayHost { position:static !important; overflow:visible !important; }
+  }`;
+
+  const cleanup = () => {
+    if (host.parentNode) document.body.removeChild(host);
+    if (printRule.parentNode) document.head.removeChild(printRule);
+  };
+
+  const btnbar = document.createElement('div');
+  btnbar.className = 'btnbar';
+  if (showPrintButton) {
+    const printBtn = document.createElement('button');
+    printBtn.type = 'button';
+    printBtn.textContent = '🖨 Печать';
+    printBtn.style.background = '#1C1917';
+    printBtn.onclick = () => window.print();
+    btnbar.appendChild(printBtn);
+  }
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.textContent = '✕ Закрыть';
+  closeBtn.style.background = '#6B7280';
+  closeBtn.onclick = cleanup;
+  btnbar.appendChild(closeBtn);
+  host.appendChild(btnbar);
+
+  const content = document.createElement('div');
+  content.innerHTML = bodyHtml;
+  host.appendChild(content);
+
+  document.head.appendChild(printRule);
+  document.body.appendChild(host);
+  return cleanup;
+}
+
 function printWaybill(order) {
-  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Накладная №${order.id}</title>
-  <style>${WAYBILL_STYLE}</style>
-  </head><body>
-    <div class="btnbar">
-      <button onclick="window.print()" style="background:#1C1917;">🖨 Печать</button>
-      <button onclick="window.close()" style="background:#6B7280;">✕ Закрыть</button>
-    </div>
-    ${buildWaybillInnerHtml(order)}
-  </body></html>`;
-  const w = window.open('', '_blank');
-  w.document.write(html);
-  w.document.close();
+  openPrintOverlay(buildWaybillInnerHtml(order), WAYBILL_STYLE, true);
 }
 
 function buildLoadingListHtml(orders, driverName) {
@@ -903,17 +957,7 @@ function buildLoadingListHtml(orders, driverName) {
 
 function printLoadingList(orders, driverName) {
   if (!orders.length) { alert('Нет заявок в статусе "В работе" для формирования листа'); return; }
-  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Загрузочный лист</title>
-  <style>${LOADING_LIST_STYLE}</style>
-  </head><body>
-    <div class="btnbar">
-      <button onclick="window.close()" style="background:#6B7280;">✕ Закрыть</button>
-    </div>
-    ${buildLoadingListHtml(orders, driverName)}
-  </body></html>`;
-  const w = window.open('', '_blank');
-  w.document.write(html);
-  w.document.close();
+  openPrintOverlay(buildLoadingListHtml(orders, driverName), LOADING_LIST_STYLE, false);
 }
 
 async function shareWaybillPdf(order) {
@@ -942,6 +986,7 @@ async function shareWaybillPdf(order) {
   label.style.fontFamily = 'Arial, sans-serif';
 
   const container = document.createElement('div');
+  container.className = 'printScope';
   container.style.width = '780px';
   container.style.background = '#fff';
   container.style.marginTop = '36px';
