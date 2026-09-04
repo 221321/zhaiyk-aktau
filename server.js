@@ -361,6 +361,17 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   }
 
   if (status === 'delivered') {
+    // Весовая позиция без факт. веса (weight_confirmed) всё ещё хранит
+    // ОЦЕНКУ (кол-во коробов × примерный вес, вписанные торговым при
+    // оформлении, см. POST /api/orders) — если довезти заявку так, эта
+    // оценка навсегда останется в total/qty: после статуса "доставлено"
+    // POST /api/orders/weights взвешивать уже не даёт (см. проверку статуса
+    // там же), а kg-остаток по факту так и не спишется.
+    const orderItems = typeof orderBefore.items === 'string' ? JSON.parse(orderBefore.items || '[]') : (orderBefore.items || []);
+    const pendingWeightItems = orderItems.filter(it => it.is_weight_item && !it.weight_confirmed);
+    if (pendingWeightItems.length > 0) {
+      return res.status(400).json({ error: `Склад ещё не подтвердил факт. вес: ${pendingWeightItems.map(it => it.name).join(', ')}. Доставка недоступна, пока вес не введён` });
+    }
     const cash = Number(payment && payment.cash) || 0;
     const qr = Number(payment && payment.qr) || 0;
     const debt = Number(payment && payment.debt) || 0;
