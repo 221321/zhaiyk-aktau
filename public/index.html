@@ -4518,6 +4518,28 @@ function App() {
     setChecking(false);
   }, []);
 
+  // Кнопка/жест "назад" в установленном PWA (или просто в мобильном
+  // браузере) на самом первом экране после логина не находит в истории
+  // вкладки ничего своего и закрывает приложение целиком — история
+  // сессии там пуста (одна запись из самой загрузки страницы). Держим
+  // "пол": сразу после логина добавляем одну свою запись истории, а при
+  // попытке уйти ниже нее (реальный выход) тут же восстанавливаем её —
+  // синхронно внутри обработчика popstate это отменяет выход. Экраны со
+  // своим pushState/popstate (например, "Новая заявка") отрабатывают на
+  // том же событии первыми и этим не задеты — увидят свою запись и не
+  // тронут этот "пол".
+  useEffect(() => {
+    if (!user) return;
+    window.history.pushState({ appFloor: true }, '', '');
+    const trapBack = () => {
+      if (!window.history.state || !window.history.state.appFloor) {
+        window.history.pushState({ appFloor: true }, '', '');
+      }
+    };
+    window.addEventListener('popstate', trapBack);
+    return () => window.removeEventListener('popstate', trapBack);
+  }, [!!user]);
+
   const handleLogin = async () => {
     setLoading(true); setError("");
     try {
