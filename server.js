@@ -1748,6 +1748,90 @@ app.delete('/api/returns/:id', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
+// ===== ПРИХОД ТОВАРА (ручное пополнение остатка складом/админом/менеджером) =====
+// В отличие от возвратов (которые лишь временно компенсируют резерв в
+// computeAvailableStock, пока 1С не пришлёт следующий снимок остатков),
+// приход сразу и напрямую увеличивает stock.qty — то же поле, что склад
+// правит вручную через PUT /api/stock/:code и что полностью перезаписывает
+// следующий /api/stock/sync по этому коду. Цена закупки партии — только
+// для истории/справки, на себестоимость в отчётах не влияет (она по-прежнему
+// берётся из псевдонимов товаров, см. getCostMap).
+db.defaults({ receipts: [], nextReceiptId: 1 }).write();
+
+app.get('/api/receipts', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'operator', 'warehouse'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('receipts').value().slice().reverse());
+});
+
+app.post('/api/receipts', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'warehouse'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { items, supplier, comment, date } = req.body;
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Укажите хотя бы одну позицию прихода' });
+  }
+  const cleanItems = [];
+  for (const it of items) {
+    const qty = Number(it.qty) || 0;
+    const name = (it.name || '').trim();
+    // Код обязателен — без него нечего увеличивать в остатке (в отличие от
+    // возвратов, у прихода нет "свободного формата" без привязки к товару).
+    if (!name || !it.code || qty <= 0) continue;
+    cleanItems.push({
+      code: it.code,
+      name,
+      qty,
+      purchase_price: (it.purchasePrice !== undefined && it.purchasePrice !== '' && it.purchasePrice !== null) ? Number(it.purchasePrice) : null,
+    });
+  }
+  if (cleanItems.length === 0) return res.status(400).json({ error: 'Нет корректных позиций для прихода' });
+
+  const stockCol = db.get('stock');
+  cleanItems.forEach(it => {
+    const rec = stockCol.find({ code: it.code }).value();
+    if (rec) {
+      stockCol.find({ code: it.code }).assign({ qty: (Number(rec.qty) || 0) + it.qty }).write();
+    } else {
+      stockCol.push({ code: it.code, qty: it.qty }).write();
+    }
+  });
+
+  const id = db.get('nextReceiptId').value();
+  const receipt = {
+    id,
+    items: cleanItems,
+    supplier: (supplier || '').trim(),
+    comment: (comment || '').trim(),
+    date: date || new Date().toISOString().slice(0, 10),
+    created_by_id: req.user.id,
+    created_by_name: req.user.name,
+    created_at: new Date().toISOString(),
+  };
+  db.get('receipts').push(receipt).write();
+  db.set('nextReceiptId', id + 1).write();
+  res.json(receipt);
+});
+
+app.delete('/api/receipts/:id', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Только администратор может удалять приходы' });
+  const id = parseInt(req.params.id);
+  const receipt = db.get('receipts').find({ id }).value();
+  if (!receipt) return res.status(404).json({ error: 'Приход не найден' });
+  // Откатываем количество обратно — приход мутирует stock.qty напрямую
+  // (см. POST выше), поэтому удаление должно симметрично его вычесть,
+  // иначе остаток на складе останется задвоенным.
+  const stockCol = db.get('stock');
+  (receipt.items || []).forEach(it => {
+    const rec = stockCol.find({ code: it.code }).value();
+    if (rec) stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - (Number(it.qty) || 0)) }).write();
+  });
+  db.get('receipts').remove({ id }).write();
+  res.json({ success: true });
+});
+
 // ===== СМЕНЫ КАССИРА (открыть/закрыть кассу) =====
 // Чисто учётная обёртка вокруг sales — не блокирует продажу (кассир мог
 // просто забыть открыть смену), а даёт кассиру и менеджеру видеть, с
