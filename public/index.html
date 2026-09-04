@@ -4495,6 +4495,22 @@ function App() {
     fetch('/api/login-hints').then(r=>r.json()).then(setLoginHints).catch(()=>{});
   }, []);
 
+  // На части устройств/браузеров Notification.permission на свежей загрузке
+  // страницы иногда читается как "default", даже когда уже есть живая и
+  // рабочая PushSubscription (пуши при этом реально доходят) — это
+  // рассинхрон между разрешением и подпиской, встречается не только на iOS.
+  // pushStatus (и, значит, баннер "Включите уведомления") опирается только
+  // на этот хрупкий Notification.permission — из-за чего баннер лез каждый
+  // раз, хотя всё уже работает. Подстраховываемся: если подписка реально
+  // есть, считаем пуш включённым независимо от того, что говорит permission.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    navigator.serviceWorker.ready
+      .then(reg => reg.pushManager.getSubscription())
+      .then(sub => { if (sub) setPushStatus('granted'); })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     const token = getToken();
     if (token) {
@@ -4568,6 +4584,7 @@ function App() {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
     setPushMsg('Проверяем подписку...');
     subscribeToPush().then((result) => {
+      if (result.ok) setPushStatus('granted');
       setPushMsg(result.ok ? 'Подписка активна ✓' : 'Ошибка подписки: ' + result.error);
       setTimeout(() => setPushMsg(''), 8000);
     });
