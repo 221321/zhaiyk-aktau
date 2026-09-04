@@ -497,6 +497,224 @@ function DebtsPanel({ readOnly }) {
   );
 }
 
+// Возврат — отдельная от статуса заявки сущность (см. POST /api/returns):
+// либо конкретные позиции/количество из уже ДОСТАВЛЕННОЙ заявки (магазин
+// вернул 1 из 5 коробок), либо совсем без заявки — товар без привязки
+// к конкретной поставке (например, порчу заметили через неделю). И то, и
+// другое доступно водителю (обнаружил на месте) и admin/manager/operator.
+function ReturnFormModal({ user, onClose, onCreated }) {
+  const canAttributeSales = ['admin','manager'].includes(user.role); // GET /api/users не отдаёт operator/driver
+  const [mode, setMode] = useState('order');
+
+  // ===== режим "по заявке" =====
+  const [orders, setOrders] = useState([]);
+  const [loadingOrders, setLoadingOrders] = useState(true);
+  const [orderSearch, setOrderSearch] = useState('');
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [returnQtys, setReturnQtys] = useState({});
+  const [alreadyReturned, setAlreadyReturned] = useState({});
+
+  useEffect(() => {
+    apiCall('GET','/api/orders').then(all => {
+      let delivered = all.filter(o=>o.status==="delivered");
+      // Водитель возвращает только по своим доставкам — не видит доставки других водителей
+      if (user.role==="driver") delivered = delivered.filter(o=>o.driver_id===user.id);
+      setOrders(delivered);
+      setLoadingOrders(false);
+    }).catch(()=>setLoadingOrders(false));
+  }, []);
+
+  const pickOrder = (o) => {
+    setSelectedOrder(o);
+    setReturnQtys({});
+    apiCall('GET','/api/returns').then(list => {
+      const map = {};
+      list.filter(r=>r.order_id===o.id).forEach(r=>(r.items||[]).forEach(it=>{ if(it.code) map[it.code]=(map[it.code]||0)+(Number(it.qty)||0); }));
+      setAlreadyReturned(map);
+    }).catch(()=>setAlreadyReturned({}));
+  };
+
+  const orderItems = selectedOrder ? (typeof selectedOrder.items==="string"?JSON.parse(selectedOrder.items||"[]"):(selectedOrder.items||[])) : [];
+  const q = orderSearch.trim().toLowerCase();
+  const matchedOrders = q
+    ? orders.filter(o=>(o.client_name||"").toLowerCase().includes(q)||String(o.id).includes(q))
+    : orders.slice(0,20);
+
+  // ===== режим "без заявки" =====
+  const [clients, setClients] = useState([]);
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientCode, setClientCode] = useState('');
+  const [salesUsers, setSalesUsers] = useState([]);
+  const [salesId, setSalesId] = useState('');
+  const [freeRows, setFreeRows] = useState([{name:"",qty:"",price:""}]);
+
+  useEffect(() => {
+    if (mode!=="freeform") return;
+    apiCall('GET','/api/clients').then(setClients).catch(()=>{});
+    if (canAttributeSales) {
+      apiCall('GET','/api/users').then(us=>setSalesUsers(us.filter(u=>["sales","senior_sales"].includes(u.role)&&u.active!==false))).catch(()=>{});
+    }
+  }, [mode]);
+
+  const cq = clientSearch.trim().toLowerCase();
+  const matchedClients = cq ? clients.filter(c=>(c.name||"").toLowerCase().includes(cq)) : [];
+
+  const updateFreeRow = (i,patch) => setFreeRows(rs=>rs.map((r,idx)=>idx===i?{...r,...patch}:r));
+  const addFreeRow = () => setFreeRows(rs=>[...rs,{name:"",qty:"",price:""}]);
+  const removeFreeRow = (i) => setFreeRows(rs=>rs.length>1?rs.filter((_,idx)=>idx!==i):rs);
+
+  // ===== общее =====
+  const [reason, setReason] = useState('');
+  const [refundCash, setRefundCash] = useState('');
+  const [refundQr, setRefundQr] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const canSubmitOrder = !!selectedOrder && orderItems.some(it=>Number(returnQtys[it.code])>0);
+  const canSubmitFree = !!clientCode && freeRows.some(r=>r.name.trim()&&Number(r.qty)>0);
+  const canSubmit = mode==="order" ? canSubmitOrder : canSubmitFree;
+
+  const submit = async () => {
+    if (!canSubmit || submitting) return;
+    setError(""); setSubmitting(true);
+    try {
+      let payload;
+      if (mode==="order") {
+        const items = orderItems.filter(it=>Number(returnQtys[it.code])>0).map(it=>({code:it.code,name:it.name,price:it.price,qty:Number(returnQtys[it.code])}));
+        payload = { orderId:selectedOrder.id, items, reason, refundCash:Number(refundCash)||0, refundQr:Number(refundQr)||0 };
+      } else {
+        const client = clients.find(c=>c.code===clientCode);
+        const items = freeRows.filter(r=>r.name.trim()&&Number(r.qty)>0).map(r=>({name:r.name.trim(),qty:Number(r.qty),price:Number(r.price)||0}));
+        payload = { clientCode, clientName: client?client.name:clientCode, salesId: salesId||undefined, items, reason, refundCash:Number(refundCash)||0, refundQr:Number(refundQr)||0 };
+      }
+      await apiCall('POST','/api/returns', payload);
+      if (onCreated) onCreated();
+      onClose();
+    } catch(e) { setError(e.message); }
+    setSubmitting(false);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
+      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
+        <div style={{...S.row,marginBottom:14}}>
+          <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>↩️ Оформить возврат</p>
+          <button style={S.btnSecondary} onClick={onClose}>✕</button>
+        </div>
+
+        <div style={{display:"flex",gap:6,marginBottom:14}}>
+          <button onClick={()=>setMode("order")} style={{flex:1,padding:"9px",borderRadius:8,border:`1px solid ${mode==="order"?C.navy:C.border}`,background:mode==="order"?C.navy:C.white,color:mode==="order"?C.white:C.textMid,fontSize:13,fontWeight:600,cursor:"pointer"}}>По заявке</button>
+          <button onClick={()=>setMode("freeform")} style={{flex:1,padding:"9px",borderRadius:8,border:`1px solid ${mode==="freeform"?C.navy:C.border}`,background:mode==="freeform"?C.navy:C.white,color:mode==="freeform"?C.white:C.textMid,fontSize:13,fontWeight:600,cursor:"pointer"}}>Без заявки</button>
+        </div>
+
+        {mode==="order" ? (
+          !selectedOrder ? (
+            <>
+              <input style={{...S.input,marginBottom:10}} placeholder="Поиск по клиенту или № заявки..." value={orderSearch} onChange={e=>setOrderSearch(e.target.value)}/>
+              {loadingOrders?<div style={S.loadingWrap}>Загрузка...</div>:matchedOrders.length===0?<p style={{fontSize:13,color:C.textFaint,textAlign:"center",padding:"16px 0"}}>Доставленных заявок не найдено</p>:
+                <div style={{maxHeight:280,overflowY:"auto",border:`1px solid ${C.border}`,borderRadius:10}}>
+                  {matchedOrders.map(o=>(
+                    <div key={o.id} onClick={()=>pickOrder(o)} style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+                      <p style={{margin:0,fontSize:14,fontWeight:700}}>№ {o.id} · {o.client_name}</p>
+                      <p style={{margin:0,fontSize:12,color:C.textFaint}}>{o.date} · {(o.total||0).toLocaleString()} ₸</p>
+                    </div>
+                  ))}
+                </div>
+              }
+            </>
+          ) : (
+            <>
+              <div style={{...S.row,marginBottom:10}}>
+                <p style={{margin:0,fontSize:14,fontWeight:700}}>№ {selectedOrder.id} · {selectedOrder.client_name}</p>
+                <button style={S.btnSecondary} onClick={()=>setSelectedOrder(null)}>Сменить</button>
+              </div>
+              {orderItems.map(it=>{
+                const delivered = Number(it.qty)||0;
+                const already = alreadyReturned[it.code]||0;
+                const maxQty = Math.max(0, delivered-already);
+                return (
+                  <div key={it.code} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <p style={{margin:0,fontSize:14,overflowWrap:"anywhere"}}>{it.name}</p>
+                      <p style={{margin:0,fontSize:12,color:C.textFaint}}>Доставлено {delivered}{already>0?`, уже возвращено ${already}`:''}{maxQty===0?' · весь объём уже возвращён':''}</p>
+                    </div>
+                    <input type="number" disabled={maxQty===0} min="0" max={maxQty} style={{...S.input,width:70,flexShrink:0,padding:"6px 8px",fontSize:14,textAlign:"center",opacity:maxQty===0?0.5:1}} placeholder="0" value={returnQtys[it.code]||''}
+                      onChange={e=>{ let v=e.target.value; if (Number(v)>maxQty) v=String(maxQty); setReturnQtys(qm=>({...qm,[it.code]:v})); }}
+                      onFocus={e=>e.target.select()}
+                    />
+                  </div>
+                );
+              })}
+            </>
+          )
+        ) : (
+          <>
+            <label style={S.label}>Клиент</label>
+            {!clientCode ? (
+              <>
+                <input style={{...S.input,marginBottom:6}} placeholder="Поиск клиента..." value={clientSearch} onChange={e=>setClientSearch(e.target.value)}/>
+                {cq && (
+                  <div style={{maxHeight:180,overflowY:"auto",border:`1px solid ${C.border}`,borderRadius:10,marginBottom:10}}>
+                    {matchedClients.length===0?<p style={{fontSize:13,color:C.textFaint,padding:"10px 12px",margin:0}}>Не найдено</p>:matchedClients.map(c=>(
+                      <div key={c.code} onClick={()=>{setClientCode(c.code);setClientSearch(c.name);}} style={{padding:"9px 12px",borderBottom:`1px solid ${C.border}`,cursor:"pointer",fontSize:14}}>{c.name}</div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{...S.row,marginBottom:10,padding:"8px 12px",background:C.surface,borderRadius:10}}>
+                <span style={{fontSize:14,fontWeight:600}}>{(clients.find(c=>c.code===clientCode)||{}).name || clientCode}</span>
+                <button style={S.btnSecondary} onClick={()=>{setClientCode('');setClientSearch('');}}>Сменить</button>
+              </div>
+            )}
+
+            {canAttributeSales && (
+              <div style={{marginBottom:10}}>
+                <label style={S.label}>Торговый (для бонуса), необязательно</label>
+                <select style={S.select} value={salesId} onChange={e=>setSalesId(e.target.value)}>
+                  <option value="">— не указан —</option>
+                  {salesUsers.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            <label style={S.label}>Позиции</label>
+            {freeRows.map((r,i)=>(
+              <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,marginBottom:6}}>
+                <input style={{...S.input,padding:"8px 10px",fontSize:14}} placeholder="Название товара" value={r.name} onChange={e=>updateFreeRow(i,{name:e.target.value})}/>
+                <input type="number" style={{...S.input,padding:"8px 6px",fontSize:14,textAlign:"center"}} placeholder="кол-во" value={r.qty} onChange={e=>updateFreeRow(i,{qty:e.target.value})}/>
+                <input type="number" style={{...S.input,padding:"8px 6px",fontSize:14,textAlign:"right"}} placeholder="цена" value={r.price} onChange={e=>updateFreeRow(i,{price:e.target.value})}/>
+                <button onClick={()=>removeFreeRow(i)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
+              </div>
+            ))}
+            <button onClick={addFreeRow} style={{...S.btnSecondary,marginBottom:10}}>+ Позиция</button>
+          </>
+        )}
+
+        <div style={{marginTop:14}}>
+          <label style={S.label}>Причина возврата</label>
+          <textarea style={S.textarea} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Например: товар испорчен, привезли лишнее и т.п."/>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
+          <div>
+            <label style={S.label}>Вернуть налом, ₸</label>
+            <input type="number" style={S.input} placeholder="0" value={refundCash} onChange={e=>setRefundCash(e.target.value)}/>
+          </div>
+          <div>
+            <label style={S.label}>Вернуть на QR/карту, ₸</label>
+            <input type="number" style={S.input} placeholder="0" value={refundQr} onChange={e=>setRefundQr(e.target.value)}/>
+          </div>
+        </div>
+
+        {error && <p style={{...S.errorBox,marginTop:12,marginBottom:0}}>{error}</p>}
+
+        <button style={{...S.btnDanger,marginTop:16,opacity:(canSubmit&&!submitting)?1:0.5,cursor:(canSubmit&&!submitting)?"pointer":"not-allowed"}} disabled={!canSubmit||submitting} onClick={submit}>{submitting?"Сохранение...":"↩️ Оформить возврат"}</button>
+      </div>
+    </div>
+  );
+}
+
 const COMPANY_INFO = {
   name: 'ИП ЖАЙЫК АКТАУ',
   address: 'Уральск Г.А., Уральск, МИКРОРАЙОН ЖЕҢІС, дом 8/1, кв/офис 73',
@@ -1928,6 +2146,7 @@ function DriverCabinet({ user, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [showReturnModal, setShowReturnModal] = useState(false);
 
   const loadOrders = useCallback(async () => {
     try {
@@ -2021,6 +2240,7 @@ function DriverCabinet({ user, onLogout }) {
   return (
     <div style={{paddingBottom:72}}>
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
+      {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadOrders}/>}
       <div style={S.page}>
         {tab==="queue"&&<>
           <div style={S.statsRow}>
@@ -2028,6 +2248,7 @@ function DriverCabinet({ user, onLogout }) {
             <div style={S.statCard()}><p style={S.statNum(C.amber)}>{queueActive.length}</p><p style={S.statLabel}>В работе</p></div>
           </div>
           <p style={S.sectionTitle}>Заявки</p>
+          <button onClick={()=>setShowReturnModal(true)} style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:0,marginBottom:14}}>↩️ Оформить возврат</button>
           {myActive.length>0&&(
             <button onClick={()=>printLoadingList(myActive,user.name)} style={{width:"100%",marginBottom:14,padding:"12px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:16,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист ({myActive.length} {myActive.length===1?'заявка':'заявок'})</button>
           )}
@@ -3463,6 +3684,20 @@ function AdminCabinet({ user, onLogout, desktop }) {
   useEffect(() => { loadDebtSettlements(); }, []);
   useRefetchOnVisible(loadDebtSettlements);
 
+  // Возвраты (частичные, по конкретным позициям — см. POST /api/returns) —
+  // отдельная от статуса заявки сущность, вычитается из выручки/бонуса
+  // нужного торгового в отчёте ниже (returnsByRep).
+  const [returnsList, setReturnsList] = useState([]);
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const loadReturns = useCallback(async () => {
+    try {
+      const data = await apiCall('GET', '/api/returns');
+      setReturnsList(data);
+    } catch(e) {}
+  }, []);
+  useEffect(() => { loadReturns(); }, []);
+  useRefetchOnVisible(loadReturns);
+
   const [fiscalizingSaleId, setFiscalizingSaleId] = useState(null);
   const [fiscalErrorBySale, setFiscalErrorBySale] = useState({});
   const retryFiscal = useCallback(async (sale) => {
@@ -3725,11 +3960,51 @@ function AdminCabinet({ user, onLogout, desktop }) {
         });
       });
     });
+    // Возвраты по конкретным позициям (см. POST /api/returns) — отдельная от
+    // статуса заявки сущность: магазин мог вернуть 1 из 5 коробок, или товар
+    // испортился уже после доставки. Считаются в периоде ДАТЫ САМОГО
+    // ВОЗВРАТА (а не заявки) и вычитаются из выручки/бонуса того торгового,
+    // к кому привязаны (order.sales_id или явно выбранный salesId) — заявка
+    // при этом остаётся "доставлена", отчёт по ней не переписывается задним
+    // числом.
+    const periodReturns = returnsList.filter(r=>r.date>=dateFrom&&r.date<=dateTo);
+    const returnsItemized = {
+      count: periodReturns.length,
+      revenue: periodReturns.reduce((s,r)=>s+(r.total||0),0),
+      cost: periodReturns.reduce((s,r)=>s+(r.items||[]).reduce((ss,it)=>ss+(it.cost!=null?(Number(it.qty)||0)*it.cost:0),0),0),
+      bonus: periodReturns.reduce((s,r)=>s+(r.items||[]).reduce((ss,it)=>ss+(Number(it.qty)||0)*(Number(it.commission)||0),0),0),
+      unattributed: periodReturns.filter(r=>r.sales_id==null).reduce((s,r)=>s+(r.total||0),0),
+      list: periodReturns.slice().sort((a,b)=>b.date.localeCompare(a.date)),
+    };
+    periodReturns.forEach(r=>{
+      if (r.sales_id == null) return; // без привязки к торговому — только в общем итоге, бонус вычесть не у кого
+      const key = r.sales_id;
+      const targetBucket = storeBreakdown[key] ? storeBreakdown : repBreakdown;
+      if (!targetBucket[key]) targetBucket[key] = { name: r.sales_name || ('#'+key), revenue:0, items:[], cash:0, qr:0, debt:0, orders:0 };
+      targetBucket[key].revenue -= (r.total||0);
+      (r.items||[]).forEach(it=>{
+        targetBucket[key].items.push({
+          name: `↩️ Возврат: ${it.name}`,
+          qty: -(Number(it.qty)||0),
+          price: it.price,
+          commission: it.commission||0,
+          bonus: -(Number(it.qty)||0)*(Number(it.commission)||0),
+        });
+      });
+    });
+
     const toList = (breakdown) => Object.entries(breakdown).map(([id,v])=>({
       id, ...v, totalBonus: v.items.reduce((s,it)=>s+it.bonus,0)
     })).sort((a,b)=>b.revenue-a.revenue);
     const repList = toList(repBreakdown);
     const storeList = toList(storeBreakdown);
+
+    // Общий итог (combined*) — тоже за вычетом итемизированных возвратов,
+    // иначе выручка/прибыль в сводке не сходится с тем, что уже вычтено
+    // из бонусов торговых выше.
+    posReport.combinedRevenue -= returnsItemized.revenue;
+    posReport.combinedCost -= returnsItemized.cost;
+    posReport.combinedProfit -= (returnsItemized.revenue - returnsItemized.cost);
 
     // Возвраты за период: отказы/возвраты заявок (доставка не состоялась
     // или товар вернули) плюс отменённые продажи кассы. И то, и другое уже
@@ -3740,15 +4015,18 @@ function AdminCabinet({ user, onLogout, desktop }) {
     const lostOrdersRevenue = lostOrders.reduce((s,o)=>s+(o.total||0),0);
     const voidedSales = sales.filter(s=>s.date>=dateFrom&&s.date<=dateTo&&s.status==="voided");
     const voidedSalesRevenue = voidedSales.reduce((s,o)=>s+(o.total||0),0);
-    const returnsRevenue = lostOrdersRevenue + voidedSalesRevenue;
+    // Плюс итемизированные возвраты (частично/после доставки, см. выше) —
+    // раньше в эту сумму попадали только целиком отменённые заявки/продажи.
+    const returnsRevenue = lostOrdersRevenue + voidedSalesRevenue + returnsItemized.revenue;
     const successfulRevenue = stats.revenue + periodSales.reduce((s,o)=>s+(o.total||0),0);
     const returnsInfo = {
-      count: lostOrders.length + voidedSales.length,
+      count: lostOrders.length + voidedSales.length + returnsItemized.count,
       ordersCount: lostOrders.length,
       ordersRevenue: lostOrdersRevenue,
       salesCount: voidedSales.length,
       salesRevenue: voidedSalesRevenue,
       revenue: returnsRevenue,
+      itemized: returnsItemized,
       // доля возвратов от всего оборота за период (успешное + вернувшееся) —
       // а не от одной только успешной выручки, иначе цифра занижена.
       share: (successfulRevenue + returnsRevenue) > 0 ? (returnsRevenue / (successfulRevenue + returnsRevenue) * 100) : 0,
@@ -3773,7 +4051,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
       .sort((a,b)=>b.cash-a.cash);
 
     return { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo };
-  }, [orders, sales, products, dateFrom, dateTo, debtSettlements]);
+  }, [orders, sales, products, dateFrom, dateTo, debtSettlements, returnsList]);
 
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
   // Оператор — урезанная версия менеджера: только заявки/отчёт/касса, без
@@ -3900,7 +4178,10 @@ function AdminCabinet({ user, onLogout, desktop }) {
         </div>
         <div style={{maxWidth: desktop?560:"none"}}>
           <div style={{...S.card,marginTop:10}}>
-            <p style={{margin:"0 0 10px",fontSize:15,fontWeight:700,color:C.navy}}>Возвраты за период</p>
+            <div style={{...S.row,marginBottom:10}}>
+              <p style={{margin:0,fontSize:15,fontWeight:700,color:C.navy}}>Возвраты за период</p>
+              <button onClick={()=>setShowReturnModal(true)} style={{padding:"6px 12px",borderRadius:8,border:`1.5px solid #7C3AED`,background:C.white,color:"#7C3AED",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>↩️ Оформить возврат</button>
+            </div>
             {returnsInfo.count===0
               ? <p style={{margin:0,fontSize:15,color:C.textSub}}>Возвратов и отказов не было.</p>
               : <>
@@ -3919,9 +4200,32 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   </div>
                 </div>
                 <p style={{margin:0,fontSize:13.5,color:C.textSub}}>
-                  Заявки (отказ/возврат): {returnsInfo.ordersCount} на {returnsInfo.ordersRevenue.toLocaleString()} ₸ ·
-                  {" "}Отменённые продажи кассы: {returnsInfo.salesCount} на {returnsInfo.salesRevenue.toLocaleString()} ₸
+                  Заявки (отказ/возврат целиком): {returnsInfo.ordersCount} на {returnsInfo.ordersRevenue.toLocaleString()} ₸ ·
+                  {" "}Отменённые продажи кассы: {returnsInfo.salesCount} на {returnsInfo.salesRevenue.toLocaleString()} ₸ ·
+                  {" "}Частичные/после доставки: {returnsInfo.itemized.count} на {returnsInfo.itemized.revenue.toLocaleString()} ₸
                 </p>
+                {returnsInfo.itemized.unattributed>0&&(
+                  <p style={{margin:"6px 0 0",fontSize:12.5,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"7px 10px"}}>
+                    ⚠️ Из них {returnsInfo.itemized.unattributed.toLocaleString()} ₸ — без привязки к торговому (не с кого списать бонус).
+                  </p>
+                )}
+                {returnsInfo.itemized.list.length>0&&(
+                  <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                    {returnsInfo.itemized.list.map(r=>(
+                      <div key={r.id} style={{marginBottom:8,fontSize:13}}>
+                        <div style={S.row}>
+                          <span style={{fontWeight:600}}>{r.date} · {r.client_name}{r.order_id?` (заявка №${r.order_id})`:''}</span>
+                          <span style={{fontWeight:700,color:C.red}}>−{r.total.toLocaleString()} ₸</span>
+                        </div>
+                        <p style={{margin:"2px 0 0",fontSize:12,color:C.textFaint}}>
+                          {r.items.map(it=>`${it.name} × ${it.qty}`).join(', ')}
+                          {r.sales_name?` · торговый: ${r.sales_name}`:' · без торгового'}
+                          {r.reason?` · причина: ${r.reason}`:''}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>}
           </div>
         </div>
@@ -4590,6 +4894,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         <AutofillDecoy/>
         {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
+        {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
         <aside style={S.side}>
           <div style={{marginBottom:34}}><Brand size={44}/></div>
           <nav style={{flex:1}}>
