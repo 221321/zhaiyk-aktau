@@ -965,6 +965,15 @@ function SalesCabinet({ user, token, onLogout }) {
   });
   const clientList = Object.values(clientBreakdown).sort((a,b)=>b.revenue-a.revenue);
 
+  // Долги "своих" клиентов — для обычного торгового (не старшего): бэкенд
+  // уже отдаёт ему только его заявки (см. GET /api/orders), поэтому долг
+  // считается "свой", если он привязан к заявке из этого списка. Кассовые
+  // долги (sale_id) сюда не попадают — их пробивает кассир, не торговый.
+  const [showMyDebts, setShowMyDebts] = useState(false);
+  const myOrderIds = useMemo(() => new Set(orders.map(o=>o.id)), [orders]);
+  const myDebts = user.role==="sales" ? debts.filter(d=>d.order_id && myOrderIds.has(d.order_id)) : [];
+  const myDebtsTotal = myDebts.reduce((s,d)=>s+d.remaining,0);
+
   return (
     <div style={{paddingBottom:72}}>
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdateStatus} currentUser={user}/>}
@@ -1056,6 +1065,24 @@ function SalesCabinet({ user, token, onLogout }) {
                       ))}
                     </div>
                   )}
+                </div>
+              ))}
+            </>}
+            {user.role==="sales"&&<>
+              <div style={{...S.row,cursor:"pointer",marginTop:20,marginBottom:showMyDebts?8:0}} onClick={()=>setShowMyDebts(s=>!s)}>
+                <p style={{...S.sectionTitle,fontSize:15,margin:0}}>Мои должники{myDebtsTotal>0?` · ${myDebtsTotal.toLocaleString()} ₸`:''}</p>
+                <p style={{margin:0,fontSize:12,color:C.textFaint}}>{showMyDebts?"▲ Свернуть":"▼ Показать"}</p>
+              </div>
+              {showMyDebts&&myDebts.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>Долгов нет</div>}
+              {showMyDebts&&myDebts.map(d=>(
+                <div key={d.order_id} style={{...S.card, borderLeft: d.overdue?`4px solid ${C.red}`:"4px solid #F59E0B", background: d.overdue?"#FEF2F2":C.white}}>
+                  <div style={S.row}>
+                    <div>
+                      <p style={S.cardTitle}>{d.client_name} {d.overdue&&<span style={{color:C.red,fontSize:11,fontWeight:700}}>· ПРОСРОЧЕН</span>}</p>
+                      <p style={{...S.cardSub,color:d.overdue?"#B91C1C":C.textSub}}>№ {d.order_id} · {d.date} · {d.days_ago===0?'сегодня':`${d.days_ago} ${daysWord(d.days_ago)}`}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
+                    </div>
+                    <p style={{margin:0,fontWeight:800,fontFamily:FH,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
+                  </div>
                 </div>
               ))}
             </>}
