@@ -4528,12 +4528,22 @@ function App() {
   // своим pushState/popstate (например, "Новая заявка") отрабатывают на
   // том же событии первыми и этим не задеты — увидят свою запись и не
   // тронут этот "пол".
+  //
+  // Раньше попытка выйти просто беззвучно гасилась — по просьбе заказчика
+  // сначала спрашиваем подтверждение. Веб-страница не может сама закрыть
+  // вкладку/установленное приложение (это отдаёт браузер только тем, что
+  // сам открыл через window.open) — ближайший осмысленный аналог "выйти"
+  // здесь: разлогинить и вернуть на экран входа.
   useEffect(() => {
     if (!user) return;
     window.history.pushState({ appFloor: true }, '', '');
     const trapBack = () => {
       if (!window.history.state || !window.history.state.appFloor) {
-        window.history.pushState({ appFloor: true }, '', '');
+        if (window.confirm('Вы действительно хотите выйти из приложения?')) {
+          handleLogout();
+        } else {
+          window.history.pushState({ appFloor: true }, '', '');
+        }
       }
     };
     window.addEventListener('popstate', trapBack);
