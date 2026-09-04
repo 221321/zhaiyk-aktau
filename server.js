@@ -916,7 +916,7 @@ app.get('/api/product-aliases', authMiddleware, (req, res) => {
 });
 
 app.post('/api/product-aliases', authMiddleware, (req, res) => {
-  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+  if (!['admin', 'manager', 'senior_sales'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const { code, alias, category, barcode, price1, price2, price3, commission, nkt_code, cost, priced_by_weight } = req.body;
@@ -1442,7 +1442,7 @@ app.post('/api/stock/sync', (req, res) => {
 // products: /api/stock/sync трогает только qty через assign(), эти два
 // поля переживают ресинк остатков.
 app.put('/api/stock/:code', authMiddleware, (req, res) => {
-  if (!['warehouse', 'admin', 'manager'].includes(req.user.role)) {
+  if (!['warehouse', 'admin', 'manager', 'senior_sales'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const { code } = req.params;
