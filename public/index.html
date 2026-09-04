@@ -3734,6 +3734,7 @@ function CashierCabinet({ user, onLogout }) {
 function AdminCabinet({ user, onLogout, desktop }) {
   const [tab, setTab] = useState("all");
   const [filter, setFilter] = useState("all");
+  const [driverFilter, setDriverFilter] = useState("");
   const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4195,15 +4196,25 @@ function AdminCabinet({ user, onLogout, desktop }) {
   // перебирали весь список заказов. useMemo пересчитывает их только когда
   // реально меняются orders/products/фильтры, а не на любой setState где-либо
   // в AdminCabinet.
+  // Список водителей для отбора — из самих заявок (а не из /api/users), чтобы
+  // в списке были только те, кто реально что-то возил, без лишних неактивных
+  // аккаунтов.
+  const driverOptions = useMemo(() => {
+    const map = {};
+    orders.forEach(o => { if (o.driver_id) map[o.driver_id] = o.driver_name; });
+    return Object.entries(map).map(([id,name])=>({id,name})).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ru'));
+  }, [orders]);
+
   const q = orderSearch.trim().toLowerCase();
   const filtered = useMemo(() => orders
     .filter(o=>filter==="all"||o.status===filter)
+    .filter(o=>!driverFilter||String(o.driver_id)===driverFilter)
     .filter(o=>!q
       || String(o.id).includes(q)
       || (o.client_name||'').toLowerCase().includes(q)
       || (o.sales_name||'').toLowerCase().includes(q)
       || (o.driver_name||'').toLowerCase().includes(q)
-      || (o.address||'').toLowerCase().includes(q)), [orders, filter, q]);
+      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, q]);
 
   const { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo } = useMemo(() => {
     // Погашение долга нал/QR "перетекает" из долга в наличку/QR того же
@@ -4444,6 +4455,16 @@ function AdminCabinet({ user, onLogout, desktop }) {
     </div>
   );
 
+  const driverFilterChips = driverOptions.length>0 && (
+    <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+      <span style={{fontSize:14,color:C.textFaint,fontWeight:600}}>Водитель:</span>
+      <button onClick={()=>setDriverFilter("")} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${driverFilter===""?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:driverFilter===""?C.navy:C.white,color:driverFilter===""?C.white:C.textMid}}>Все</button>
+      {driverOptions.map(d=>(
+        <button key={d.id} onClick={()=>setDriverFilter(String(d.id))} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${driverFilter===String(d.id)?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:driverFilter===String(d.id)?C.navy:C.white,color:driverFilter===String(d.id)?C.white:C.textMid}}>{d.name}</button>
+      ))}
+    </div>
+  );
+
   const searchInput = (
     <input
       type="search"
@@ -4496,6 +4517,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {!desktop&&<p style={S.sectionTitle}>Все заявки</p>}
         {searchInput}
         {filterChips}
+        {driverFilterChips}
         {loading?<div style={S.loadingWrap}>Загрузка...</div>
           :desktop
             ? ordersTable
