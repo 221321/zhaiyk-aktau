@@ -503,6 +503,15 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
   // по ходу пачки: если в одной пачке две правки идут по одному коду в
   // разных заявках, вторая должна видеть остаток уже с учётом первой.
   const weightAvailableMap = computeAvailableWeightKg();
+  // Флаг is_weight_item — снимок на момент СОЗДАНИЯ заявки (см. POST
+  // /api/orders): у заявок, оформленных до того, как товар отметили
+  // "Весовой" в карточке (или до того, как это поле вообще появилось),
+  // снимок остался false, хотя товар физически весовой и ждёт взвешивания.
+  // Подстраховываемся текущим состоянием карточки товара, чтобы такие
+  // старые заявки не выпадали из ввода веса молча.
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+  const isCurrentlyWeightItem = (code) => !!(aliasMap[code] && aliasMap[code].priced_by_weight);
   const updatedOrders = [];
   const errors = [];
   entries.forEach(entry => {
@@ -525,14 +534,19 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
     const item = items.find(it => it.code === code);
     if (!item) return;
-    // Эндпоинт только для позиций, помеченных как весовой товар на момент
-    // создания заявки (is_weight_item, см. POST /api/orders) — у обычной
-    // позиции qty остаётся в коробах/штуках, вписывать сюда "кг" для неё
-    // означало бы молча подменить количество совсем другим числом.
-    if (!item.is_weight_item) {
+    // Эндпоинт только для весового товара — у обычной позиции qty остаётся
+    // в коробах/штуках, вписывать сюда "кг" для неё означало бы молча
+    // подменить количество совсем другим числом. Смотрим и на снимок с
+    // момента создания заявки, и на текущую карточку товара (см. выше).
+    const isWeightItem = item.is_weight_item || isCurrentlyWeightItem(code);
+    if (!isWeightItem) {
       errors.push(`"${item.name}" в заявке №${orderId}: не весовой товар, правка веса недоступна`);
       return;
     }
+    // Самолечим устаревший снимок — дальше именно это поле решает, что
+    // позиция считается по кг-пулу, а не по остатку в коробах (см.
+    // computeAvailableStock/computeAvailableWeightKg).
+    item.is_weight_item = true;
     const newWeight = Number(weight);
     // До первого подтверждения qty позиции — это короба (другая единица,
     // другой пул), поэтому в кг-пуле она ещё ничего не резервирует: дельта
