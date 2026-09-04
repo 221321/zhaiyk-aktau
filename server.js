@@ -426,6 +426,42 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   }
 });
 
+// Факт. вес для весового товара — часть заявок содержит позиции, вес которых
+// известен только когда зав. склад реально взвешивает их при отгрузке
+// водителю (заказано "4 коробки", а сколько это в кг — узнаётся на весах).
+// Кладовщик правит сразу пачкой (по всем заявкам одного водителя из
+// "Загрузочного листа"), поэтому один эндпоинт принимает список правок по
+// разным заявкам. Каждая правка меняет qty у конкретной позиции конкретной
+// заявки на факт. вес (для этих товаров цена уже указана за кг) и
+// пересчитывает total заявки — дальше это уже "живые" данные для отчётов,
+// остатка и для того, что менеджер увидит при синхронизации с 1С.
+app.post('/api/orders/weights', authMiddleware, (req, res) => {
+  if (!['warehouse', 'admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { entries } = req.body;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return res.status(400).json({ error: 'Нет данных для сохранения' });
+  }
+
+  const updatedOrders = [];
+  entries.forEach(entry => {
+    const { orderId, code, weight } = entry || {};
+    if (!orderId || !code || weight === undefined || weight === null || weight === '') return;
+    const order = db.get('orders').find({ id: Number(orderId) }).value();
+    if (!order) return;
+    const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+    const item = items.find(it => it.code === code);
+    if (!item) return;
+    item.qty = Number(weight);
+    const total = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+    db.get('orders').find({ id: Number(orderId) }).assign({ items, total }).write();
+    if (!updatedOrders.includes(Number(orderId))) updatedOrders.push(Number(orderId));
+  });
+
+  res.json({ success: true, updatedOrders });
+});
+
 app.delete('/api/orders/:id', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Только администратор может удалять заявки' });
   const orderId = parseInt(req.params.id);

@@ -4620,6 +4620,35 @@ function WarehouseCabinet({ user, onLogout }) {
     .sort((a,b)=>b.orders.length-a.orders.length);
   const allDriverGroups = Object.values(byDriver).sort((a,b)=>b.orders.length-a.orders.length);
 
+  // Факт. вес — интерактивный аналог бумажного загрузочного листа: вместо
+  // ручки на распечатке зав. склад вписывает вес прямо здесь, по каждой
+  // позиции каждой заявки отдельно (не суммарно по водителю — у разных
+  // заявок вес своей партии, усреднять/схлопывать нельзя).
+  const [expandedWeightsFor, setExpandedWeightsFor] = useState(null);
+  const [weightForm, setWeightForm] = useState({});
+  const [savingWeights, setSavingWeights] = useState(false);
+  const orderItemsOf = (o) => typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
+  const saveWeights = async (group) => {
+    const entries = [];
+    group.orders.forEach(o=>{
+      orderItemsOf(o).forEach(it=>{
+        const key = `${o.id}_${it.code}`;
+        const val = weightForm[key];
+        if (val !== undefined && val !== '') entries.push({ orderId: o.id, code: it.code, weight: val });
+      });
+    });
+    if (entries.length === 0) { alert('Введите хотя бы одно значение веса'); return; }
+    if (!window.confirm(`Сохранить фактический вес по ${entries.length} ${entries.length===1?'позиции':'позициям'}? Суммы заявок пересчитаются.`)) return;
+    setSavingWeights(true);
+    try {
+      await apiCall('POST', '/api/orders/weights', { entries });
+      setWeightForm(f=>{ const next={...f}; entries.forEach(e=>{ delete next[`${e.orderId}_${e.code}`]; }); return next; });
+      setExpandedWeightsFor(null);
+      loadOrders();
+    } catch(e) { alert(e.message); }
+    setSavingWeights(false);
+  };
+
   return (
     <div style={{paddingBottom:72}}>
       <div style={S.page}>
@@ -4716,13 +4745,42 @@ function WarehouseCabinet({ user, onLogout }) {
           )}
           {loadingOrders?<div style={S.loadingWrap}>Загрузка...</div>
             :driverGroups.length===0?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>🚚</div><p>Нет заявок в работе</p></div>
-            :driverGroups.map((g)=>(
+            :driverGroups.map((g)=>{
+              const expanded = expandedWeightsFor===g.key;
+              return (
               <div key={g.key} style={S.card}>
                 <p style={S.cardTitle}>{g.name}</p>
                 <p style={S.cardSub}>{g.orders.length} {g.orders.length===1?'заявка':'заявок'} в работе</p>
-                <button onClick={()=>printLoadingList(g.orders,g.name)} style={{marginTop:10,width:"100%",padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист</button>
+                <div style={{display:"flex",gap:8,marginTop:10}}>
+                  <button onClick={()=>printLoadingList(g.orders,g.name)} style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист</button>
+                  <button onClick={()=>setExpandedWeightsFor(k=>k===g.key?null:g.key)} style={{flex:1,padding:"11px",background:expanded?C.debtAmber:C.white,color:expanded?"#92400E":C.navy,border:`1.5px solid ${C.navy}`,borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>⚖️ {expanded?"Скрыть":"Ввести вес"}</button>
+                </div>
+                {expanded&&(
+                  <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+                    {g.orders.map(o=>(
+                      <div key={o.id} style={{marginBottom:12}}>
+                        <p style={{margin:"0 0 6px",fontSize:12,fontWeight:700,color:C.textSub}}>№ {o.id} · {o.client_name}</p>
+                        {orderItemsOf(o).map(it=>(
+                          <div key={it.code} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                            <span style={{flex:1,minWidth:0,fontSize:12,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name} <span style={{color:C.textFaint}}>(было {it.qty})</span></span>
+                            <input
+                              type="number"
+                              placeholder="кг"
+                              style={{...S.input,width:80,flexShrink:0,padding:"6px 8px",fontSize:12}}
+                              value={weightForm[`${o.id}_${it.code}`]||''}
+                              onChange={e=>setWeightForm(f=>({...f,[`${o.id}_${it.code}`]:e.target.value}))}
+                              onFocus={e=>e.target.select()}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    <button onClick={()=>saveWeights(g)} disabled={savingWeights} style={{...S.btnPrimary,marginTop:4,opacity:savingWeights?0.6:1}}>{savingWeights?"Сохраняю...":"Сохранить вес"}</button>
+                  </div>
+                )}
               </div>
-            ))
+              );
+            })
           }
         </>}
       </div>
