@@ -325,7 +325,6 @@ app.post('/api/orders', authMiddleware, (req, res) => {
     contact_phone: contactPhone || '',
     commission_total: commissionTotal,
     created_at: new Date().toISOString(),
-    realized_in_1c: false
   };
   db.get('orders').push(order).write();
   db.set('nextOrderId', id + 1).write();
@@ -429,6 +428,28 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     if (Math.abs((cash + qr + debt) - (orderBefore.total || 0)) > 1) {
       return res.status(400).json({ error: `Сумма оплаты (${cash + qr + debt}) не совпадает с суммой заявки (${orderBefore.total || 0})` });
     }
+
+    // Товар физически покинул склад — списываем остаток напрямую и сразу
+    // (без 1С списывать больше некому). До сих пор заявка в статусах
+    // new/in_transit только резервировала остаток (см. computeAvailableStock),
+    // а окончательное списание происходит один раз здесь, ровно в момент
+    // подтверждения доставки — все проверки выше (вес подтверждён, оплата
+    // указана) уже прошли, дальше статус этой заявки меняться не может
+    // (см. canChange/прежний статус выше), так что повторно списать нельзя.
+    const stockCol = db.get('stock');
+    orderItems.forEach(it => {
+      if (!it.code) return;
+      const rec = stockCol.find({ code: it.code }).value();
+      if (!rec) return;
+      const boxesDelta = it.is_weight_item ? (Number(it.boxes) || 0) : (Number(it.qty) || 0);
+      stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - boxesDelta) }).write();
+      // Для весового товара после подтверждения факт. веса (см. POST
+      // /api/orders/weights) отдельно списываем и кг-пул — qty позиции
+      // теперь хранит именно кг (см. computeAvailableWeightKg).
+      if (it.is_weight_item && it.weight_confirmed && rec.weight_kg != null) {
+        stockCol.find({ code: it.code }).assign({ weight_kg: Math.max(0, (Number(rec.weight_kg) || 0) - (Number(it.qty) || 0)) }).write();
+      }
+    });
   }
 
   if (status === 'in_transit' && orderBefore.status !== 'new') {
@@ -572,16 +593,12 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     if (!orderId || !code || weight === undefined || weight === null || weight === '') return;
     const order = db.get('orders').find({ id: Number(orderId) }).value();
     if (!order) return;
-    // Вес должен быть введён ДО того, как заявка доставлена и/или ушла в
-    // реализацию 1С — иначе сумма и остаток разъедутся с тем, что уже
-    // зафиксировано (оплата у водителя, документ в 1С), и это никак не
-    // всплывёт как долг или ошибка синхронизации.
+    // Вес должен быть введён ДО того, как заявка доставлена — после
+    // доставки остаток по этой позиции уже списан напрямую (см. PUT
+    // /api/orders/:id/status), и правка веса задним числом разъехалась бы
+    // с тем, что уже списано и с чем сверилась оплата у водителя.
     if (!['new', 'in_transit'].includes(order.status)) {
       errors.push(`№${orderId}: вес можно вводить только пока заявка не доставлена (сейчас "${order.status}")`);
-      return;
-    }
-    if (order.realized_in_1c) {
-      errors.push(`№${orderId}: уже реализована в 1С, правка веса недоступна`);
       return;
     }
     const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
@@ -1410,29 +1427,20 @@ app.get('/api/debt-settlements', authMiddleware, (req, res) => {
   res.json(db.get('debtSettlements').value());
 });
 
-// ===== STOCK (остатки из 1С) =====
+// ===== STOCK (остаток ведётся на сайте: приход/продажа/доставка/возврат
+// напрямую меняют qty, см. соответствующие эндпоинты) =====
 db.defaults({ stock: [] }).write();
 
+// Отключено по решению владельца: 1С сокращена до номенклатуры/контрагентов/
+// сотрудников, остаток больше ей не присылается. Эндпоинт оставлен (а не
+// удалён), чтобы старая настройка обмена в 1С, если её забудут выключить,
+// не падала с ошибкой — но остаток теперь этот вызов не трогает.
 app.post('/api/stock/sync', (req, res) => {
-  const { items, secret } = req.body;
+  const { secret } = req.body;
   if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  // 1С может присылать не полный снимок остатков, а только изменившиеся
-  // коды (как в этом обмене) — db.set() полностью заменял коллекцию, и
-  // все коды, отсутствующие в присланном пакете, молча обнулялись
-  // (см. computeAvailableStock: код без записи в stock = остаток 0).
-  // Обновляем/добавляем только присланные коды, остальные не трогаем.
-  const stockCol = db.get('stock');
-  (items || []).forEach(it => {
-    if (!it || !it.code) return;
-    if (stockCol.find({ code: it.code }).value()) {
-      stockCol.find({ code: it.code }).assign({ qty: it.qty }).write();
-    } else {
-      stockCol.push({ code: it.code, qty: it.qty }).write();
-    }
-  });
-  res.json({ success: true, count: (items || []).length });
+  res.json({ success: true, count: 0, disabled: true });
 });
 
 // Зав. склад правит остаток вручную — 1С шлёт только qty в её единице
@@ -1461,33 +1469,26 @@ app.put('/api/stock/:code', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
-// 1С вызывает этот эндпоинт сразу после того, как реально создала и провела
-// документ реализации по заявке — с этого момента заявка больше не резервирует
-// остаток на сайте, так как товар уже физически списан в 1С
-app.post('/api/orders/:id/mark-realized', (req, res) => {
-  const { secret } = req.body;
-  if (secret !== SYNC_SECRET) {
-    return res.status(403).json({ error: 'Нет доступа' });
-  }
-  const id = parseInt(req.params.id);
-  const order = db.get('orders').find({ id }).value();
-  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
-  db.get('orders').find({ id }).assign({ realized_in_1c: true }).write();
-  res.json({ success: true });
-});
-
-// Считает реально доступный остаток: то, что прислала 1С, минус то, что ещё числится
-// за незакрытыми в 1С заявками (независимо от того, когда была последняя синхронизация остатков)
+// Считает реально доступный остаток: физический остаток на сайте (его меняют
+// напрямую приход/продажа/доставка/возврат — см. соответствующие эндпоинты)
+// минус то, что ещё зарезервировано под заявки, которые едут, но ещё не
+// доставлены (см. ниже)
 function computeAvailableStock() {
   const stock = db.get('stock').value();
   const stockMap = {};
   stock.forEach(s => { stockMap[s.code] = s.qty; });
 
+  // stock.qty — уже актуальный физический остаток (приход/продажа/доставка/
+  // возврат меняют его напрямую, каждый в своём эндпоинте, см. POST
+  // /api/receipts, POST /api/sales, PUT /api/orders/:id/status, POST
+  // /api/returns). Резервировать здесь нужно только то, что ещё едет, но не
+  // доставлено (new/in_transit) — иначе одно и то же можно было бы продать
+  // дважды, пока заявка в пути; доставленные/отменённые/возвращённые заявки
+  // на остаток уже не влияют (либо списаны напрямую, либо ничего не брали).
   const reservedMap = {};
   const orders = db.get('orders').value();
   orders.forEach(o => {
-    if (['cancelled', 'revoked', 'returned'].includes(o.status)) return;
-    if (o.realized_in_1c) return; // реализация уже проведена в 1С — товар реально списан со склада, повторно не резервируем
+    if (!['new', 'in_transit'].includes(o.status)) return;
     const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
     items.forEach(it => {
       if (!it.code) return;
@@ -1508,31 +1509,6 @@ function computeAvailableStock() {
     });
   });
 
-  // Продажи по кассе (см. SALES ниже) резервируют остаток точно так же, как
-  // заявки — иначе касса и доставка могли бы продать один и тот же товар
-  // дважды.
-  const sales = db.get('sales').value() || [];
-  sales.forEach(s => {
-    if (s.status === 'voided') return;
-    if (s.realized_in_1c) return;
-    (s.items || []).forEach(it => {
-      if (!it.code) return;
-      reservedMap[it.code] = (reservedMap[it.code] || 0) + (Number(it.qty) || 0);
-    });
-  });
-
-  // Возвраты (см. RETURNS) — товар физически вернулся на склад, поэтому
-  // возвращённое количество приходуем обратно: отрицательный резерв
-  // увеличивает доступный остаток, а не только ждёт следующей синхронизации
-  // с 1С (там возврат проведут отдельным документом позже).
-  const returns = db.get('returns').value() || [];
-  returns.forEach(r => {
-    (r.items || []).forEach(it => {
-      if (!it.code) return;
-      reservedMap[it.code] = (reservedMap[it.code] || 0) - (Number(it.qty) || 0);
-    });
-  });
-
   const availableMap = {};
   Object.keys(stockMap).forEach(code => {
     availableMap[code] = Math.max(0, stockMap[code] - (reservedMap[code] || 0));
@@ -1541,7 +1517,7 @@ function computeAvailableStock() {
 }
 
 // Доступный остаток В КГ для весовых товаров (priced_by_weight) — отдельный
-// пул от computeAvailableStock. У весового товара 1С/склад считают остаток
+// пул от computeAvailableStock. У весового товара остаток считается
 // короба́ми (stock.qty), а факт. вес узнаётся только на весах при отгрузке
 // (POST /api/orders/weights); склад отдельно фиксирует, сколько реально кг
 // в остатке, в stock.weight_kg (см. PUT /api/stock/:code, поле "Вес, кг").
@@ -1557,8 +1533,7 @@ function computeAvailableWeightKg() {
   const reservedKg = {};
   const orders = db.get('orders').value();
   orders.forEach(o => {
-    if (['cancelled', 'revoked', 'returned'].includes(o.status)) return;
-    if (o.realized_in_1c) return;
+    if (!['new', 'in_transit'].includes(o.status)) return;
     const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
     items.forEach(it => {
       if (!it.code || !it.is_weight_item || !it.weight_confirmed) return;
@@ -1695,8 +1670,9 @@ app.post('/api/returns', authMiddleware, (req, res) => {
     const price = Number(it.price) || 0;
     const name = (it.name || '').trim();
     if (!name || qty <= 0) continue;
+    let orderItem = null;
     if (order) {
-      const orderItem = orderItemsParsed.find(oi => oi.code === it.code);
+      orderItem = orderItemsParsed.find(oi => oi.code === it.code);
       const delivered = orderItem ? (Number(orderItem.qty) || 0) : 0;
       const already = alreadyReturned[it.code] || 0;
       if (qty > delivered - already) {
@@ -1714,6 +1690,12 @@ app.post('/api/returns', authMiddleware, (req, res) => {
       // формата (без orderId) снимка на продаже вообще нет.
       cost: it.code && costMap[it.code] != null ? costMap[it.code] : null,
       commission: it.code && commissionMap[it.code] != null ? commissionMap[it.code] : 0,
+      // Признак весового товара — только по заявке (см. ниже, чем возврат
+      // приходует остаток): для весового товара после подтверждения веса
+      // qty здесь в кг, и его нужно вернуть в кг-пул (stock.weight_kg), а
+      // не в короба́ (stock.qty). У свободного формата (без orderId) знать
+      // это неоткуда — считаем обычным товаром.
+      is_weight_item: !!(orderItem && orderItem.is_weight_item && orderItem.weight_confirmed),
     });
   }
   if (cleanItems.length === 0) return res.status(400).json({ error: 'Нет корректных позиций для возврата' });
@@ -1739,23 +1721,56 @@ app.post('/api/returns', authMiddleware, (req, res) => {
   };
   db.get('returns').push(ret).write();
   db.set('nextReturnId', id + 1).write();
+
+  // Товар физически вернулся на склад — приходуем остаток сразу и напрямую
+  // (тем же способом, что и приход, см. POST /api/receipts ниже), а не
+  // временной компенсацией резерва: 1С остатки больше не синхронизирует,
+  // так что ждать было бы нечего.
+  const stockCol = db.get('stock');
+  cleanItems.forEach(it => {
+    if (!it.code) return;
+    const rec = stockCol.find({ code: it.code }).value();
+    if (it.is_weight_item && rec && rec.weight_kg != null) {
+      stockCol.find({ code: it.code }).assign({ weight_kg: (Number(rec.weight_kg) || 0) + it.qty }).write();
+      return;
+    }
+    if (rec) {
+      stockCol.find({ code: it.code }).assign({ qty: (Number(rec.qty) || 0) + it.qty }).write();
+    } else {
+      stockCol.push({ code: it.code, qty: it.qty }).write();
+    }
+  });
+
   res.json(ret);
 });
 
 app.delete('/api/returns/:id', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Только администратор может удалять возвраты' });
-  db.get('returns').remove({ id: parseInt(req.params.id) }).write();
+  const id = parseInt(req.params.id);
+  const ret = db.get('returns').find({ id }).value();
+  if (!ret) return res.status(404).json({ error: 'Возврат не найден' });
+  // Откатываем остаток обратно — возврат приходовал его напрямую при
+  // создании (см. выше), удаление должно симметрично его списать.
+  const stockCol = db.get('stock');
+  (ret.items || []).forEach(it => {
+    if (!it.code) return;
+    const rec = stockCol.find({ code: it.code }).value();
+    if (!rec) return;
+    if (it.is_weight_item && rec.weight_kg != null) {
+      stockCol.find({ code: it.code }).assign({ weight_kg: Math.max(0, (Number(rec.weight_kg) || 0) - (Number(it.qty) || 0)) }).write();
+      return;
+    }
+    stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - (Number(it.qty) || 0)) }).write();
+  });
+  db.get('returns').remove({ id }).write();
   res.json({ success: true });
 });
 
 // ===== ПРИХОД ТОВАРА (ручное пополнение остатка складом/админом/менеджером) =====
-// В отличие от возвратов (которые лишь временно компенсируют резерв в
-// computeAvailableStock, пока 1С не пришлёт следующий снимок остатков),
-// приход сразу и напрямую увеличивает stock.qty — то же поле, что склад
-// правит вручную через PUT /api/stock/:code и что полностью перезаписывает
-// следующий /api/stock/sync по этому коду. Цена закупки партии — только
-// для истории/справки, на себестоимость в отчётах не влияет (она по-прежнему
-// берётся из псевдонимов товаров, см. getCostMap).
+// Как и возврат выше, приход сразу и напрямую увеличивает stock.qty — то же
+// поле, что склад правит вручную через PUT /api/stock/:code. Цена закупки
+// партии — только для истории/справки, на себестоимость в отчётах не
+// влияет (она по-прежнему берётся из псевдонимов товаров, см. getCostMap).
 db.defaults({ receipts: [], nextReceiptId: 1 }).write();
 
 app.get('/api/receipts', authMiddleware, (req, res) => {
@@ -1954,10 +1969,21 @@ app.post('/api/sales', authMiddleware, (req, res) => {
     payment_qr: qr,
     payment_debt: debt,
     status: 'completed',
-    realized_in_1c: false,
   };
   db.get('sales').push(sale).write();
   db.set('nextSaleId', id + 1).write();
+
+  // Продажа кассы — мгновенная (не как заявка, у неё нет статуса "едет"),
+  // товар физически ушёл с прилавка прямо сейчас, поэтому остаток
+  // списываем сразу и напрямую (см. также PUT /api/orders/:id/status —
+  // там то же самое, но в момент доставки).
+  const stockCol = db.get('stock');
+  cleanItems.forEach(it => {
+    if (!it.code) return;
+    const rec = stockCol.find({ code: it.code }).value();
+    if (rec) stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - it.qty) }).write();
+  });
+
   res.json(sale);
 });
 
@@ -1985,20 +2011,18 @@ app.post('/api/sales/:id/void', authMiddleware, (req, res) => {
     patch.fiscal_return_qr = req.body.fiscal_return_qr || '';
   }
   db.get('sales').find({ id }).assign(patch).write();
-  res.json({ success: true });
-});
 
-// Тот же смысл, что и /api/orders/:id/mark-realized — 1С подтверждает, что
-// реализация по продаже проведена, и товар больше не резервируется тут.
-app.post('/api/sales/:id/mark-realized', (req, res) => {
-  const { secret } = req.body;
-  if (secret !== SYNC_SECRET) {
-    return res.status(403).json({ error: 'Нет доступа' });
-  }
-  const id = parseInt(req.params.id);
-  const sale = db.get('sales').find({ id }).value();
-  if (!sale) return res.status(404).json({ error: 'Продажа не найдена' });
-  db.get('sales').find({ id }).assign({ realized_in_1c: true }).write();
+  // Продажа списала остаток напрямую при создании (см. POST /api/sales) —
+  // отмена должна симметрично вернуть его обратно. Ранняя проверка
+  // "sale.status === 'voided'" выше не даёт сделать это дважды по одной
+  // и той же продаже.
+  const stockCol = db.get('stock');
+  (sale.items || []).forEach(it => {
+    if (!it.code) return;
+    const rec = stockCol.find({ code: it.code }).value();
+    if (rec) stockCol.find({ code: it.code }).assign({ qty: (Number(rec.qty) || 0) + (Number(it.qty) || 0) }).write();
+  });
+
   res.json({ success: true });
 });
 
