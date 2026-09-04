@@ -929,7 +929,7 @@ db.defaults({ clients: [], clientAddresses: [], clientContacts: [] }).write();
 // заказ за произвольного клиента (sales) или администрирует карточки
 // (admin/manager) — своя карточка магазина теперь отдельно, см. /api/my-client.
 app.get('/api/clients', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'operator', 'sales', 'cashier'].includes(req.user.role)) {
+  if (!['admin', 'manager', 'operator', 'sales', 'senior_sales', 'cashier'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const clients = db.get('clients').value();
@@ -1097,6 +1097,7 @@ app.get('/api/debts', authMiddleware, (req, res) => {
         settled,
         remaining,
         overdue: remaining > 0 && daysAgoOf(o.date) > 7,
+        days_ago: daysAgoOf(o.date),
         // Фото подписанной накладной — оператору нужно скачать/скинуть
         // магазину-должнику как подтверждение поставки при напоминании об оплате.
         delivery_photo: o.delivery_photo || null
@@ -1118,7 +1119,8 @@ app.get('/api/debts', authMiddleware, (req, res) => {
         original_debt: s.payment_debt || 0,
         settled,
         remaining,
-        overdue: remaining > 0 && daysAgoOf(s.date) > 7
+        overdue: remaining > 0 && daysAgoOf(s.date) > 7,
+        days_ago: daysAgoOf(s.date)
       };
     });
 

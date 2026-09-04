@@ -408,6 +408,15 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
   );
 }
 
+function daysWord(n) {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return "дней";
+  const mod10 = n % 10;
+  if (mod10 === 1) return "день";
+  if (mod10 >= 2 && mod10 <= 4) return "дня";
+  return "дней";
+}
+
 function DebtsPanel({ readOnly }) {
   const [debts, setDebts] = useState([]);
   const [loadingDebts, setLoadingDebts] = useState(true);
@@ -451,12 +460,12 @@ function DebtsPanel({ readOnly }) {
             <div style={S.row}>
               <div>
                 <p style={S.cardTitle}>{d.client_name} {d.overdue&&<span style={{color:C.red,fontSize:11,fontWeight:700}}>· ПРОСРОЧЕН</span>}</p>
-                <p style={{...S.cardSub,color:d.overdue?"#B91C1C":C.textSub}}>{d.order_id?`№ ${d.order_id}`:`Касса № ${d.sale_id}`} · {d.date}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
+                <p style={{...S.cardSub,color:d.overdue?"#B91C1C":C.textSub}}>{d.order_id?`№ ${d.order_id}`:`Касса № ${d.sale_id}`} · {d.date} · {d.days_ago===0?'сегодня':`${d.days_ago} ${daysWord(d.days_ago)}`}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
               </div>
               <p style={{margin:0,fontWeight:800,fontFamily:FH,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
             </div>
             {d.delivery_photo&&(
-              <a href={d.delivery_photo} target="_blank" rel="noopener noreferrer" download style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:8,fontSize:12,fontWeight:600,color:C.navy,textDecoration:"none"}}>📄 Накладная (скачать и отправить должнику)</a>
+              <a href={d.delivery_photo} target="_blank" rel="noopener noreferrer" download style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:8,fontSize:12,fontWeight:600,color:C.navy,textDecoration:"none"}}>📄 Накладная</a>
             )}
             {!readOnly&&(
               <div style={{display:"flex",gap:6,marginTop:10}}>
@@ -834,10 +843,22 @@ function SalesCabinet({ user, token, onLogout }) {
   }, []);
 
   const [debts, setDebts] = useState([]);
-  useEffect(() => {
+  const loadDebts = useCallback(() => {
     apiCall('GET','/api/debts').then(setDebts).catch(()=>{});
   }, []);
+  useEffect(() => { loadDebts(); }, []);
+  useRefetchOnVisible(loadDebts);
   const selectedClientDebt = clientId ? debts.filter(d=>d.client_name===clients.find(c=>c.code===clientId)?.name && d.overdue).reduce((s,d)=>s+d.remaining,0) : 0;
+
+  // Полный каталог (без фильтра по алиасу) — только для старшего торгового:
+  // ему нужно видеть остатки по всей номенклатуре, а не только по позициям
+  // с выставленной ценой, которые попадают в форму заявки.
+  const [allProducts, setAllProducts] = useState([]);
+  const [productSearch, setProductSearch] = useState("");
+  useEffect(() => {
+    if (user.role !== "senior_sales") return;
+    fetch('/api/products').then(r=>r.json()).then(setAllProducts).catch(()=>{});
+  }, [user.role]);
 
   const [products, setProducts] = useState([]);
   useEffect(() => {
@@ -1175,7 +1196,49 @@ function SalesCabinet({ user, token, onLogout }) {
             <button style={{...S.btnPrimary,opacity:(submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim())?0.45:1}} onClick={handleSubmit} disabled={submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()}>{submitting?"Отправка...":"Отправить заявку"}</button>
                   </div>
         </>}
+        {tab==="cashbox"&&<>
+          <p style={S.sectionTitle}>Касса</p>
+          <div style={{background:C.debtAmber,borderRadius:10,padding:"12px",marginBottom:16}}>
+            <p style={{margin:"0 0 2px",fontSize:11,color:"#92400E",fontWeight:600}}>ВСЕГО В ДОЛГАХ (все торговые)</p>
+            <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:"#92400E"}}>{debts.reduce((s,d)=>s+d.remaining,0).toLocaleString()} ₸</p>
+          </div>
+          <DebtsPanel readOnly/>
+        </>}
+        {tab==="products"&&<>
+          <p style={S.sectionTitle}>Товары и остатки</p>
+          <input style={{...S.input,marginBottom:14}} placeholder="Поиск по названию..." value={productSearch} onChange={e=>setProductSearch(e.target.value)}/>
+          {(()=>{
+            const q = productSearch.trim().toLowerCase();
+            const list = (q ? allProducts.filter(p=>(p.display_name||p.name||'').toLowerCase().includes(q)) : allProducts).slice(0,200);
+            if (allProducts.length===0) return <div style={S.loadingWrap}>Загрузка...</div>;
+            if (list.length===0) return <div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Ничего не найдено</div>;
+            return list.map(p=>{
+              const outOfStock = p.stock !== null && p.stock !== undefined && p.stock <= 0;
+              return (
+                <div key={p.code} style={S.card}>
+                  <div style={S.row}>
+                    <div style={{flex:1,marginRight:10}}>
+                      <p style={S.cardTitle}>{p.display_name||p.name}</p>
+                      <p style={S.cardSub}>{p.unit||''}{p.group?' · '+p.group:''}</p>
+                    </div>
+                    {p.price1>0&&<p style={{margin:0,fontWeight:800,fontFamily:FH,color:C.navy,whiteSpace:"nowrap"}}>{p.price1.toLocaleString()} ₸</p>}
+                  </div>
+                  <p style={{margin:"8px 0 0",fontSize:12,fontWeight:600,color:outOfStock?C.red:C.textSub}}>{p.stock!==null&&p.stock!==undefined?(outOfStock?'Нет в наличии':`Остаток: ${p.stock}`):'Остаток неизвестен'}</p>
+                </div>
+              );
+            });
+          })()}
+        </>}
       </div>
+      {user.role==="senior_sales"&&tab!=="new"&&(
+        <div style={S.nav}>
+          {[["orders","📋","Заявки"],["cashbox","💵","Касса"],["products","📦","Товары"]].map(([k,ic,lb])=>(
+            <button key={k} style={{...S.navBtn(tab===k),flex:1}} onClick={()=>setTab(k)}>
+              <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
