@@ -455,6 +455,9 @@ function DebtsPanel({ readOnly }) {
               </div>
               <p style={{margin:0,fontWeight:800,fontFamily:FH,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
             </div>
+            {d.delivery_photo&&(
+              <a href={d.delivery_photo} target="_blank" rel="noopener noreferrer" download style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:8,fontSize:12,fontWeight:600,color:C.navy,textDecoration:"none"}}>📄 Накладная (скачать и отправить должнику)</a>
+            )}
             {!readOnly&&(
               <div style={{display:"flex",gap:6,marginTop:10}}>
                 <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder={`До ${d.remaining}`} value={settleAmounts[key]||''} onFocus={e=>e.target.select()} onChange={e=>setSettleAmounts(a=>({...a,[key]:e.target.value}))}/>
@@ -3414,6 +3417,12 @@ function AdminCabinet({ user, onLogout, desktop }) {
 
   const [expandedSales, setExpandedSales] = useState({});
   const [cashboxGroupBy, setCashboxGroupBy] = useState("driver");
+  // Клик по кругляшкам НАЛ/QR/ДОЛГ в сводке "Касса за период" прокручивает
+  // к соответствующему разделу ниже — вместо того чтобы заставлять
+  // оператора искать долги/сдачу кассы листанием вручную.
+  const debtorsSectionRef = useRef(null);
+  const cashHandoverSectionRef = useRef(null);
+  const scrollToSection = (ref) => ref.current && ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
 
   // Эти вычисления раньше выполнялись при каждом рендере компонента (в т.ч. на
   // каждое нажатие клавиши в других вкладках, например "Товары"), потому что
@@ -3800,21 +3809,23 @@ function AdminCabinet({ user, onLogout, desktop }) {
             <p style={S.revenueLabel}>Общая выручка</p>
             <p style={{...S.revenueNum,marginBottom:14}}>{posReport.combinedRevenue.toLocaleString()} ₸</p>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-              <div style={{background:C.cashGreen,borderRadius:10,padding:"10px 8px"}}>
+              <div onClick={()=>scrollToSection(cashHandoverSectionRef)} style={{background:C.cashGreen,borderRadius:10,padding:"10px 8px",cursor:"pointer"}} title="Показать по торговым/водителям">
                 <p style={{margin:"0 0 2px",fontSize:10,color:"#15803D",fontWeight:700}}>НАЛИЧКА</p>
                 <p style={{margin:0,fontSize:13,fontWeight:800,fontFamily:FH,color:"#15803D"}}>{posReport.combinedCash.toLocaleString()} ₸</p>
               </div>
-              <div style={{background:C.qrBlue,borderRadius:10,padding:"10px 8px"}}>
+              <div onClick={()=>scrollToSection(cashHandoverSectionRef)} style={{background:C.qrBlue,borderRadius:10,padding:"10px 8px",cursor:"pointer"}} title="Показать по торговым/водителям">
                 <p style={{margin:"0 0 2px",fontSize:10,color:"#1D4ED8",fontWeight:700}}>QR</p>
                 <p style={{margin:0,fontSize:13,fontWeight:800,fontFamily:FH,color:"#1D4ED8"}}>{posReport.combinedQr.toLocaleString()} ₸</p>
               </div>
-              <div style={{background:C.debtAmber,borderRadius:10,padding:"10px 8px"}}>
+              <div onClick={()=>scrollToSection(debtorsSectionRef)} style={{background:C.debtAmber,borderRadius:10,padding:"10px 8px",cursor:"pointer"}} title="Показать должников">
                 <p style={{margin:"0 0 2px",fontSize:10,color:"#92400E",fontWeight:700}}>ДОЛГ</p>
                 <p style={{margin:0,fontSize:13,fontWeight:800,fontFamily:FH,color:"#92400E"}}>{posReport.combinedDebt.toLocaleString()} ₸</p>
               </div>
             </div>
           </div>
           <ProfitBlock revenue={posReport.combinedRevenue} cost={posReport.combinedCost} profit={posReport.combinedProfit} missingLines={posReport.combinedProfitMissingLines}/>
+        </div>
+        {user.role!=="operator"&&<div style={{maxWidth: desktop?560:"none"}}>
           <p style={{...S.sectionTitle,fontSize:15,marginTop:20}}>Продажи по кассе ({posReport.count})</p>
           {posReport.list.length===0?<div style={{textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:13}}>Продаж за период не было</div>:
             posReport.list.map(s=>(
@@ -3847,8 +3858,11 @@ function AdminCabinet({ user, onLogout, desktop }) {
                 <button style={{...S.btnDanger,marginTop:10,padding:"8px",fontSize:12}} onClick={()=>voidSale(s)}>Отменить продажу</button>
               </div>
           ))}
+        </div>}
+        <div ref={debtorsSectionRef} style={{maxWidth: desktop?560:"none",marginTop:20}}>
+          <DebtsPanel/>
         </div>
-        <div style={{maxWidth: desktop?560:"none"}}>
+        <div ref={cashHandoverSectionRef} style={{maxWidth: desktop?560:"none"}}>
           {(() => {
             // Оператору "по водителям" не нужен — он работает с торговыми
             // (заявки/долги/аналитика), сдачу наличности от водителей
@@ -3888,7 +3902,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
                 ))}
             </>;
           })()}
-          <div style={{marginTop:20}}><DebtsPanel/></div>
         </div>
       </>}
       {tab==="aliases"&&<>

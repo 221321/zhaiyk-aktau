@@ -1096,7 +1096,10 @@ app.get('/api/debts', authMiddleware, (req, res) => {
         original_debt: o.payment_debt || 0,
         settled,
         remaining,
-        overdue: remaining > 0 && daysAgoOf(o.date) > 7
+        overdue: remaining > 0 && daysAgoOf(o.date) > 7,
+        // Фото подписанной накладной — оператору нужно скачать/скинуть
+        // магазину-должнику как подтверждение поставки при напоминании об оплате.
+        delivery_photo: o.delivery_photo || null
       };
     });
 
