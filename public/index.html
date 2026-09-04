@@ -156,7 +156,7 @@ function useRefetchOnVisible(...loaders) {
     window.addEventListener('focus', handler);
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') loaders.forEach(fn => fn && fn());
-    }, 20000);
+    }, 5000);
     return () => {
       document.removeEventListener('visibilitychange', handler);
       window.removeEventListener('focus', handler);
