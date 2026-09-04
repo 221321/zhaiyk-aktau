@@ -4547,6 +4547,31 @@ function WarehouseCabinet({ user, onLogout }) {
     } catch(e) {}
     setLoadingProducts(false);
   }, []);
+
+  // Правка остатка вручную — 1С шлёт только qty в своей единице (может
+  // быть "коробки"), а часть товара по факту весовая: реальный вес
+  // известен только на складе. Даём зав. складу поправить единицу,
+  // количество и вес прямо здесь (см. PUT /api/stock/:code).
+  const [editingStock, setEditingStock] = useState(null);
+  const [stockEditForm, setStockEditForm] = useState({ unit: '', qty: '', weight_kg: '' });
+  const [savingStock, setSavingStock] = useState(false);
+  const startEditStock = (p) => {
+    setEditingStock(p.code);
+    setStockEditForm({ unit: p.stock_unit || '', qty: p.stock!=null?String(p.stock):'', weight_kg: p.stock_weight_kg!=null?String(p.stock_weight_kg):'' });
+  };
+  const saveStockEdit = async (code) => {
+    setSavingStock(true);
+    try {
+      await apiCall('PUT', `/api/stock/${code}`, {
+        unit: stockEditForm.unit,
+        qty: stockEditForm.qty,
+        weight_kg: stockEditForm.weight_kg
+      });
+      setEditingStock(null);
+      loadProducts();
+    } catch(e) { alert(e.message); }
+    setSavingStock(false);
+  };
   useEffect(() => { loadProducts(); }, []);
 
   const [orders, setOrders] = useState([]);
@@ -4595,6 +4620,35 @@ function WarehouseCabinet({ user, onLogout }) {
     .sort((a,b)=>b.orders.length-a.orders.length);
   const allDriverGroups = Object.values(byDriver).sort((a,b)=>b.orders.length-a.orders.length);
 
+  // Факт. вес — интерактивный аналог бумажного загрузочного листа: вместо
+  // ручки на распечатке зав. склад вписывает вес прямо здесь, по каждой
+  // позиции каждой заявки отдельно (не суммарно по водителю — у разных
+  // заявок вес своей партии, усреднять/схлопывать нельзя).
+  const [expandedWeightsFor, setExpandedWeightsFor] = useState(null);
+  const [weightForm, setWeightForm] = useState({});
+  const [savingWeights, setSavingWeights] = useState(false);
+  const orderItemsOf = (o) => typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
+  const saveWeights = async (group) => {
+    const entries = [];
+    group.orders.forEach(o=>{
+      orderItemsOf(o).forEach(it=>{
+        const key = `${o.id}_${it.code}`;
+        const val = weightForm[key];
+        if (val !== undefined && val !== '') entries.push({ orderId: o.id, code: it.code, weight: val });
+      });
+    });
+    if (entries.length === 0) { alert('Введите хотя бы одно значение веса'); return; }
+    if (!window.confirm(`Сохранить фактический вес по ${entries.length} ${entries.length===1?'позиции':'позициям'}? Суммы заявок пересчитаются.`)) return;
+    setSavingWeights(true);
+    try {
+      await apiCall('POST', '/api/orders/weights', { entries });
+      setWeightForm(f=>{ const next={...f}; entries.forEach(e=>{ delete next[`${e.orderId}_${e.code}`]; }); return next; });
+      setExpandedWeightsFor(null);
+      loadOrders();
+    } catch(e) { alert(e.message); }
+    setSavingWeights(false);
+  };
+
   return (
     <div style={{paddingBottom:72}}>
       <div style={S.page}>
@@ -4628,19 +4682,47 @@ function WarehouseCabinet({ user, onLogout }) {
               const out = !(p.stock>0);
               const low = !out && p.stock<=5;
               const dot = out?C.red:(low?C.amber:C.green);
+              const editing = editingStock===p.code;
               return (
-                <div key={p.code} style={{...S.card,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,opacity:out?0.7:1}}>
-                  <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
-                    <span style={{width:9,height:9,borderRadius:"50%",background:dot,flexShrink:0}}/>
-                    <div style={{minWidth:0}}>
-                      <p style={{...S.cardTitle,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.display_name||p.name}</p>
-                      <p style={S.cardSub}>Код: {p.code}{p.group?' · '+p.group:''}</p>
+                <div key={p.code} style={{...S.card,opacity:(out&&!editing)?0.7:1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                      <span style={{width:9,height:9,borderRadius:"50%",background:dot,flexShrink:0}}/>
+                      <div style={{minWidth:0}}>
+                        <p style={{...S.cardTitle,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.display_name||p.name}</p>
+                        <p style={S.cardSub}>Код: {p.code}{p.group?' · '+p.group:''}</p>
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <span style={{display:"inline-block",padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:FH,fontSize:15,background:out?C.redSoft:(low?"#FEF3C7":"#EAF5EE"),color:out?C.red:(low?C.amber:C.green)}}>{p.stock!=null?p.stock:'—'}</span>
+                      <p style={{margin:"4px 0 0",fontSize:11,color:C.textFaint}}>{p.stock_unit||''}</p>
                     </div>
                   </div>
-                  <div style={{textAlign:"right",flexShrink:0}}>
-                    <span style={{display:"inline-block",padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:FH,fontSize:15,background:out?C.redSoft:(low?"#FEF3C7":"#EAF5EE"),color:out?C.red:(low?C.amber:C.green)}}>{p.stock!=null?p.stock:'—'}</span>
-                    <p style={{margin:"4px 0 0",fontSize:11,color:C.textFaint}}>{p.unit||''}</p>
-                  </div>
+                  {p.stock_weight_kg!=null&&<p style={{margin:"6px 0 0",fontSize:12,color:C.textSub,fontWeight:600}}>⚖️ Вес: {p.stock_weight_kg} кг</p>}
+                  {!editing
+                    ? <button onClick={()=>startEditStock(p)} style={{marginTop:8,padding:"6px 12px",fontSize:12,fontWeight:600,background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:C.textMid,cursor:"pointer"}}>✏️ Редактировать</button>
+                    : (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}>
+                          <div>
+                            <label style={{...S.label,fontSize:10}}>Ед. изм.</label>
+                            <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="шт/уп/кг/кор" value={stockEditForm.unit} onChange={e=>setStockEditForm(f=>({...f,unit:e.target.value}))}/>
+                          </div>
+                          <div>
+                            <label style={{...S.label,fontSize:10}}>Кол-во</label>
+                            <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} value={stockEditForm.qty} onChange={e=>setStockEditForm(f=>({...f,qty:e.target.value}))} onFocus={e=>e.target.select()}/>
+                          </div>
+                          <div>
+                            <label style={{...S.label,fontSize:10}}>Вес, кг</label>
+                            <input type="number" style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="если весовой" value={stockEditForm.weight_kg} onChange={e=>setStockEditForm(f=>({...f,weight_kg:e.target.value}))} onFocus={e=>e.target.select()}/>
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:6}}>
+                          <button onClick={()=>saveStockEdit(p.code)} disabled={savingStock} style={{...S.btnPrimary,padding:"7px 14px",fontSize:12,width:"auto",boxShadow:"none",opacity:savingStock?0.6:1}}>{savingStock?"Сохраняю...":"Сохранить"}</button>
+                          <button onClick={()=>setEditingStock(null)} disabled={savingStock} style={{...S.btnSecondary,padding:"7px 14px",fontSize:12,width:"auto"}}>Отмена</button>
+                        </div>
+                      </div>
+                    )}
                 </div>
               );
             })
@@ -4663,13 +4745,42 @@ function WarehouseCabinet({ user, onLogout }) {
           )}
           {loadingOrders?<div style={S.loadingWrap}>Загрузка...</div>
             :driverGroups.length===0?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>🚚</div><p>Нет заявок в работе</p></div>
-            :driverGroups.map((g)=>(
+            :driverGroups.map((g)=>{
+              const expanded = expandedWeightsFor===g.key;
+              return (
               <div key={g.key} style={S.card}>
                 <p style={S.cardTitle}>{g.name}</p>
                 <p style={S.cardSub}>{g.orders.length} {g.orders.length===1?'заявка':'заявок'} в работе</p>
-                <button onClick={()=>printLoadingList(g.orders,g.name)} style={{marginTop:10,width:"100%",padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист</button>
+                <div style={{display:"flex",gap:8,marginTop:10}}>
+                  <button onClick={()=>printLoadingList(g.orders,g.name)} style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист</button>
+                  <button onClick={()=>setExpandedWeightsFor(k=>k===g.key?null:g.key)} style={{flex:1,padding:"11px",background:expanded?C.debtAmber:C.white,color:expanded?"#92400E":C.navy,border:`1.5px solid ${C.navy}`,borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>⚖️ {expanded?"Скрыть":"Ввести вес"}</button>
+                </div>
+                {expanded&&(
+                  <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+                    {g.orders.map(o=>(
+                      <div key={o.id} style={{marginBottom:12}}>
+                        <p style={{margin:"0 0 6px",fontSize:12,fontWeight:700,color:C.textSub}}>№ {o.id} · {o.client_name}</p>
+                        {orderItemsOf(o).map(it=>(
+                          <div key={it.code} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                            <span style={{flex:1,minWidth:0,fontSize:12,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name} <span style={{color:C.textFaint}}>(было {it.qty})</span></span>
+                            <input
+                              type="number"
+                              placeholder="кг"
+                              style={{...S.input,width:80,flexShrink:0,padding:"6px 8px",fontSize:12}}
+                              value={weightForm[`${o.id}_${it.code}`]||''}
+                              onChange={e=>setWeightForm(f=>({...f,[`${o.id}_${it.code}`]:e.target.value}))}
+                              onFocus={e=>e.target.select()}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    <button onClick={()=>saveWeights(g)} disabled={savingWeights} style={{...S.btnPrimary,marginTop:4,opacity:savingWeights?0.6:1}}>{savingWeights?"Сохраняю...":"Сохранить вес"}</button>
+                  </div>
+                )}
               </div>
-            ))
+              );
+            })
           }
         </>}
       </div>

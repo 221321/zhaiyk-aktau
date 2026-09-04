@@ -426,6 +426,42 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   }
 });
 
+// Факт. вес для весового товара — часть заявок содержит позиции, вес которых
+// известен только когда зав. склад реально взвешивает их при отгрузке
+// водителю (заказано "4 коробки", а сколько это в кг — узнаётся на весах).
+// Кладовщик правит сразу пачкой (по всем заявкам одного водителя из
+// "Загрузочного листа"), поэтому один эндпоинт принимает список правок по
+// разным заявкам. Каждая правка меняет qty у конкретной позиции конкретной
+// заявки на факт. вес (для этих товаров цена уже указана за кг) и
+// пересчитывает total заявки — дальше это уже "живые" данные для отчётов,
+// остатка и для того, что менеджер увидит при синхронизации с 1С.
+app.post('/api/orders/weights', authMiddleware, (req, res) => {
+  if (!['warehouse', 'admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { entries } = req.body;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return res.status(400).json({ error: 'Нет данных для сохранения' });
+  }
+
+  const updatedOrders = [];
+  entries.forEach(entry => {
+    const { orderId, code, weight } = entry || {};
+    if (!orderId || !code || weight === undefined || weight === null || weight === '') return;
+    const order = db.get('orders').find({ id: Number(orderId) }).value();
+    if (!order) return;
+    const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+    const item = items.find(it => it.code === code);
+    if (!item) return;
+    item.qty = Number(weight);
+    const total = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+    db.get('orders').find({ id: Number(orderId) }).assign({ items, total }).write();
+    if (!updatedOrders.includes(Number(orderId))) updatedOrders.push(Number(orderId));
+  });
+
+  res.json({ success: true, updatedOrders });
+});
+
 app.delete('/api/orders/:id', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Только администратор может удалять заявки' });
   const orderId = parseInt(req.params.id);
@@ -590,9 +626,12 @@ app.get('/api/products', (req, res) => {
   const availableMap = computeAvailableStock();
   const aliasMap = {};
   aliases.forEach(a => { aliasMap[a.code] = a; });
+  const stockMap = {};
+  db.get('stock').value().forEach(s => { stockMap[s.code] = s; });
 
   const result = products.map(p => {
     const rec = aliasMap[p.code];
+    const stockRec = stockMap[p.code];
     const hasAlias = !!(rec && rec.alias && rec.alias.trim());
     // categoryCleared — раздел явно очищен на сайте (например, раздел
     // удалили в "Управлении разделами"), даже если у товара есть непустая
@@ -621,6 +660,12 @@ app.get('/api/products', (req, res) => {
       // в карточке товара на вкладке "Товары".
       commission: rec && rec.commission != null ? rec.commission : 4,
       stock: availableMap[p.code] != null ? availableMap[p.code] : 0,
+      // Единица измерения и вес остатка — правит зав. склад вручную на
+      // экране "Остатки" (см. PUT /api/stock/:code), 1С шлёт только qty.
+      // Нужно, когда товар физически весовой, а 1С отдаёт его коробками/
+      // штуками — склад фиксирует, сколько реально килограммов в остатке.
+      stock_unit: stockRec && stockRec.unit ? stockRec.unit : (p.unit || null),
+      stock_weight_kg: stockRec && stockRec.weight_kg != null ? stockRec.weight_kg : null,
       photo: rec && rec.photo ? rec.photo : null,
       // Код НКТ (NTIN) — подбирается по штрихкоду/названию через nct.gov.kz
       // (см. /api/nkt/*), либо вводится вручную. nkt_status: 'matched'
@@ -1207,6 +1252,32 @@ app.post('/api/stock/sync', (req, res) => {
     }
   });
   res.json({ success: true, count: (items || []).length });
+});
+
+// Зав. склад правит остаток вручную — 1С шлёт только qty в её единице
+// измерения (может быть "коробки"), а по факту часть товара весовая
+// (реальный вес узнаётся только на складе). unit/weight_kg — сайт-only
+// надстройка поверх qty из 1С, тем же паттерном что productAliases поверх
+// products: /api/stock/sync трогает только qty через assign(), эти два
+// поля переживают ресинк остатков.
+app.put('/api/stock/:code', authMiddleware, (req, res) => {
+  if (!['warehouse', 'admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { code } = req.params;
+  const { qty, unit, weight_kg } = req.body;
+  const patch = {};
+  if (qty !== undefined) patch.qty = Number(qty) || 0;
+  if (unit !== undefined) patch.unit = unit || null;
+  if (weight_kg !== undefined) patch.weight_kg = weight_kg === '' || weight_kg === null ? null : Number(weight_kg);
+
+  const stockCol = db.get('stock');
+  if (stockCol.find({ code }).value()) {
+    stockCol.find({ code }).assign(patch).write();
+  } else {
+    stockCol.push({ code, qty: 0, ...patch }).write();
+  }
+  res.json({ success: true });
 });
 
 // 1С вызывает этот эндпоинт сразу после того, как реально создала и провела
