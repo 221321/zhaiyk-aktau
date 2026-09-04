@@ -4662,7 +4662,10 @@ function WarehouseCabinet({ user, onLogout }) {
     if (!window.confirm(`Сохранить фактический вес по ${entries.length} ${entries.length===1?'позиции':'позициям'}? Суммы заявок пересчитаются.`)) return;
     setSavingWeights(true);
     try {
-      await apiCall('POST', '/api/orders/weights', { entries });
+      const res = await apiCall('POST', '/api/orders/weights', { entries });
+      if (res.errors && res.errors.length) {
+        alert('Часть значений не сохранена:\n' + res.errors.join('\n'));
+      }
       setWeightForm(f=>{ const next={...f}; entries.forEach(e=>{ delete next[`${e.orderId}_${e.code}`]; }); return next; });
       setExpandedWeightsFor(null);
       loadOrders();
