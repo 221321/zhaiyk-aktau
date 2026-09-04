@@ -714,6 +714,14 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment||'{}') : (order.payment||{cash:order.payment_cash||0,qr:order.payment_qr||0,debt:order.payment_debt||0});
+  // Весовые позиции, вес которых ещё не подтверждён складом (см.
+  // POST /api/orders/weights) — до этого кол-во в заявке условное, и
+  // накладная/PDF с текущей суммой могут оказаться неточными.
+  const pendingWeightItems = items.filter(it=>it.is_weight_item && !it.weight_confirmed);
+  const confirmPrintIfPending = (fn) => {
+    if (pendingWeightItems.length>0 && !window.confirm(`Вес по ${pendingWeightItems.length===1?'позиции':'позициям'} (${pendingWeightItems.map(it=>it.name).join(', ')}) ещё не подтверждён складом — сумма может быть неточной. Всё равно напечатать?`)) return;
+    fn();
+  };
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
       <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
@@ -727,10 +735,15 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
             <button style={S.btnSecondary} onClick={onClose}>✕</button>
           </div>
         </div>
+        {pendingWeightItems.length>0&&(
+          <div style={{background:"#FEF3C7",border:"1px solid #FDE68A",borderRadius:10,padding:"10px 12px",marginBottom:12,fontSize:12,color:"#92400E",fontWeight:600}}>
+            ⚖️ Вес не подтверждён складом: {pendingWeightItems.map(it=>it.name).join(', ')}. Сумма заявки может измениться.
+          </div>
+        )}
         {currentUser.role!=="driver" && (
           <div style={{display:"flex",gap:8,marginBottom:14}}>
-            <button style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>printWaybill(order)}>🖨 Печать накладной</button>
-            <button style={{flex:1,padding:"11px",background:"#25D366",color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>shareWaybillPdf(order)}>📲 Отправить PDF</button>
+            <button style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>confirmPrintIfPending(()=>printWaybill(order))}>🖨 Печать накладной</button>
+            <button style={{flex:1,padding:"11px",background:"#25D366",color:C.white,border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>confirmPrintIfPending(()=>shareWaybillPdf(order))}>📲 Отправить PDF</button>
           </div>
         )}
         <hr style={S.divider}/>
@@ -2027,7 +2040,7 @@ function DriverCabinet({ user, onLogout }) {
 // из 150+ позиций. React.memo + стабильные (useCallback) колбэки в
 // AdminCabinet означают, что перерисовывается только та карточка, в которой
 // реально поменялось значение.
-const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, alias, price1, price2, price3, commission, cost, onChange, onEditRequest, onSave }) {
+const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, alias, price1, price2, price3, commission, cost, pricedByWeight, onChange, onEditRequest, onSave }) {
   return (
     <div id={`product-card-${p.code}`} style={{...S.card, padding:10, marginBottom:6}}>
       <div style={{display:"flex",gap:10,marginBottom:6}}>
@@ -2048,6 +2061,10 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, ali
         value={alias}
         onChange={e=>onChange(p.code,'alias',e.target.value)}
       />
+      <label style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,cursor:locked?"default":"pointer",fontSize:12,color:locked?C.textFaint:C.textMid}}>
+        <input type="checkbox" disabled={locked} checked={pricedByWeight} onChange={e=>onChange(p.code,'priced_by_weight',e.target.checked)}/>
+        Весовой товар (цена за кг, кол-во в заявке — до факт. взвешивания на складе)
+      </label>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 70px auto",gap:6,marginBottom:1}}>
         {["Цена 1","Цена 2","Цена 3","Закупка","% торговому",""].map((h,i)=><div key={i} style={{fontSize:9,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
       </div>
@@ -3418,6 +3435,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     if (edits[p.code] && edits[p.code][field] !== undefined) return edits[p.code][field];
     if (field === 'alias') return p.has_alias ? p.display_name : '';
     if (field === 'category') return p.group || '';
+    if (field === 'priced_by_weight') return !!p.priced_by_weight;
     return p[field] != null ? String(p[field]) : '';
   };
   const categoryOptions = useMemo(() => [...new Set([...products.map(p=>p.group).filter(Boolean), ...categories])].sort((a,b)=>a.localeCompare(b,'ru')), [products, categories]);
@@ -3437,13 +3455,14 @@ function AdminCabinet({ user, onLogout, desktop }) {
     const fieldsFromEdits = editsRef.current[code] || {};
     const resolve = (field) => fieldsFromEdits[field] !== undefined
       ? fieldsFromEdits[field]
-      : (field === 'alias' ? (p.has_alias ? p.display_name : '') : (p[field] != null ? String(p[field]) : ''));
+      : (field === 'alias' ? (p.has_alias ? p.display_name : '') : (field === 'priced_by_weight' ? !!p.priced_by_weight : (p[field] != null ? String(p[field]) : '')));
     const alias = resolve('alias');
     const price1 = resolve('price1');
     const price2 = resolve('price2');
     const price3 = resolve('price3');
     const commission = resolve('commission');
     const cost = resolve('cost');
+    const pricedByWeight = resolve('priced_by_weight');
     setSavingCode(code);
     try {
       await apiCall('POST', '/api/product-aliases', {
@@ -3453,6 +3472,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         price3: price3 === '' ? null : Number(price3),
         commission: commission === '' ? 0 : Number(commission),
         cost: cost === '' ? null : Number(cost),
+        priced_by_weight: !!pricedByWeight,
       });
       await loadProducts();
       setEditingCodes(e => { const n = {...e}; delete n[code]; return n; });
@@ -4024,6 +4044,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   price3={getField(p,'price3')}
                   commission={getField(p,'commission')}
                   cost={getField(p,'cost')}
+                  pricedByWeight={getField(p,'priced_by_weight')}
                   onChange={updateField}
                   onEditRequest={onEditRequest}
                   onSave={saveAlias}
@@ -4706,7 +4727,11 @@ function WarehouseCabinet({ user, onLogout }) {
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}>
                           <div>
                             <label style={{...S.label,fontSize:10}}>Ед. изм.</label>
-                            <input style={{...S.input,padding:"7px 8px",fontSize:12}} placeholder="шт/уп/кг/кор" value={stockEditForm.unit} onChange={e=>setStockEditForm(f=>({...f,unit:e.target.value}))}/>
+                            <select style={{...S.select,padding:"7px 8px",fontSize:12}} value={stockEditForm.unit} onChange={e=>setStockEditForm(f=>({...f,unit:e.target.value}))}>
+                              <option value="">—</option>
+                              {['шт','уп','кг','кор'].map(u=><option key={u} value={u}>{u}</option>)}
+                              {stockEditForm.unit && !['шт','уп','кг','кор'].includes(stockEditForm.unit) && <option value={stockEditForm.unit}>{stockEditForm.unit}</option>}
+                            </select>
                           </div>
                           <div>
                             <label style={{...S.label,fontSize:10}}>Кол-во</label>

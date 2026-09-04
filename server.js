@@ -205,6 +205,10 @@ app.post('/api/orders', authMiddleware, (req, res) => {
   // Заказ от магазина: клиент и цены — только из системы, не из запроса
   // (клиента подменять нельзя, а цену торговой точке трогать нельзя вообще —
   // всегда price1, как решено для самостоятельных заказов).
+  const aliases = db.get('productAliases').value();
+  const aliasMap = {};
+  aliases.forEach(a => { aliasMap[a.code] = a; });
+
   let finalClientName = clientName;
   let finalClientCode = clientCode || '';
   let finalItems = items || [];
@@ -215,9 +219,6 @@ app.post('/api/orders', authMiddleware, (req, res) => {
     finalClientName = storeClient.name;
     finalClientCode = storeClient.code;
 
-    const aliases = db.get('productAliases').value();
-    const aliasMap = {};
-    aliases.forEach(a => { aliasMap[a.code] = a; });
     finalItems = (items || []).map(it => {
       const rec = aliasMap[it.code];
       return { ...it, price: rec && rec.price1 != null ? rec.price1 : it.price, commission: rec && rec.commission != null ? rec.commission : 4 };
@@ -229,7 +230,15 @@ app.post('/api/orders', authMiddleware, (req, res) => {
   // отчёт по прибыли не зависел от того, поменяется ли закупочная цена
   // товара позже.
   const costMap = getCostMap();
-  finalItems = finalItems.map(it => ({ ...it, cost: costMap[it.code] != null ? costMap[it.code] : null }));
+  finalItems = finalItems.map(it => ({
+    ...it,
+    cost: costMap[it.code] != null ? costMap[it.code] : null,
+    // Снимок признака "весовой товар" на момент создания заявки — не
+    // ссылка на текущую карточку товара, чтобы если менеджер потом снимет
+    // флаг, уже созданные заявки не "забыли" сами, что их кол-во условное
+    // до факт. взвешивания (см. POST /api/orders/weights и печать накладной).
+    is_weight_item: !!(aliasMap[it.code] && aliasMap[it.code].priced_by_weight)
+  }));
 
   const availableMap = computeAvailableStock();
   for (const it of finalItems) {
@@ -454,6 +463,10 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     const item = items.find(it => it.code === code);
     if (!item) return;
     item.qty = Number(weight);
+    // Помечаем позицию подтверждённой — печать накладной по заявкам с
+    // весовым товаром предупреждает, пока это не выставлено на всех
+    // весовых позициях заявки (см. is_weight_item, снимок при создании).
+    item.weight_confirmed = true;
     const total = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
     db.get('orders').find({ id: Number(orderId) }).assign({ items, total }).write();
     if (!updatedOrders.includes(Number(orderId))) updatedOrders.push(Number(orderId));
@@ -659,6 +672,10 @@ app.get('/api/products', (req, res) => {
       // в POST /api/orders); по умолчанию 4%, пока менеджер не переопределит
       // в карточке товара на вкладке "Товары".
       commission: rec && rec.commission != null ? rec.commission : 4,
+      // Весовой товар — цена за кг, но заказывают коробками/штуками, точный
+      // вес узнаётся только на складе (см. POST /api/orders/weights).
+      // Помечает менеджер вручную на вкладке "Товары".
+      priced_by_weight: !!(rec && rec.priced_by_weight),
       stock: availableMap[p.code] != null ? availableMap[p.code] : 0,
       // Единица измерения и вес остатка — правит зав. склад вручную на
       // экране "Остатки" (см. PUT /api/stock/:code), 1С шлёт только qty.
@@ -745,7 +762,7 @@ app.post('/api/product-aliases', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const { code, alias, category, barcode, price1, price2, price3, commission, nkt_code, cost } = req.body;
+  const { code, alias, category, barcode, price1, price2, price3, commission, nkt_code, cost, priced_by_weight } = req.body;
   if (!code) return res.status(400).json({ error: 'Не передан код товара' });
 
   // Каждое поле — только если реально передано: экран "Товары" шлёт alias+цены
@@ -761,6 +778,11 @@ app.post('/api/product-aliases', authMiddleware, (req, res) => {
   if (price3 !== undefined) patch.price3 = price3;
   if (commission !== undefined) patch.commission = commission;
   if (cost !== undefined) patch.cost = cost === '' || cost === null ? null : Number(cost);
+  // Весовой товар — количество в заявке до факт. взвешивания на складе
+  // условное (см. POST /api/orders/weights), поэтому накладную по такой
+  // заявке нельзя печатать до подтверждения веса (см. is_weight_item на
+  // позиции заявки, снимается снимком с этого флага на момент создания).
+  if (priced_by_weight !== undefined) patch.priced_by_weight = !!priced_by_weight;
   // Ручная правка кода НКТ на экране "НКТ" — помечаем 'manual', чтобы
   // отличить от автоподбора по штрихкоду (matchNktBatch ставит 'matched')
   // и не перезаписать её следующим массовым подбором.
