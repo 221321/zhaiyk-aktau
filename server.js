@@ -526,13 +526,17 @@ app.get('/api/employees', authMiddleware, (req, res) => {
   const linkedCodes = new Set(users.map(u => u.employee_code).filter(Boolean));
   // Часть сотрудников приходит из 1С без кода (code пустой) — для них связку с уже
   // созданным аккаунтом можно определить только по имени, иначе сотрудник навсегда
-  // остаётся в списке "Без учётной записи", хотя аккаунт для него уже есть
+  // остаётся в списке "Без учётной записи", хотя аккаунт для него уже есть.
+  // Проверяем по имени всегда, а не только когда у сотрудника ещё нет кода:
+  // /api/employees/sync дозаполняет employee_code сам, как только код у
+  // физлица появляется в 1С, но это подстраховка на случай рассинхрона
+  // (например, между этим запросом и следующей синхронизацией).
   const linkedNamesNoCode = new Set(
     users.filter(u => !u.employee_code).map(u => (u.name || '').trim().toLowerCase())
   );
   res.json(employees.map(e => {
     const hasAccount = (e.code && linkedCodes.has(e.code))
-      || (!e.code && linkedNamesNoCode.has((e.name || '').trim().toLowerCase()));
+      || linkedNamesNoCode.has((e.name || '').trim().toLowerCase());
     return { ...e, has_account: hasAccount };
   }));
 });
@@ -553,6 +557,26 @@ app.post('/api/employees/sync', (req, res) => {
     seen.add(it.code);
     return true;
   });
+
+  // Сотрудник мог сначала прийти из 1С без кода (баг в обработке 1С) — админ
+  // уже завёл ему аккаунт на сайте, привязанный по имени, раз кода тогда не
+  // было (см. hasAccount в GET /api/employees). Если физлицо потом
+  // перепровели в 1С и код наконец появился, без этого шага сайт решал бы,
+  // что аккаунта ещё нет (совпадение по коду не находится, а по имени
+  // больше не проверяется, раз code уже не пуст) — и админ, видя такого
+  // сотрудника в "Без учётной записи", создавал бы второй аккаунт на того
+  // же человека. Молча дозаполняем employee_code на уже существующем
+  // аккаунте по имени, пока он ещё ни к какому коду не привязан.
+  const usersCol = db.get('users');
+  deduped.forEach(it => {
+    if (!it.code) return;
+    if (usersCol.find({ employee_code: it.code }).value()) return;
+    const name = (it.name || '').trim().toLowerCase();
+    if (!name) return;
+    const match = usersCol.find(u => !u.employee_code && (u.name || '').trim().toLowerCase() === name).value();
+    if (match) usersCol.find({ id: match.id }).assign({ employee_code: it.code }).write();
+  });
+
   db.set('employees', deduped).write();
   res.json({ success: true, count: deduped.length, skipped: (items || []).length - deduped.length });
 });
