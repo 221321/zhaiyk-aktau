@@ -473,6 +473,31 @@ function daysWord(n) {
   return "дней";
 }
 
+// Остаток для показа персоналу при выборе товара. У обычного товара — короба́/шт
+// из stock (p.stock), их присылает 1С синком, число всегда свежее. У весового
+// товара (priced_by_weight) короба́ 1С не считает вообще (см. /api/stock/sync
+// на сервере) — их только вручную поддерживает склад на "Остатках", и они
+// быстро расходятся с реальностью. Единственное число, которое 1С обновляет
+// для весового товара — кг (p.stock_weight_kg), поэтому для него и показываем
+// именно его, а не устаревающие короба́.
+function stockAmount(p) {
+  return p.priced_by_weight ? p.stock_weight_kg : p.stock;
+}
+function stockLabel(p) {
+  const amt = stockAmount(p);
+  if (amt == null) return null;
+  return p.priced_by_weight ? `${amt} кг` : String(amt);
+}
+function stockIsOut(p) {
+  // Развесной товар без настроенного кг-пула (weight_kg ещё ни разу не
+  // вписан на "Остатках", хотя флаг "Весовой товар" уже стоит) — это не
+  // "остаток неизвестен, значит бесконечно доступен", а безопасный дефолт
+  // "нет в наличии" (тот же, что раньше давал stock=0 у непроинициализи-
+  // рованной записи в stock, прежде чем этот файл начал смотреть на кг).
+  if (p.priced_by_weight) return p.stock_weight_kg == null || p.stock_weight_kg <= 0;
+  return p.stock != null && p.stock <= 0;
+}
+
 function DebtsPanel({ readOnly }) {
   const [debts, setDebts] = useState([]);
   const [loadingDebts, setLoadingDebts] = useState(true);
@@ -868,7 +893,7 @@ function ReceiptFormModal({ user, onClose, onCreated }) {
                     {matched.map(p=>(
                       <div key={p.code} onMouseDown={()=>selectProduct(line.uid,p)} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:14}}>
                         <div style={{fontWeight:600}}>{p.display_name||p.name}</div>
-                        <div style={{fontSize:12,color:C.textFaint}}>{p.stock_unit||p.unit||''}{p.priced_by_weight?' · весовой':''}{p.group?' · '+p.group:''}{p.stock!=null?' · Остаток: '+p.stock:''}</div>
+                        <div style={{fontSize:12,color:C.textFaint}}>{p.stock_unit||p.unit||''}{p.priced_by_weight?' · весовой':''}{p.group?' · '+p.group:''}{stockLabel(p)!=null?' · Остаток: '+stockLabel(p):''}</div>
                       </div>
                     ))}
                   </div>
@@ -1480,7 +1505,13 @@ function SalesCabinet({ user, token, onLogout }) {
     // сумму заявки по кол-ву коробов × примерный вес, а не только по
     // кол-ву коробов (что для цены "за кг" не имеет смысла).
     pricedByWeight: !!p.priced_by_weight,
-    avgWeightPerBox: (p.stock_weight_kg != null && p.stock > 0) ? (p.stock_weight_kg / p.stock) : null
+    avgWeightPerBox: (p.stock_weight_kg != null && p.stock > 0) ? (p.stock_weight_kg / p.stock) : null,
+    // Snake_case-дубли — их читают общие хелперы stockAmount/stockLabel/
+    // stockIsOut (см. выше), которые проверяют именно priced_by_weight/
+    // stock_weight_kg, как отдаёт /api/products. Без этого хелперы решали
+    // бы, что товар не весовой, и молча возвращались бы к протухшим коробам.
+    priced_by_weight: !!p.priced_by_weight,
+    stock_weight_kg: p.stock_weight_kg != null ? p.stock_weight_kg : null
   }))))
   .catch(() => {});
   }, []);
@@ -1500,11 +1531,12 @@ function SalesCabinet({ user, token, onLogout }) {
   const removeLine = (uid) => setLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
   const addLine = () => setLines(ls=>[...ls,newLine()]);
   const selectProduct = (uid,prod) => {
-    if (prod.stock !== null && prod.stock !== undefined && prod.stock <= 0) return;
+    if (stockIsOut(prod)) return;
     updateLine(uid,{
       productId:prod.id,code:prod.code,name:prod.name,
       price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",
       search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock,
+      stockWeightKg:prod.stock_weight_kg,
       pricedByWeight:!!prod.pricedByWeight,
       weightPerBox: prod.avgWeightPerBox!=null ? String(Math.round(prod.avgWeightPerBox*100)/100) : ""
     });
@@ -1783,7 +1815,7 @@ function SalesCabinet({ user, token, onLogout }) {
               {["Наименование","Кол-во","Цена ₸",""].map((h,i)=><div key={i} style={{fontSize:12,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
             </div>
             {lines.map(line=>{
-              const inStock=products.filter(p=>p.stock>0);
+              const inStock=products.filter(p=>!stockIsOut(p));
               const matched=line.search.length>0?inStock.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):inStock.slice(0,50);
               const lineWeight=estWeightOf(line);
               const lineTotal=lineWeight>0&&Number(line.price)>0?lineWeight*Number(line.price):null;
@@ -1799,20 +1831,25 @@ function SalesCabinet({ user, token, onLogout }) {
                       {line.showDrop&&matched.length>0&&(
                         <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:180,overflowY:"auto"}}>
                           {matched.map(p=>{
-                            const outOfStock = p.stock !== null && p.stock !== undefined && p.stock <= 0;
+                            const outOfStock = stockIsOut(p);
+                            const stockLbl = stockLabel(p);
                             return (
                             <div key={p.id} onMouseDown={()=>selectProduct(line.uid,p)} style={{padding:"9px 12px",cursor:outOfStock?"not-allowed":"pointer",borderBottom:`1px solid ${C.border}`,fontSize:15,opacity:outOfStock?0.5:1,background:outOfStock?C.surface:C.white}}>
                               <div style={{fontWeight:600}}>{p.name}</div>
-                              <div style={{fontSize:13,color:outOfStock?C.red:C.textFaint}}>{p.price>0?p.price.toLocaleString()+' ₸ / ':''}{p.unit}{p.group?' · '+p.group:''}{p.stock!==null&&p.stock!==undefined?(outOfStock?' · Нет в наличии':' · Остаток: '+p.stock):''}</div>
+                              <div style={{fontSize:13,color:outOfStock?C.red:C.textFaint}}>{p.price>0?p.price.toLocaleString()+' ₸ / ':''}{p.unit}{p.group?' · '+p.group:''}{stockLbl!=null?(outOfStock?' · Нет в наличии':' · Остаток: '+stockLbl):''}</div>
                             </div>
                           )})}
                         </div>
                       )}
                     </div>
-                    <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"center"}} placeholder={line.pricedByWeight?"кор":"кол"} value={line.qty} type="number" min="1" max={line.stock!=null?line.stock:undefined}
+                    <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"center"}} placeholder={line.pricedByWeight?"кор":"кол"} value={line.qty} type="number" min="1" max={(!line.pricedByWeight&&line.stock!=null)?line.stock:undefined}
                       onChange={e=>{
+                        // Короба весового товара — только оценка торгового (1С их
+                        // не считает вообще, см. /api/stock/sync), ограничивать
+                        // ввод остатком коробов не нужно (сервер тоже не проверяет,
+                        // см. POST /api/orders) — точный расход выяснится на весах.
                         let v = e.target.value;
-                        if (line.stock!=null && Number(v) > line.stock) v = String(line.stock);
+                        if (!line.pricedByWeight && line.stock!=null && Number(v) > line.stock) v = String(line.stock);
                         updateLine(line.uid,{qty:v});
                       }}
                       onFocus={e=>e.target.select()}
@@ -1824,7 +1861,9 @@ function SalesCabinet({ user, token, onLogout }) {
                     />
                     <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:16,color:C.textFaint}}>×</button>
                   </div>
-                  {line.stock!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stock} {line.pricedByWeight?'кор':''}</div>}
+                  {line.pricedByWeight
+                    ? (line.stockWeightKg!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stockWeightKg} кг</div>)
+                    : (line.stock!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stock}</div>)}
                   {line.pricedByWeight&&(
                     <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>
                       <span style={{fontSize:13,color:C.textSub,whiteSpace:"nowrap"}}>⚖️ Вес короба, кг (примерно)</span>
@@ -1954,7 +1993,12 @@ function StoreCabinet({ user, onLogout, desktop }) {
         code: p.code,
         stock: p.stock,
         photo: p.photo || null,
-        barcode: p.barcode || ''
+        barcode: p.barcode || '',
+        // Читают общие хелперы stockAmount/stockLabel/stockIsOut — без этих
+        // полей весовой товар выглядел бы для них обычным, и они бы молча
+        // возвращались к протухшим коробам (см. эти хелперы выше).
+        priced_by_weight: !!p.priced_by_weight,
+        stock_weight_kg: p.stock_weight_kg != null ? p.stock_weight_kg : null
       }))))
       .catch(() => {});
   }, []);
@@ -1978,17 +2022,22 @@ function StoreCabinet({ user, onLogout, desktop }) {
   // добавление товара требует подтверждения — повторные клики (увеличение
   // кол-ва уже выбранного товара) больше не переспрашивают.
   const addProductToCart = (prod) => {
-    if (prod.stock !== null && prod.stock !== undefined && prod.stock <= 0) return;
+    if (stockIsOut(prod)) return;
     const alreadyInCart = lines.some(l => l.productId === prod.id);
     if (!alreadyInCart && !window.confirm(`Добавить «${prod.name}» в заказ?`)) return;
     setLines(ls => {
       const existing = ls.find(l => l.productId === prod.id);
       if (existing) {
         const nextQty = (Number(existing.qty) || 0) + 1;
-        const capped = prod.stock != null ? Math.min(nextQty, prod.stock) : nextQty;
+        const avail = stockAmount(prod);
+        const capped = avail != null ? Math.min(nextQty, avail) : nextQty;
         return ls.map(l => l.productId === prod.id ? {...l, qty: String(capped)} : l);
       }
-      return [...ls, {uid:Math.random(),productId:prod.id,code:prod.code,name:prod.name,price:prod.price,search:prod.name,showDrop:false,qty:"1",stock:prod.stock}];
+      // stock здесь — уже разрешённый остаток (кг для весового товара, короба́
+      // для обычного, см. stockAmount) — им же ограничивает ручной ввод кол-ва
+      // в корзине ниже (то же поле line.stock, отдельного кг-поля тут нет:
+      // в отличие от SalesCabinet, здесь qty и так в единице p.unit, не в коробах).
+      return [...ls, {uid:Math.random(),productId:prod.id,code:prod.code,name:prod.name,price:prod.price,search:prod.name,showDrop:false,qty:"1",stock:stockAmount(prod)}];
     });
   };
 
@@ -2208,8 +2257,8 @@ function StoreCabinet({ user, onLogout, desktop }) {
           </div>
         )}
         {filteredCatalog.map(p=>{
-          const outOfStock = p.stock !== null && p.stock !== undefined && p.stock <= 0;
-          const lowStock = !outOfStock && p.stock !== null && p.stock !== undefined && p.stock <= 5;
+          const outOfStock = stockIsOut(p);
+          const lowStock = !outOfStock && !p.priced_by_weight && p.stock !== null && p.stock !== undefined && p.stock <= 5;
           const inCart = lines.find(l=>l.productId===p.id);
           return (
             <div key={p.id} style={{border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden",background:C.white,opacity:outOfStock?0.55:1}}>
@@ -2233,7 +2282,8 @@ function StoreCabinet({ user, onLogout, desktop }) {
                     <span style={{fontSize:15,fontWeight:800,color:C.navy}}>{inCart.qty||0}</span>
                     <button onClick={()=>{
                       const nextQty=(Number(inCart.qty)||0)+1;
-                      updateLine(inCart.uid,{qty:String(p.stock!=null?Math.min(nextQty,p.stock):nextQty)});
+                      const availP = stockAmount(p);
+                      updateLine(inCart.uid,{qty:String(availP!=null?Math.min(nextQty,availP):nextQty)});
                     }} style={{width:26,height:26,border:"none",borderRadius:6,background:C.white,boxShadow:`0 0 0 1px ${C.border}`,fontSize:17,fontWeight:700,color:C.navy,cursor:"pointer"}}>+</button>
                   </div>
                 ) : (
@@ -3296,12 +3346,13 @@ function PosSaleModal({ products, clients, onClose, onCompleted }) {
   const addToCart = (p) => {
     setCart(c => {
       const existing = c.find(l => l.code === p.code);
+      const avail = stockAmount(p);
       if (existing) {
         const nextQty = existing.qty + 1;
-        const capped = p.stock != null ? Math.min(nextQty, p.stock) : nextQty;
+        const capped = avail != null ? Math.min(nextQty, avail) : nextQty;
         return c.map(l => l.code === p.code ? { ...l, qty: capped } : l);
       }
-      return [...c, { code: p.code, name: p.name, price: p.price1 || 0, qty: 1, stock: p.stock }];
+      return [...c, { code: p.code, name: p.name, price: p.price1 || 0, qty: 1, stock: avail }];
     });
   };
   const changeQty = (code, delta) => {
@@ -3439,7 +3490,7 @@ function PosSaleModal({ products, clients, onClose, onCompleted }) {
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(140px,1fr))",gap:10,marginBottom:20,maxHeight:320,overflowY:"auto",padding:2}}>
           {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:15}}>Ничего не найдено</div>}
           {filtered.map(p=>{
-            const outOfStock = p.stock!=null && p.stock<=0;
+            const outOfStock = stockIsOut(p);
             const inCart = cart.find(l=>l.code===p.code);
             return (
               <div key={p.code} style={{border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden",background:C.white,opacity:outOfStock?0.5:1}}>
@@ -3684,12 +3735,13 @@ function CashierCabinet({ user, onLogout }) {
   const addToCart = (p) => {
     setCart(c => {
       const existing = c.find(l => l.code === p.code);
+      const avail = stockAmount(p);
       if (existing) {
         const nextQty = existing.qty + 1;
-        const capped = p.stock != null ? Math.min(nextQty, p.stock) : nextQty;
+        const capped = avail != null ? Math.min(nextQty, avail) : nextQty;
         return c.map(l => l.code === p.code ? { ...l, qty: capped } : l);
       }
-      return [...c, { code: p.code, name: p.name, price: p.price1 || 0, qty: 1, stock: p.stock }];
+      return [...c, { code: p.code, name: p.name, price: p.price1 || 0, qty: 1, stock: avail }];
     });
   };
   const changeQty = (code, delta) => {
@@ -3858,7 +3910,7 @@ function CashierCabinet({ user, onLogout }) {
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(140px,1fr))",gap:10}}>
             {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:15}}>Ничего не найдено</div>}
             {filtered.map(p=>{
-              const outOfStock = p.stock!=null && p.stock<=0;
+              const outOfStock = stockIsOut(p);
               const inCart = cart.find(l=>l.code===p.code);
               return (
                 <div key={p.code} style={{border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden",background:C.white,opacity:outOfStock?0.5:1}}>
