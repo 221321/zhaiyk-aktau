@@ -931,7 +931,7 @@ function ReceiptsHistoryPanel({ user, refreshKey }) {
   useRefetchOnVisible(load);
 
   const remove = async (id) => {
-    if (!window.confirm('Удалить этот приход? Остаток на складе будет уменьшен обратно.')) return;
+    if (!window.confirm('Удалить эту запись из истории приходов? На остаток на складе это не повлияет — он теперь ведётся в 1С.')) return;
     try { await apiCall('DELETE', `/api/receipts/${id}`); load(); } catch(e) { alert(e.message); }
   };
 
