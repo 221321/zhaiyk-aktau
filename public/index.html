@@ -489,6 +489,27 @@ function DebtsPanel({ readOnly }) {
   }, []);
   useEffect(()=>{ loadDebts(); }, []);
 
+  // /api/debts отдаёт по одной строке на каждую накладную/продажу с долгом —
+  // если один и тот же должник числится в двух заявках, ниже будет две
+  // отдельные карточки (это осознанно: у каждой своя дата/сумма/накладная и
+  // гасится долг тоже по накладной отдельно). Чтобы не потерять из виду,
+  // что это один и тот же клиент, считаем сумму и количество по коду
+  // клиента и показываем сводку прямо в каждой карточке этого клиента.
+  // Группировать по client_name нельзя: продажи кассы без выбранного
+  // клиента все приходят с одинаковым именем "Без клиента" (см. сервер) —
+  // это разные люди, их долги схлопнулись бы в один. У записей без кода
+  // клиента (client_code пуст) группы вообще нет — каждая сама по себе.
+  const groupKey = (d) => d.client_code ? `c${d.client_code}` : (d.order_id ? `o${d.order_id}` : `s${d.sale_id}`);
+  const totalsByClient = useMemo(() => {
+    const totals = {}, counts = {};
+    debts.forEach(d => {
+      const key = groupKey(d);
+      totals[key] = (totals[key]||0) + d.remaining;
+      counts[key] = (counts[key]||0) + 1;
+    });
+    return { totals, counts };
+  }, [debts]);
+
   const settle = async (d) => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
     const amount = Number(settleAmounts[key] ?? d.remaining);
@@ -517,6 +538,7 @@ function DebtsPanel({ readOnly }) {
               <div>
                 <p style={S.cardTitle}>{d.client_name} {d.overdue&&<span style={{color:C.red,fontSize:13,fontWeight:700}}>· ПРОСРОЧЕН</span>}</p>
                 <p style={{...S.cardSub,color:d.overdue?"#B91C1C":C.textSub}}>{d.order_id?`№ ${d.order_id}`:`Касса № ${d.sale_id}`} · {d.date} · {d.days_ago===0?'сегодня':`${d.days_ago} ${daysWord(d.days_ago)}`}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
+                {totalsByClient.counts[groupKey(d)]>1&&<p style={{margin:"2px 0 0",fontSize:13,fontWeight:700,color:C.textFaint}}>Всего по клиенту: {totalsByClient.totals[groupKey(d)].toLocaleString()} ₸ · {totalsByClient.counts[groupKey(d)]} накладным</p>}
               </div>
               <p style={{margin:0,fontWeight:800,fontFamily:FH,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
             </div>
