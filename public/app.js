@@ -2247,7 +2247,8 @@ const COMPANY_INFO = {
   bin: '491219400991',
   bank: 'АО "Kaspi Bank"',
   bik: 'CASPKZKA',
-  account: 'KZ33722S000046085888'
+  account: 'KZ33722S000046085888',
+  releaseAuthorizedBy: 'Байсмаков С.К.'
 };
 function buildWaybillInnerHtml(order) {
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : order.items || [];
@@ -2280,7 +2281,7 @@ function buildWaybillInnerHtml(order) {
     </table>
     <div class="totals">Всего отпущено на сумму: <b>${(order.total || 0).toLocaleString()} ₸</b></div>
     <div class="sign">
-      <p>Отпуск разрешил: <span class="signline">&nbsp;</span> должность / подпись / <b>Администратор</b></p>
+      <p>Отпуск разрешил: <span class="signline">&nbsp;</span> должность / подпись / <b>${COMPANY_INFO.releaseAuthorizedBy}</b></p>
       <p>Отпустил (водитель): <span class="signline">${order.driver_name || ''}</span> подпись</p>
       <p>Запасы получил: <span class="signline">&nbsp;</span> подпись / расшифровка подписи</p>
     </div>`;
