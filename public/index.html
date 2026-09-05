@@ -2171,9 +2171,7 @@ function StoreCabinet({ user, onLogout, desktop }) {
       (!catalogCategory || p.group === catalogCategory)
     );
     const sorted = list.slice();
-    if (catalogSort === "price_asc") sorted.sort((a,b)=>(a.price||0)-(b.price||0));
-    else if (catalogSort === "price_desc") sorted.sort((a,b)=>(b.price||0)-(a.price||0));
-    else if (catalogSort === "group") sorted.sort((a,b)=>(a.group||"").localeCompare(b.group||"",'ru')||a.name.localeCompare(b.name,'ru'));
+    if (catalogSort === "group") sorted.sort((a,b)=>(a.group||"").localeCompare(b.group||"",'ru')||a.name.localeCompare(b.name,'ru'));
     else sorted.sort((a,b)=>a.name.localeCompare(b.name,'ru'));
     return sorted;
   }, [products, catalogSearch, catalogCategory, catalogSort]);
@@ -2353,14 +2351,12 @@ function StoreCabinet({ user, onLogout, desktop }) {
     <div style={S.card}>
       <div style={{...S.row,marginBottom:12}}>
         <label style={S.label}>Каталог {products.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:13}}>({products.length} поз.)</span>}</label>
-        {filledLines.length>0&&<span style={{fontSize:14,fontWeight:700,color:C.navy,background:C.surface,padding:"4px 10px",borderRadius:99,whiteSpace:"nowrap"}}>🛒 {filledLines.length} · {total.toLocaleString()} ₸</span>}
+        {filledLines.length>0&&<span style={{fontSize:14,fontWeight:700,color:C.navy,background:C.surface,padding:"4px 10px",borderRadius:99,whiteSpace:"nowrap"}}>🛒 {filledLines.length}</span>}
       </div>
       <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
         <input type="search" style={{...S.input,flex:1,minWidth:160}} placeholder="Поиск по названию, коду или штрихкоду..." value={catalogSearch} onChange={e=>setCatalogSearch(e.target.value)} autoComplete="off" name="catalog-search"/>
         <select style={{...S.select,width:"auto"}} value={catalogSort} onChange={e=>setCatalogSort(e.target.value)}>
           <option value="name_asc">По названию</option>
-          <option value="price_asc">Сначала дешёвые</option>
-          <option value="price_desc">Сначала дорогие</option>
           <option value="group">По отделам</option>
         </select>
       </div>
@@ -2391,8 +2387,7 @@ function StoreCabinet({ user, onLogout, desktop }) {
                 {lowStock && <span style={{position:"absolute",top:6,left:6,background:"#FEF3C7",color:C.amber,fontSize:11,fontWeight:700,padding:"3px 7px",borderRadius:99}}>Осталось {p.stock}</span>}
               </div>
               <div style={{padding:"8px 10px"}}>
-                <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:2,minHeight:32,lineHeight:1.3}}>{p.name}</div>
-                <div style={{fontSize:15,fontWeight:800,fontFamily:FH,color:C.navy,marginBottom:6}}>{p.price>0?p.price.toLocaleString()+' ₸':'цена по запросу'}</div>
+                <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:6,minHeight:32,lineHeight:1.3}}>{p.name}</div>
                 {outOfStock ? (
                   <div style={{fontSize:13,color:C.red,textAlign:"center",padding:"7px 0"}}>Нет в наличии</div>
                 ) : inCart ? (
@@ -2424,29 +2419,23 @@ function StoreCabinet({ user, onLogout, desktop }) {
   const newOrderCartCard = filledLines.length>0 && (
     <div style={S.card}>
       <label style={{...S.label,marginBottom:10,display:"block"}}>Корзина</label>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 52px 74px 26px",gap:6,marginBottom:6}}>
-        {["Товар","Кол-во","Сумма",""].map((h,i)=><div key={i} style={{fontSize:12,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 52px 26px",gap:6,marginBottom:6}}>
+        {["Товар","Кол-во",""].map((h,i)=><div key={i} style={{fontSize:12,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
       </div>
-      {lines.filter(l=>l.productId).map(line=>{
-        const lineTotal = Number(line.qty)>0 ? Number(line.qty)*Number(line.price) : 0;
-        return (
-          <div key={line.uid} style={{display:"grid",gridTemplateColumns:"1fr 52px 74px 26px",gap:6,alignItems:"center",marginBottom:6}}>
-            <div style={{fontSize:14,color:C.textMid}}>{line.name}</div>
-            <input style={{...S.input,padding:"6px 4px",fontSize:14,textAlign:"center"}} type="number" min="1" max={line.stock!=null?line.stock:undefined} value={line.qty}
-              onChange={e=>{
-                let v = e.target.value;
-                if (line.stock!=null && Number(v) > line.stock) v = String(line.stock);
-                updateLine(line.uid,{qty:v});
-              }}
-              onFocus={e=>e.target.select()}
-            />
-            <div style={{fontSize:14,textAlign:"right",fontWeight:700,color:C.navy}}>{lineTotal?lineTotal.toLocaleString():''}</div>
-            <button onClick={()=>removeLine(line.uid)} style={{width:26,height:30,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:15,color:C.textFaint}}>×</button>
-          </div>
-        );
-      })}
-      <hr style={{...S.divider,marginTop:8}}/>
-      <div style={S.row}><span style={{fontSize:15,color:C.textSub}}>Итого</span><span style={{fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>{total.toLocaleString()} ₸</span></div>
+      {lines.filter(l=>l.productId).map(line=>(
+        <div key={line.uid} style={{display:"grid",gridTemplateColumns:"1fr 52px 26px",gap:6,alignItems:"center",marginBottom:6}}>
+          <div style={{fontSize:14,color:C.textMid}}>{line.name}</div>
+          <input style={{...S.input,padding:"6px 4px",fontSize:14,textAlign:"center"}} type="number" min="1" max={line.stock!=null?line.stock:undefined} value={line.qty}
+            onChange={e=>{
+              let v = e.target.value;
+              if (line.stock!=null && Number(v) > line.stock) v = String(line.stock);
+              updateLine(line.uid,{qty:v});
+            }}
+            onFocus={e=>e.target.select()}
+          />
+          <button onClick={()=>removeLine(line.uid)} style={{width:26,height:30,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:15,color:C.textFaint}}>×</button>
+        </div>
+      ))}
     </div>
   );
 
