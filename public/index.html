@@ -1526,7 +1526,7 @@ function SalesCabinet({ user, token, onLogout }) {
   const removeLine = (uid) => setLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
   const addLine = () => setLines(ls=>[...ls,newLine()]);
   const selectProduct = (uid,prod) => {
-    if (prod.stock !== null && prod.stock !== undefined && prod.stock <= 0) return;
+    if (stockIsOut(prod)) return;
     updateLine(uid,{
       productId:prod.id,code:prod.code,name:prod.name,
       price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",
@@ -2010,14 +2010,15 @@ function StoreCabinet({ user, onLogout, desktop }) {
   // добавление товара требует подтверждения — повторные клики (увеличение
   // кол-ва уже выбранного товара) больше не переспрашивают.
   const addProductToCart = (prod) => {
-    if (prod.stock !== null && prod.stock !== undefined && prod.stock <= 0) return;
+    if (stockIsOut(prod)) return;
     const alreadyInCart = lines.some(l => l.productId === prod.id);
     if (!alreadyInCart && !window.confirm(`Добавить «${prod.name}» в заказ?`)) return;
     setLines(ls => {
       const existing = ls.find(l => l.productId === prod.id);
       if (existing) {
         const nextQty = (Number(existing.qty) || 0) + 1;
-        const capped = prod.stock != null ? Math.min(nextQty, prod.stock) : nextQty;
+        const avail = stockAmount(prod);
+        const capped = avail != null ? Math.min(nextQty, avail) : nextQty;
         return ls.map(l => l.productId === prod.id ? {...l, qty: String(capped)} : l);
       }
       return [...ls, {uid:Math.random(),productId:prod.id,code:prod.code,name:prod.name,price:prod.price,search:prod.name,showDrop:false,qty:"1",stock:prod.stock}];
@@ -2265,7 +2266,8 @@ function StoreCabinet({ user, onLogout, desktop }) {
                     <span style={{fontSize:15,fontWeight:800,color:C.navy}}>{inCart.qty||0}</span>
                     <button onClick={()=>{
                       const nextQty=(Number(inCart.qty)||0)+1;
-                      updateLine(inCart.uid,{qty:String(p.stock!=null?Math.min(nextQty,p.stock):nextQty)});
+                      const availP = stockAmount(p);
+                      updateLine(inCart.uid,{qty:String(availP!=null?Math.min(nextQty,availP):nextQty)});
                     }} style={{width:26,height:26,border:"none",borderRadius:6,background:C.white,boxShadow:`0 0 0 1px ${C.border}`,fontSize:17,fontWeight:700,color:C.navy,cursor:"pointer"}}>+</button>
                   </div>
                 ) : (
