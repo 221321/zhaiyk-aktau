@@ -410,6 +410,14 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   if (status === 'revoked' && orderBefore.status !== 'new') {
     return res.status(400).json({ error: 'Отозвать можно только заявку, которая ещё не взята в доставку' });
   }
+  // "new" — это "вернуть в очередь" (см. кнопку у водителя/менеджера) и
+  // имеет смысл только из in_transit. Без этой проверки canChange.new
+  // (isOwnerDriver||isManagerRole) пропускала бы и delivered→new в обход UI,
+  // а доставка списывает остаток напрямую (см. ниже) — вернув статус назад,
+  // заявку можно было бы "доставить" повторно и списать остаток дважды.
+  if (status === 'new' && orderBefore.status !== 'in_transit') {
+    return res.status(400).json({ error: 'Вернуть в очередь можно только заявку в статусе "В работе"' });
+  }
 
   if (status === 'delivered') {
     // Весовая позиция без факт. веса (weight_confirmed) всё ещё хранит
@@ -1055,29 +1063,44 @@ app.post('/api/nkt/match-batch', authMiddleware, async (req, res) => {
   const productByCode = {};
   products.forEach(p => { productByCode[p.code] = p; });
 
-  const results = [];
-  for (const code of codes) {
-    const p = productByCode[code];
-    if (!p) { results.push({ code, status: 'error', error: 'Товар не найден' }); continue; }
-    if (!p.barcode) { results.push({ code, status: 'no_barcode' }); continue; }
-    try {
-      const found = normalizeNktResults(await nktSearchByGtin(p.barcode));
-      if (found.length > 0 && found[0].ntin_code) {
-        const existing = db.get('productAliases').find({ code }).value();
-        const patch = { nkt_code: found[0].ntin_code, nkt_status: 'matched' };
-        if (existing) db.get('productAliases').find({ code }).assign(patch).write();
-        else db.get('productAliases').push({ code, ...patch }).write();
-        results.push({ code, status: 'matched', nkt_code: found[0].ntin_code });
-      } else {
-        const existing = db.get('productAliases').find({ code }).value();
-        if (existing) db.get('productAliases').find({ code }).assign({ nkt_status: 'not_found' }).write();
-        else db.get('productAliases').push({ code, nkt_status: 'not_found' }).write();
-        results.push({ code, status: 'not_found' });
+  // Раньше запросы к nct.gov.kz шли строго по одному (for..await) — пакет
+  // из полусотни кодов с 15с таймаутом на каждый (см. nktFetch) мог тянуться
+  // минутами и упираться в таймаут прокси/клиента. Коды независимы друг от
+  // друга, гоняем с ограниченной параллельностью — не все 50 разом одним
+  // залпом на внешний госсервис. Гонки по db.get('productAliases') тоже нет:
+  // между await и записью для каждого кода нет других await, так что этот
+  // синхронный кусок (чтение existing → write) не может быть прерван другим
+  // воркером, а разные коды пишут разные записи.
+  const CONCURRENCY = 5;
+  const results = new Array(codes.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < codes.length) {
+      const i = nextIndex++;
+      const code = codes[i];
+      const p = productByCode[code];
+      if (!p) { results[i] = { code, status: 'error', error: 'Товар не найден' }; continue; }
+      if (!p.barcode) { results[i] = { code, status: 'no_barcode' }; continue; }
+      try {
+        const found = normalizeNktResults(await nktSearchByGtin(p.barcode));
+        if (found.length > 0 && found[0].ntin_code) {
+          const existing = db.get('productAliases').find({ code }).value();
+          const patch = { nkt_code: found[0].ntin_code, nkt_status: 'matched' };
+          if (existing) db.get('productAliases').find({ code }).assign(patch).write();
+          else db.get('productAliases').push({ code, ...patch }).write();
+          results[i] = { code, status: 'matched', nkt_code: found[0].ntin_code };
+        } else {
+          const existing = db.get('productAliases').find({ code }).value();
+          if (existing) db.get('productAliases').find({ code }).assign({ nkt_status: 'not_found' }).write();
+          else db.get('productAliases').push({ code, nkt_status: 'not_found' }).write();
+          results[i] = { code, status: 'not_found' };
+        }
+      } catch (e) {
+        results[i] = { code, status: 'error', error: e.message };
       }
-    } catch (e) {
-      results.push({ code, status: 'error', error: e.message });
     }
   }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, codes.length) }, worker));
   res.json({ results });
 });
 
@@ -1763,16 +1786,25 @@ app.post('/api/returns', authMiddleware, (req, res) => {
   db.get('returns').push(ret).write();
   db.set('nextReturnId', id + 1).write();
 
-  // Товар физически вернулся на склад — приходуем остаток сразу и напрямую
-  // (тем же способом, что и приход, см. POST /api/receipts ниже), а не
-  // временной компенсацией резерва: 1С остатки больше не синхронизирует,
-  // так что ждать было бы нечего.
+  // Товар физически вернулся на склад — приходуем остаток сразу и напрямую.
+  // Весовой товар (is_weight_item): it.qty здесь — кг (см. комментарий на
+  // cleanItems выше), а не короба́, поэтому идёт ТОЛЬКО в кг-пул
+  // (stock.weight_kg), никогда в stock.qty — форма возврата не спрашивает,
+  // сколько именно коробов физически вернулось (частичный по весу возврат
+  // необязательно кратен целому коробу), так что короба́ трогать нечем; их
+  // при необходимости поправит склад вручную через "Остатки". Раньше при
+  // отсутствии настроенного кг-пула (weight_kg===null) кг-число ошибочно
+  // прибавлялось прямо в stock.qty, задваивая единицы измерения.
   const stockCol = db.get('stock');
   cleanItems.forEach(it => {
     if (!it.code) return;
     const rec = stockCol.find({ code: it.code }).value();
-    if (it.is_weight_item && rec && rec.weight_kg != null) {
-      stockCol.find({ code: it.code }).assign({ weight_kg: (Number(rec.weight_kg) || 0) + it.qty }).write();
+    if (it.is_weight_item) {
+      if (rec) {
+        stockCol.find({ code: it.code }).assign({ weight_kg: (rec.weight_kg != null ? Number(rec.weight_kg) : 0) + it.qty }).write();
+      } else {
+        stockCol.push({ code: it.code, qty: 0, weight_kg: it.qty }).write();
+      }
       return;
     }
     if (rec) {
@@ -1791,14 +1823,17 @@ app.delete('/api/returns/:id', authMiddleware, (req, res) => {
   const ret = db.get('returns').find({ id }).value();
   if (!ret) return res.status(404).json({ error: 'Возврат не найден' });
   // Откатываем остаток обратно — возврат приходовал его напрямую при
-  // создании (см. выше), удаление должно симметрично его списать.
+  // создании (см. выше — весовой товар только в кг-пул), удаление должно
+  // симметрично списать именно то, что было приходовано.
   const stockCol = db.get('stock');
   (ret.items || []).forEach(it => {
     if (!it.code) return;
     const rec = stockCol.find({ code: it.code }).value();
     if (!rec) return;
-    if (it.is_weight_item && rec.weight_kg != null) {
-      stockCol.find({ code: it.code }).assign({ weight_kg: Math.max(0, (Number(rec.weight_kg) || 0) - (Number(it.qty) || 0)) }).write();
+    if (it.is_weight_item) {
+      if (rec.weight_kg != null) {
+        stockCol.find({ code: it.code }).assign({ weight_kg: Math.max(0, Number(rec.weight_kg) - (Number(it.qty) || 0)) }).write();
+      }
       return;
     }
     stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - (Number(it.qty) || 0)) }).write();

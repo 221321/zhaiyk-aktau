@@ -489,6 +489,21 @@ function DebtsPanel({ readOnly }) {
   }, []);
   useEffect(()=>{ loadDebts(); }, []);
 
+  // /api/debts отдаёт по одной строке на каждую накладную/продажу с долгом —
+  // если один и тот же должник числится в двух заявках, ниже будет две
+  // отдельные карточки (это осознанно: у каждой своя дата/сумма/накладная и
+  // гасится долг тоже по накладной отдельно). Чтобы не потерять из виду,
+  // что это один и тот же клиент, считаем сумму и количество по имени и
+  // показываем сводку прямо в каждой карточке этого клиента.
+  const totalsByClient = useMemo(() => {
+    const totals = {}, counts = {};
+    debts.forEach(d => {
+      totals[d.client_name] = (totals[d.client_name]||0) + d.remaining;
+      counts[d.client_name] = (counts[d.client_name]||0) + 1;
+    });
+    return { totals, counts };
+  }, [debts]);
+
   const settle = async (d) => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
     const amount = Number(settleAmounts[key] ?? d.remaining);
@@ -517,6 +532,7 @@ function DebtsPanel({ readOnly }) {
               <div>
                 <p style={S.cardTitle}>{d.client_name} {d.overdue&&<span style={{color:C.red,fontSize:13,fontWeight:700}}>· ПРОСРОЧЕН</span>}</p>
                 <p style={{...S.cardSub,color:d.overdue?"#B91C1C":C.textSub}}>{d.order_id?`№ ${d.order_id}`:`Касса № ${d.sale_id}`} · {d.date} · {d.days_ago===0?'сегодня':`${d.days_ago} ${daysWord(d.days_ago)}`}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
+                {totalsByClient.counts[d.client_name]>1&&<p style={{margin:"2px 0 0",fontSize:13,fontWeight:700,color:C.textFaint}}>Всего по клиенту: {totalsByClient.totals[d.client_name].toLocaleString()} ₸ · {totalsByClient.counts[d.client_name]} накладным</p>}
               </div>
               <p style={{margin:0,fontWeight:800,fontFamily:FH,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
             </div>
