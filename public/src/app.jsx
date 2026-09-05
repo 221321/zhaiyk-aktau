@@ -4148,6 +4148,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [products, setProducts] = useState([]);
+  const loadProducts = useCallback(async () => {
+    try {
+      const data = await fetch('/api/products').then(r => r.json());
+      setProducts(data);
+    } catch(e) {}
+  }, []);
+  useEffect(() => { loadProducts(); }, []);
   const [aliasSearch, setAliasSearch] = useState("");
   const [catalogAdminSearch, setCatalogAdminSearch] = useState("");
   const [catalogAdminSection, setCatalogAdminSection] = useState("");
@@ -4399,15 +4406,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
 
   useEffect(() => { loadOrders(); }, []);
   useRefetchOnVisible(loadOrders);
-
-  const loadProducts = useCallback(async () => {
-    try {
-      const data = await fetch('/api/products').then(r => r.json());
-      setProducts(data);
-    } catch(e) {}
-  }, []);
-
-  useEffect(() => { loadProducts(); }, []);
 
   // Разделы каталога — явный список (можно завести раздел заранее, до
   // того как в него попадёт товар), плюс объединяем с тем, что уже
