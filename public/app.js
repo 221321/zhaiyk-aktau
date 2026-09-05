@@ -11,6 +11,29 @@ const FH = "'Manrope', sans-serif"; /* шрифт заголовков и циф
 
 const TIME_SLOTS = ["До обеда (09:00 – 14:00)", "После обеда (14:00 – 19:00)"];
 const PICKUP_SLOT = "Самовывоз";
+
+// Contact Picker API — реальный выбор контакта из телефонной книги. Есть
+// только в Chrome на Android (за защищённым контекстом, HTTPS); в Safari
+// на iPhone его нет вообще ни в каком виде (ограничение Apple, не наше) —
+// там navigator.contacts просто не существует, кнопку не показываем.
+const CONTACT_PICKER_SUPPORTED = typeof navigator !== 'undefined' && !!navigator.contacts && !!navigator.contacts.select;
+async function pickPhoneContact(onPicked) {
+  try {
+    const picked = await navigator.contacts.select(['name', 'tel'], {
+      multiple: false
+    });
+    if (!picked || !picked.length) return;
+    const c = picked[0];
+    const name = c.name && c.name[0] || '';
+    const tel = c.tel && c.tel[0] || '';
+    if (name || tel) onPicked({
+      name,
+      tel
+    });
+  } catch (e) {
+    // пользователь закрыл системный диалог выбора — это не ошибка
+  }
+}
 const SL = {
   new: "Ожидает",
   in_transit: "В работе",
@@ -3731,6 +3754,39 @@ function SalesCabinet({
   }, /*#__PURE__*/React.createElement("label", {
     style: S.label
   }, "\u041A\u043E\u043D\u0442\u0430\u043A\u0442\u043D\u043E\u0435 \u043B\u0438\u0446\u043E"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      flex: 1
+    },
+    placeholder: "\u0418\u043C\u044F",
+    value: contactName,
+    onChange: e => setContactName(e.target.value)
+  }), CONTACT_PICKER_SUPPORTED && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    title: "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u043E\u0432",
+    onClick: () => pickPhoneContact(({
+      name,
+      tel
+    }) => {
+      if (name) setContactName(name);
+      if (tel) setContactPhone(tel);
+    }),
+    style: {
+      flexShrink: 0,
+      width: 48,
+      border: `1.5px solid ${C.border}`,
+      borderRadius: 10,
+      background: C.white,
+      fontSize: 19,
+      cursor: "pointer"
+    }
+  }, "\uD83D\uDCC7")), /*#__PURE__*/React.createElement("div", {
     style: {
       position: "relative"
     }
