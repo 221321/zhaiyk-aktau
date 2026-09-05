@@ -570,7 +570,10 @@ function DebtsPanel({ readOnly }) {
     debts.forEach(d => { if (d.sales_id) map[d.sales_id] = d.sales_name; });
     return Object.entries(map).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
   }, [debts]);
-  const visibleDebts = salesFilter ? debts.filter(d=>String(d.sales_id)===salesFilter) : debts;
+  // Кассовые долги (sale_id, sales_id всегда null — см. сервер) не привязаны
+  // ни к какому торговому, поэтому остаются видны при любом фильтре, а не
+  // прячутся вместе с заявками остальных торговых.
+  const visibleDebts = salesFilter ? debts.filter(d=>!d.sales_id||String(d.sales_id)===salesFilter) : debts;
 
   const settle = async (d) => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
@@ -2673,8 +2676,13 @@ function DriverCabinet({ user, onLogout }) {
   // водителя).
   const queueAll = orders.filter(o=>((o.status==="new"&&o.source!=="store")||o.status==="in_transit")&&o.time_slot!==PICKUP_SLOT);
   const queueNew = orders.filter(o=>o.status==="new"&&o.source!=="store"&&o.time_slot!==PICKUP_SLOT);
-  const queueActive = orders.filter(o=>o.status==="in_transit");
-  const myActive = orders.filter(o=>o.status==="in_transit"&&o.driver_id===user.id);
+  // Та же оговорка про самовывоз, что и у queueAll/queueNew выше — ничего
+  // от водителя не должно быть видно нигде в его кабинете, даже если
+  // такую заявку всё же вручную назначили конкретному водителю (сервер это
+  // не запрещает, но раз убираем самовывоз из очереди — убираем везде
+  // последовательно, а не только там, откуда её обычно берут).
+  const queueActive = orders.filter(o=>o.status==="in_transit"&&o.time_slot!==PICKUP_SLOT);
+  const myActive = orders.filter(o=>o.status==="in_transit"&&o.driver_id===user.id&&o.time_slot!==PICKUP_SLOT);
 
   const myDoneAll = orders.filter(o=>o.driver_id===user.id&&o.date>=driverDateFrom&&o.date<=driverDateTo&&["delivered","cancelled","returned"].includes(o.status));
   const myDelivered = myDoneAll.filter(o=>o.status==="delivered");

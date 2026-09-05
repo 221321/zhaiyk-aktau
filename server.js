@@ -706,7 +706,8 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     // другой пул), поэтому в кг-пуле она ещё ничего не резервирует: дельта
     // против кг-остатка — это весь вводимый вес. После подтверждения qty
     // уже в кг сам, и повторная правка — обычная дельта.
-    const oldKgQty = item.weight_confirmed ? (Number(item.qty) || 0) : 0;
+    const wasConfirmed = !!item.weight_confirmed;
+    const oldKgQty = wasConfirmed ? (Number(item.qty) || 0) : 0;
     const deltaKg = newWeight - oldKgQty;
     // Кг-остаток известен только если склад заполнил "Вес, кг" в "Остатках"
     // (PUT /api/stock/:code) — если нет, сверять не с чем, пропускаем
@@ -741,7 +742,10 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
       code,
       item_name: item.name,
       weight: newWeight,
-      prev_weight: oldKgQty || null,
+      // Именно "было ли уже подтверждение", а не "!= 0" — иначе правка
+      // после факт. взвешивания в 0 кг (пустой короб и т.п.) выглядела бы
+      // в истории как самое первое взвешивание, а не как правка с 0.
+      prev_weight: wasConfirmed ? oldKgQty : null,
       weighed_by_id: req.user.id,
       weighed_by_name: req.user.name,
       weighed_at: item.weighed_at,
