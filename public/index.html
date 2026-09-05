@@ -142,6 +142,12 @@ async function apiCall(method, path, body) {
       removeToken();
       try { sessionStorage.setItem('forcedLogoutMessage', data.error || 'Сессия завершена, войдите заново'); } catch(e) {}
       window.location.reload();
+      // reload() не прерывает выполнение немедленно — если тут же бросить
+      // ошибку, она долетит до вызвавшего кода (там обычно catch(e){alert(e.message)})
+      // и покажет блокирующий alert с той же ошибкой прямо перед уходом на
+      // экран входа, где она и так покажется из sessionStorage. Никогда не
+      // резолвим/не отклоняем — страница всё равно сейчас перезагрузится.
+      return new Promise(() => {});
     }
     throw new Error(data.error || 'Ошибка сервера');
   }
@@ -497,6 +503,18 @@ function daysWord(n) {
 function stockAmount(p) {
   return p.priced_by_weight ? p.stock_weight_kg : p.stock;
 }
+// Общая формула для обоих мест, где кг-остаток весового товара показывается
+// персоналу в виде "≈ N кор (W кг)" (stockLabel ниже и строка товара в
+// SalesCabinet, у которой поля называются иначе, чем в карточке товара) —
+// один разошедшийся дубль формулы уже приводил к рассинхрону округления.
+function formatWeightStock(amountKg, avgBoxWeight) {
+  if (amountKg == null) return null;
+  if (avgBoxWeight > 0) {
+    const boxes = Math.floor(amountKg / avgBoxWeight);
+    return `≈ ${boxes} кор (${amountKg} кг)`;
+  }
+  return `${amountKg} кг`;
+}
 function stockLabel(p) {
   const amt = stockAmount(p);
   if (amt == null) return null;
@@ -506,11 +524,7 @@ function stockLabel(p) {
   // каждый раз разный, это только грубая прикидка, не точное число),
   // считаем оценку коробов от актуального кг-остатка. Без этого поля
   // показываем как есть, в кг.
-  if (p.avg_box_weight > 0) {
-    const boxes = Math.floor(amt / p.avg_box_weight);
-    return `≈ ${boxes} кор (${amt} кг)`;
-  }
-  return `${amt} кг`;
+  return formatWeightStock(amt, p.avg_box_weight);
 }
 function stockIsOut(p) {
   // Развесной товар без настроенного кг-пула (weight_kg ещё ни разу не
@@ -1969,7 +1983,7 @@ function SalesCabinet({ user, token, onLogout }) {
                     <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:16,color:C.textFaint}}>×</button>
                   </div>
                   {line.pricedByWeight
-                    ? (line.stockWeightKg!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.avgBoxWeight>0?`≈ ${Math.floor(line.stockWeightKg/line.avgBoxWeight)} кор (${line.stockWeightKg} кг)`:`${line.stockWeightKg} кг`}</div>)
+                    ? (line.stockWeightKg!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {formatWeightStock(line.stockWeightKg,line.avgBoxWeight)}</div>)
                     : (line.stock!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stock}</div>)}
                   {line.pricedByWeight&&(
                     <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>
