@@ -1728,6 +1728,38 @@ app.post('/api/stock/sync', (req, res) => {
   res.json({ success: true, count });
 });
 
+// История движения по товару — по просьбе владельца: "был остаток, торговый
+// продал минус, остаток после заявки" одним взглядом, без ручного разбора
+// db.json. Ничего нового не пишем в базу — заявки уже хранят всё нужное
+// (код, кол-во, дату, кто оформил), просто собираем их по коду в одном
+// месте вместо отдельного отчёта на каждую заявку.
+app.get('/api/products/:code/history', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'warehouse', 'operator'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const code = req.params.code;
+  const orders = db.get('orders').value();
+  const rows = [];
+  orders.forEach(o => {
+    const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
+    const it = items.find(x => x.code === code);
+    if (!it) return;
+    rows.push({
+      order_id: o.id,
+      date: o.date,
+      sales_name: o.sales_name || null,
+      client_name: o.client_name || null,
+      status: o.status,
+      qty: it.qty != null ? it.qty : null,
+      boxes: it.boxes != null ? it.boxes : null,
+      is_weight_item: !!it.is_weight_item,
+      weight_confirmed: !!it.weight_confirmed,
+    });
+  });
+  rows.sort((a, b) => (b.order_id || 0) - (a.order_id || 0));
+  res.json(rows.slice(0, 100));
+});
+
 // Ручная правка остатка со склада — ЗАПРЕЩЕНА по решению владельца:
 // остатки (и короба́, и кг для развесного товара) теперь полностью и
 // единственно приходят из 1С (см. /api/stock/sync выше, покрывает оба

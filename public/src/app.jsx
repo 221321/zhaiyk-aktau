@@ -2935,6 +2935,46 @@ function ProductAliasesPanel({ desktop }) {
 // WarehouseCabinet), вынесен в отдельный самодостаточный компонент по
 // той же причине, что и ProductAliasesPanel выше: старшему торговому
 // представителю нужен тот же экран у себя в кабинете.
+// История движения по товару — раскрывается прямо в карточке на "Остатках"
+// (см. StockPanel и её копию в WarehouseCabinet ниже). Список заявок,
+// которые трогали этот код (см. GET /api/products/:code/history) — ничего
+// не хранится отдельно, это уже существующие данные заявок, просто
+// собранные по коду товара, чтобы было видно "кто и сколько убавил".
+function ProductHistoryToggle({ code }) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const load = async () => {
+    setLoading(true);
+    try { setRows(await apiCall('GET', `/api/products/${code}/history`)); } catch(e) { setRows([]); }
+    setLoading(false);
+  };
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && rows === null) load();
+  };
+  return (
+    <div style={{marginTop:8}}>
+      <button type="button" onClick={toggle} style={{background:"none",border:"none",padding:0,color:C.navy,fontSize:13,fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>
+        {open?"Скрыть историю":"История по товару"}
+      </button>
+      {open&&(loading
+        ? <p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Загрузка...</p>
+        : (rows&&rows.length>0)
+          ? <div style={{marginTop:6,borderTop:`1px solid ${C.border}`,paddingTop:6}}>
+              {rows.map(r=>(
+                <p key={r.order_id} style={{margin:"0 0 4px",fontSize:13,color:C.textSub}}>
+                  №{r.order_id} · {r.date} · {r.sales_name||r.client_name||'—'} · {SL[r.status]||r.status} · {r.is_weight_item ? (r.weight_confirmed ? `${r.qty} кг` : `≈${r.boxes||0} кор`) : `${r.qty}`}
+                </p>
+              ))}
+            </div>
+          : <p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Заявок с этим товаром не было</p>
+      )}
+    </div>
+  );
+}
+
 function StockPanel() {
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
@@ -3025,6 +3065,7 @@ function StockPanel() {
               </div>
               {p.stock_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_raw} · в заявках: {p.stock_reserved} · доступно: {p.stock}</p>}
               {p.stock_weight_kg_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_weight_kg} кг · в заявках: {p.stock_weight_kg_reserved} кг · доступно: {Math.max(0,p.stock_weight_kg-p.stock_weight_kg_reserved)} кг</p>}
+              <ProductHistoryToggle code={p.code}/>
             </div>
           );
         })
@@ -5909,6 +5950,7 @@ function WarehouseCabinet({ user, onLogout }) {
                   </div>
                   {p.stock_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_raw} · в заявках: {p.stock_reserved} · доступно: {p.stock}</p>}
                   {p.stock_weight_kg_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_weight_kg} кг · в заявках: {p.stock_weight_kg_reserved} кг · доступно: {Math.max(0,p.stock_weight_kg-p.stock_weight_kg_reserved)} кг</p>}
+                  <ProductHistoryToggle code={p.code}/>
                 </div>
               );
             })
