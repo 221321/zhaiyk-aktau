@@ -304,11 +304,18 @@ app.post('/api/orders', authMiddleware, (req, res) => {
     };
   });
 
+  // Развесной товар (priced_by_weight): 1С коробов не считает вообще, только
+  // кг (см. /api/stock/sync ниже) — короба́ в stock.qty никем не
+  // поддерживаются, проверять по ним нечего. Торговый указывает ПРИМЕРНОЕ
+  // кол-во при оформлении, точный расход кг выяснится и проверится при
+  // взвешивании на складе (см. POST /api/orders/weights и
+  // computeAvailableWeightKg) — решение владельца, блокировать заявку на
+  // этапе оформления по коробам не нужно.
   const availableMap = computeAvailableStock();
   for (const it of finalItems) {
-    if (!it.code) continue;
+    if (!it.code || it.is_weight_item) continue;
     const avail = availableMap[it.code] != null ? availableMap[it.code] : 0;
-    const checkQty = it.is_weight_item ? (it.boxes || 0) : (Number(it.qty) || 0);
+    const checkQty = Number(it.qty) || 0;
     if (checkQty > avail) {
       return res.status(400).json({ error: `Недостаточно остатка: "${it.name}" (доступно ${avail})` });
     }
@@ -1489,6 +1496,17 @@ app.post('/api/stock/sync', (req, res) => {
   // раз синхронно сериализует и перезаписывает ВЕСЬ db.json (включая
   // заявки/приходы/клиентов), не только stock; запись на каждый код
   // означала бы столько же блокирующих операций записи файла подряд.
+  //
+  // 1С по развесным товарам (priced_by_weight) короба́ вообще не считает —
+  // только кг (развес, вес каждый раз разный). Значит для них присланное
+  // число — это кг, и должно лечь в weight_kg (кг-пул, который иначе
+  // заполняет вручную склад на "Остатках"), а не в qty (короба́) — иначе кг
+  // попадут в поле коробов и всё перепутается. Короба́ весового товара 1С не
+  // присылает вовсе; qty для таких кодов не трогаем (см. POST /api/orders —
+  // проверка остатка по коробам для весового товара снята сознательно, это
+  // лишь примерное кол-во при оформлении заявки).
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
   const stock = db.get('stock').value();
   const stockByCode = {};
   stock.forEach(s => { stockByCode[s.code] = s; });
@@ -1496,12 +1514,15 @@ app.post('/api/stock/sync', (req, res) => {
   (items || []).forEach(it => {
     if (!it || !it.code) return;
     const qty = Number(it.qty) || 0;
-    if (stockByCode[it.code]) {
-      stockByCode[it.code].qty = qty;
+    const isWeightItem = !!(aliasMap[it.code] && aliasMap[it.code].priced_by_weight);
+    const rec = stockByCode[it.code];
+    if (rec) {
+      if (isWeightItem) rec.weight_kg = qty;
+      else rec.qty = qty;
     } else {
-      const rec = { code: it.code, qty };
-      stock.push(rec);
-      stockByCode[it.code] = rec;
+      const newRec = isWeightItem ? { code: it.code, qty: 0, weight_kg: qty } : { code: it.code, qty };
+      stock.push(newRec);
+      stockByCode[it.code] = newRec;
     }
     count++;
   });
