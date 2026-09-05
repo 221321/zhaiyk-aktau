@@ -1,7 +1,8 @@
-const CACHE_NAME = 'zhaiyk-v2';
+const CACHE_NAME = 'zhaiyk-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
+  '/app.js',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png'
