@@ -6,6 +6,24 @@ const FH = "'Manrope', sans-serif"; /* шрифт заголовков и циф
 const TIME_SLOTS = ["До обеда (09:00 – 14:00)", "После обеда (14:00 – 19:00)"];
 const PICKUP_SLOT = "Самовывоз";
 
+// Contact Picker API — реальный выбор контакта из телефонной книги. Есть
+// только в Chrome на Android (за защищённым контекстом, HTTPS); в Safari
+// на iPhone его нет вообще ни в каком виде (ограничение Apple, не наше) —
+// там navigator.contacts просто не существует, кнопку не показываем.
+const CONTACT_PICKER_SUPPORTED = typeof navigator !== 'undefined' && !!navigator.contacts && !!navigator.contacts.select;
+async function pickPhoneContact(onPicked) {
+  try {
+    const picked = await navigator.contacts.select(['name', 'tel'], { multiple: false });
+    if (!picked || !picked.length) return;
+    const c = picked[0];
+    const name = (c.name && c.name[0]) || '';
+    const tel = (c.tel && c.tel[0]) || '';
+    if (name || tel) onPicked({ name, tel });
+  } catch (e) {
+    // пользователь закрыл системный диалог выбора — это не ошибка
+  }
+}
+
 const SL = { new: "Ожидает", in_transit: "В работе", delivered: "Доставлено", cancelled: "Отказ при получении", returned: "Возврат", revoked: "Отозвана" };
 const SC = { new: "#DA1A10", in_transit: "#B45309", delivered: "#15803D", cancelled: "#DC2626", returned: "#7C3AED", revoked: "#6B7280" };
 const SB = { new: "#FCEBEA", in_transit: "#FBF3E6", delivered: "#EAF5EE", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6" };
@@ -1727,6 +1745,12 @@ function SalesCabinet({ user, token, onLogout }) {
             </div>
             <div style={S.formGroup}>
               <label style={S.label}>Контактное лицо</label>
+              <div style={{display:"flex",gap:6,marginBottom:8}}>
+                <input style={{...S.input,flex:1}} placeholder="Имя" value={contactName} onChange={e=>setContactName(e.target.value)}/>
+                {CONTACT_PICKER_SUPPORTED&&(
+                  <button type="button" title="Выбрать из контактов" onClick={()=>pickPhoneContact(({name,tel})=>{if(name)setContactName(name);if(tel)setContactPhone(tel);})} style={{flexShrink:0,width:48,border:`1.5px solid ${C.border}`,borderRadius:10,background:C.white,fontSize:19,cursor:"pointer"}}>📇</button>
+                )}
+              </div>
               <div style={{position:"relative"}}>
                 <input style={{...S.input,paddingRight:contactPhone?38:14}} placeholder="Телефон" value={contactPhone} onChange={e=>setContactPhone(e.target.value)}/>
                 {contactPhone&&(
