@@ -7,6 +7,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
     "start:prod": "NODE_ENV=production node server.js",
+    "build": "node scripts/build-client.js",
     "backup": "bash scripts/backup-db.sh",
     "cleanup:test-orders": "node scripts/cleanup-test-orders.js"
   },
@@ -22,6 +23,10 @@
     "lowdb": "^1.0.0",
     "pg": "^8.22.0",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/preset-react": "^7.29.7"
   },
   "allowScripts": {
     "better-sqlite3@12.11.1": true
