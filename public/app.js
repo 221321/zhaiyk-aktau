@@ -6592,14 +6592,20 @@ function StockPanel() {
         fontSize: 13,
         color: C.textFaint
       }
-    }, p.stock_unit || ''))), p.stock_weight_kg != null && /*#__PURE__*/React.createElement("p", {
+    }, p.stock_unit || ''))), p.stock_reserved > 0 && /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "6px 0 0",
+        fontSize: 13,
+        color: C.textFaint
+      }
+    }, "\u0418\u0437 1\u0421: ", p.stock_raw, " \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", p.stock_reserved, " \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", p.stock), p.stock_weight_kg != null && /*#__PURE__*/React.createElement("p", {
       style: {
         margin: "6px 0 0",
         fontSize: 14,
         color: C.textSub,
         fontWeight: 600
       }
-    }, "\u2696\uFE0F \u0412\u0435\u0441: ", p.stock_weight_kg, " \u043A\u0433"));
+    }, "\u2696\uFE0F \u0412\u0435\u0441: ", p.stock_weight_kg, " \u043A\u0433", p.stock_weight_kg_reserved > 0 ? ` (в заявках: ${p.stock_weight_kg_reserved} кг, доступно: ${Math.max(0, p.stock_weight_kg - p.stock_weight_kg_reserved)} кг)` : ''));
   }));
 }
 
