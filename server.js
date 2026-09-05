@@ -1728,10 +1728,10 @@ function computeAvailableStock() {
   const stockMap = {};
   stock.forEach(s => { stockMap[s.code] = s.qty; });
 
-  // stock.qty — уже актуальный физический остаток (приход/продажа/доставка/
-  // возврат меняют его напрямую, каждый в своём эндпоинте, см. POST
-  // /api/receipts, POST /api/sales, PUT /api/orders/:id/status, POST
-  // /api/returns). Резервировать здесь нужно только то, что ещё едет, но не
+  // stock.qty — уже актуальный физический остаток (приход теперь только из
+  // 1С через /api/stock/sync; продажа/доставка/возврат меняют его напрямую,
+  // каждый в своём эндпоинте, см. POST /api/sales, PUT /api/orders/:id/status,
+  // POST /api/returns). Резервировать здесь нужно только то, что ещё едет, но не
   // доставлено (new/in_transit) — иначе одно и то же можно было бы продать
   // дважды, пока заявка в пути; доставленные/отменённые/возвращённые заявки
   // на остаток уже не влияют (либо списаны напрямую, либо ничего не брали).
@@ -2029,90 +2029,6 @@ app.delete('/api/returns/:id', authMiddleware, (req, res) => {
     stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - (Number(it.qty) || 0)) }).write();
   });
   db.get('returns').remove({ id }).write();
-  res.json({ success: true });
-});
-
-// ===== ПРИХОД ТОВАРА (журнал; остаток больше НЕ меняет) =====
-// По решению владельца приход товара снова оформляется в 1С (менеджером), а
-// остаток на сайт приходит через /api/stock/sync — поэтому этот эндпоинт
-// больше не трогает stock.qty/weight_kg (иначе один и тот же приход задвоился
-// бы: один раз здесь, второй раз — следующим синком из 1С). Оставлен только
-// как журнал/история на сайте, на случай если он ещё нужен для отчётности.
-db.defaults({ receipts: [], nextReceiptId: 1 }).write();
-
-app.get('/api/receipts', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'operator', 'warehouse'].includes(req.user.role)) {
-    return res.status(403).json({ error: 'Нет доступа' });
-  }
-  res.json(db.get('receipts').value().slice().reverse());
-});
-
-app.post('/api/receipts', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'warehouse'].includes(req.user.role)) {
-    return res.status(403).json({ error: 'Нет доступа' });
-  }
-  const { items, supplier, supplierCode, comment, date } = req.body;
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Укажите хотя бы одну позицию прихода' });
-  }
-  const cleanItems = [];
-  for (const it of items) {
-    const qty = Number(it.qty) || 0;
-    // Для весового товара (короб/тара, а фактический вес — отдельный кг-пул,
-    // см. is_weight_item в заявках) приход может прийти и коробами, и кг, и
-    // тем и другим сразу — склад мог получить только довес без новых
-    // коробов, или наоборот. Для обычного товара короба-поле остаётся
-    // единственным количеством, как раньше.
-    const weightKg = (it.weightKg !== undefined && it.weightKg !== '' && it.weightKg !== null) ? Number(it.weightKg) : null;
-    const name = (it.name || '').trim();
-    // Код обязателен — без него нечего увеличивать в остатке (в отличие от
-    // возвратов, у прихода нет "свободного формата" без привязки к товару).
-    if (!name || !it.code) continue;
-    if (qty <= 0 && !(weightKg > 0)) continue;
-    cleanItems.push({
-      code: it.code,
-      name,
-      qty,
-      weight_kg: weightKg,
-      is_weight_item: !!it.isWeightItem,
-      purchase_price: (it.purchasePrice !== undefined && it.purchasePrice !== '' && it.purchasePrice !== null) ? Number(it.purchasePrice) : null,
-    });
-  }
-  if (cleanItems.length === 0) return res.status(400).json({ error: 'Нет корректных позиций для прихода' });
-
-  // Остаток этот приход больше не трогает — см. комментарий у db.defaults
-  // выше: приход теперь оформляется в 1С, а остаток сайту приходит синком.
-
-  const id = db.get('nextReceiptId').value();
-  const receipt = {
-    id,
-    items: cleanItems,
-    supplier: (supplier || '').trim(),
-    // Поставщик — необязательная привязка к контрагенту из того же
-    // справочника, что и покупатели (см. GET /api/clients): 1С ведёт
-    // контрагентов одним списком без разделения ролей. Код сохраняется
-    // только если реально выбрали из подсказки — свободный текст (например,
-    // разовый поставщик без карточки) остаётся просто строкой без кода.
-    supplier_code: supplierCode || '',
-    comment: (comment || '').trim(),
-    date: date || new Date().toISOString().slice(0, 10),
-    created_by_id: req.user.id,
-    created_by_name: req.user.name,
-    created_at: new Date().toISOString(),
-  };
-  db.get('receipts').push(receipt).write();
-  db.set('nextReceiptId', id + 1).write();
-  res.json(receipt);
-});
-
-app.delete('/api/receipts/:id', authMiddleware, (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Только администратор может удалять приходы' });
-  const id = parseInt(req.params.id);
-  const receipt = db.get('receipts').find({ id }).value();
-  if (!receipt) return res.status(404).json({ error: 'Приход не найден' });
-  // Приход больше не меняет остаток (см. комментарий у db.defaults выше),
-  // поэтому удаление записи журнала теперь ничего не откатывает в stock.
-  db.get('receipts').remove({ id }).write();
   res.json({ success: true });
 });
 
