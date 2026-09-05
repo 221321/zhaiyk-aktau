@@ -1459,16 +1459,29 @@ app.post('/api/stock/sync', (req, res) => {
   if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const stockCol = db.get('stock');
+  // Мутируем массив в памяти и пишем на диск один раз в конце — 1С может
+  // прислать разом весь каталог (тысячи кодов), а FileSync.write() каждый
+  // раз синхронно сериализует и перезаписывает ВЕСЬ db.json (включая
+  // заявки/приходы/клиентов), не только stock; запись на каждый код
+  // означала бы столько же блокирующих операций записи файла подряд.
+  const stock = db.get('stock').value();
+  const stockByCode = {};
+  stock.forEach(s => { stockByCode[s.code] = s; });
+  let count = 0;
   (items || []).forEach(it => {
     if (!it || !it.code) return;
-    if (stockCol.find({ code: it.code }).value()) {
-      stockCol.find({ code: it.code }).assign({ qty: it.qty }).write();
+    const qty = Number(it.qty) || 0;
+    if (stockByCode[it.code]) {
+      stockByCode[it.code].qty = qty;
     } else {
-      stockCol.push({ code: it.code, qty: it.qty }).write();
+      const rec = { code: it.code, qty };
+      stock.push(rec);
+      stockByCode[it.code] = rec;
     }
+    count++;
   });
-  res.json({ success: true, count: (items || []).length });
+  db.write();
+  res.json({ success: true, count });
 });
 
 // Зав. склад правит остаток вручную — 1С шлёт только qty в её единице
