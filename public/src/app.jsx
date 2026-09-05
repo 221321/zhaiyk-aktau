@@ -2931,6 +2931,128 @@ function ProductAliasesPanel({ desktop }) {
   );
 }
 
+// Скачать массив объектов как CSV (Excel открывает CSV нативно, без
+// сторонних библиотек для .xlsx). BOM в начале — чтобы Excel сразу понял
+// кодировку UTF-8 и не превратил кириллицу в кракозябры.
+function downloadCsv(filename, rows, columns) {
+  const esc = (v) => {
+    const s = v == null ? '' : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [columns.map(c => esc(c.label)).join(',')];
+  rows.forEach(r => lines.push(columns.map(c => esc(c.get(r))).join(',')));
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Отчёт "Движение остатков" — по просьбе владельца: "был остаток, торговый
+// продал минус, остаток после заявки" отдельным экраном с выгрузкой в
+// Excel, а не только раскрывающейся строкой в карточке товара (см.
+// ProductHistoryToggle ниже — она осталась для быстрого взгляда по одному
+// товару, этот отчёт — для полного списка за период). Ничего нового не
+// пишем в базу — те же заявки, см. GET /api/stock-movements.
+function StockMovementsReport({ onClose }) {
+  const todayStr = new Date().toISOString().slice(0,10);
+  const [from, setFrom] = useState(todayStr);
+  const [to, setTo] = useState(todayStr);
+  const [search, setSearch] = useState('');
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiCall('GET', `/api/stock-movements?from=${from}&to=${to}`);
+      setRows(data);
+    } catch(e) { setRows([]); }
+    setLoading(false);
+  }, [from, to]);
+  useEffect(() => { load(); }, [load]);
+
+  const q = search.trim().toLowerCase();
+  const filtered = rows.filter(r => !q || (r.name||'').toLowerCase().includes(q) || (r.code||'').includes(q));
+
+  const qtyLabel = (r) => r.is_weight_item ? (r.weight_confirmed ? `${r.qty} кг` : `≈${r.boxes||0} кор`) : `${r.qty}`;
+
+  const exportCsv = () => downloadCsv(
+    `ostatki_dvizhenie_${from}_${to}.csv`,
+    filtered,
+    [
+      { label: 'Дата', get: r => r.date },
+      { label: 'Заявка №', get: r => r.order_id },
+      { label: 'Код', get: r => r.code },
+      { label: 'Товар', get: r => r.name },
+      { label: 'Торговый/Магазин', get: r => r.sales_name || r.client_name || '' },
+      { label: 'Статус', get: r => SL[r.status] || r.status },
+      { label: 'Количество', get: r => qtyLabel(r) },
+    ]
+  );
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
+      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:900,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
+        <div style={{...S.row,marginBottom:14}}>
+          <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>📊 Движение остатков</p>
+          <button style={S.btnSecondary} onClick={onClose}>✕</button>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+          <div>
+            <label style={S.label}>С</label>
+            <input type="date" style={S.input} value={from} onChange={e=>setFrom(e.target.value)}/>
+          </div>
+          <div>
+            <label style={S.label}>По</label>
+            <input type="date" style={S.input} value={to} onChange={e=>setTo(e.target.value)}/>
+          </div>
+          <div style={{flex:1,minWidth:180}}>
+            <label style={S.label}>Товар (название/код)</label>
+            <input style={S.input} placeholder="Поиск..." value={search} onChange={e=>setSearch(e.target.value)}/>
+          </div>
+        </div>
+        <div style={{...S.row,marginBottom:10}}>
+          <p style={{margin:0,fontSize:14,color:C.textSub}}>Строк: {filtered.length}</p>
+          <button style={{...S.btnPrimary,width:"auto",padding:"9px 16px",fontSize:14}} onClick={exportCsv} disabled={filtered.length===0}>⬇ Скачать в Excel</button>
+        </div>
+        {loading?<div style={S.loadingWrap}>Загрузка...</div>
+          :filtered.length===0?<div style={{textAlign:"center",padding:"30px 0",color:C.textFaint}}>За этот период движений не найдено</div>
+          :<div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
+              <thead>
+                <tr style={{borderBottom:`2px solid ${C.border}`,textAlign:"left"}}>
+                  <th style={{padding:"6px 8px"}}>Дата</th>
+                  <th style={{padding:"6px 8px"}}>№</th>
+                  <th style={{padding:"6px 8px"}}>Товар</th>
+                  <th style={{padding:"6px 8px"}}>Код</th>
+                  <th style={{padding:"6px 8px"}}>Торговый/Магазин</th>
+                  <th style={{padding:"6px 8px"}}>Статус</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Кол-во</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r,i)=>(
+                  <tr key={r.order_id+'_'+r.code+'_'+i} style={{borderBottom:`1px solid ${C.border}`}}>
+                    <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>{r.date}</td>
+                    <td style={{padding:"6px 8px"}}>{r.order_id}</td>
+                    <td style={{padding:"6px 8px"}}>{r.name}</td>
+                    <td style={{padding:"6px 8px",color:C.textFaint}}>{r.code}</td>
+                    <td style={{padding:"6px 8px"}}>{r.sales_name||r.client_name||'—'}</td>
+                    <td style={{padding:"6px 8px"}}>{SL[r.status]||r.status}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700}}>{qtyLabel(r)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        }
+      </div>
+    </div>
+  );
+}
+
 // Экран "Остатки на складе" — тот же, что у зав. склада (см.
 // WarehouseCabinet), вынесен в отдельный самодостаточный компонент по
 // той же причине, что и ProductAliasesPanel выше: старшему торговому
@@ -2981,6 +3103,7 @@ function StockPanel() {
   const [stockSearch, setStockSearch] = useState("");
   const [stockCategory, setStockCategory] = useState("");
   const [hideEmpty, setHideEmpty] = useState(false);
+  const [showMovements, setShowMovements] = useState(false);
 
   const loadProducts = useCallback(async () => {
     try { setProducts(await fetch('/api/products').then(r => r.json())); } catch(e) {}
@@ -3017,7 +3140,11 @@ function StockPanel() {
 
   return (
     <>
-      <p style={S.sectionTitle}>Остатки на складе <span style={{fontWeight:400,fontSize:13,color:C.textFaint}}>(только из 1С)</span></p>
+      {showMovements&&<StockMovementsReport onClose={()=>setShowMovements(false)}/>}
+      <div style={{...S.row,marginBottom:4}}>
+        <p style={{...S.sectionTitle,margin:0}}>Остатки на складе <span style={{fontWeight:400,fontSize:13,color:C.textFaint}}>(только из 1С)</span></p>
+        <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowMovements(true)}>📊 Отчёт по движению</button>
+      </div>
       {!loadingProducts && products.length>0 && (
         <div style={S.statsRow}>
           <div style={S.statCard()}><p style={S.statNum()}>{stockStats.total}</p><p style={S.statLabel}>Всего позиций</p></div>
@@ -5763,6 +5890,7 @@ function WarehouseCabinet({ user, onLogout }) {
   const [stockSearch, setStockSearch] = useState("");
   const [stockCategory, setStockCategory] = useState("");
   const [hideEmpty, setHideEmpty] = useState(false);
+  const [showMovements, setShowMovements] = useState(false);
 
   // Приём налички от водителей (инкассация) — см. POST/PUT /api/cash-handovers.
   const [cashHandovers, setCashHandovers] = useState([]);
@@ -5902,7 +6030,11 @@ function WarehouseCabinet({ user, onLogout }) {
     <div style={{paddingBottom:72}}>
       <div style={S.page}>
         {tab==="stock"&&<>
-          <p style={S.sectionTitle}>Остатки на складе</p>
+          {showMovements&&<StockMovementsReport onClose={()=>setShowMovements(false)}/>}
+          <div style={{...S.row,marginBottom:4}}>
+            <p style={{...S.sectionTitle,margin:0}}>Остатки на складе</p>
+            <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowMovements(true)}>📊 Отчёт по движению</button>
+          </div>
           {!loadingProducts && products.length>0 && (
             <div style={S.statsRow}>
               <div style={S.statCard()}><p style={S.statNum()}>{stockStats.total}</p><p style={S.statLabel}>Всего позиций</p></div>

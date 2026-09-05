@@ -1760,6 +1760,53 @@ app.get('/api/products/:code/history', authMiddleware, (req, res) => {
   res.json(rows.slice(0, 100));
 });
 
+// Отчёт по движению остатков за период (для выгрузки в Excel на фронте) —
+// та же идея, что и /api/products/:code/history выше, только по всем
+// товарам сразу и с фильтром по датам, а не по одному коду. Строка на
+// каждую позицию каждой заявки, попавшей в период.
+app.get('/api/stock-movements', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'warehouse', 'operator'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const from = req.query.from || today;
+  const to = req.query.to || today;
+  const codeFilter = (req.query.code || '').trim();
+
+  const productNameMap = {};
+  db.get('products').value().forEach(p => { productNameMap[p.code] = p.name; });
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+
+  const orders = db.get('orders').value();
+  const rows = [];
+  orders.forEach(o => {
+    if (!o.date || o.date < from || o.date > to) return;
+    const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
+    items.forEach(it => {
+      if (!it.code) return;
+      if (codeFilter && it.code !== codeFilter) return;
+      const alias = aliasMap[it.code];
+      const name = (alias && alias.alias) || productNameMap[it.code] || it.name || '';
+      rows.push({
+        order_id: o.id,
+        date: o.date,
+        code: it.code,
+        name,
+        sales_name: o.sales_name || null,
+        client_name: o.client_name || null,
+        status: o.status,
+        qty: it.qty != null ? it.qty : null,
+        boxes: it.boxes != null ? it.boxes : null,
+        is_weight_item: !!it.is_weight_item,
+        weight_confirmed: !!it.weight_confirmed,
+      });
+    });
+  });
+  rows.sort((a, b) => (b.order_id || 0) - (a.order_id || 0));
+  res.json(rows);
+});
+
 // Ручная правка остатка со склада — ЗАПРЕЩЕНА по решению владельца:
 // остатки (и короба́, и кг для развесного товара) теперь полностью и
 // единственно приходят из 1С (см. /api/stock/sync выше, покрывает оба
