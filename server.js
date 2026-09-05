@@ -732,7 +732,13 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     item.weighed_by_name = req.user.name;
     item.weighed_at = new Date().toISOString();
     const total = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
-    db.get('orders').find({ id: Number(orderId) }).assign({ items, total }).write();
+    // .assign()/.push() без .write() на каждой правке — они мутируют
+    // объекты в памяти сразу же (проверено), а на диск пишем один раз
+    // после всей пачки (см. db.write() в конце) — "Загрузочный лист" может
+    // разом прислать десятки правок, и без этого каждая была бы отдельной
+    // синхронной перезаписью всего db.json (тот же класс проблемы, что уже
+    // чинили в /api/stock/sync, см. историю коммитов).
+    db.get('orders').find({ id: Number(orderId) }).assign({ items, total }).value();
     if (!updatedOrders.includes(Number(orderId))) updatedOrders.push(Number(orderId));
 
     const logId = db.get('nextWeighLogId').value();
@@ -749,9 +755,10 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
       weighed_by_id: req.user.id,
       weighed_by_name: req.user.name,
       weighed_at: item.weighed_at,
-    }).write();
-    db.set('nextWeighLogId', logId + 1).write();
+    }).value();
+    db.set('nextWeighLogId', logId + 1).value();
   });
+  db.write();
 
   res.json({ success: true, updatedOrders, errors: errors.length ? errors : undefined });
 });

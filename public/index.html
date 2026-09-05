@@ -570,6 +570,14 @@ function DebtsPanel({ readOnly }) {
     debts.forEach(d => { if (d.sales_id) map[d.sales_id] = d.sales_name; });
     return Object.entries(map).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
   }, [debts]);
+  // Если у выбранного торгового погасили все долги (обычное дело), он
+  // пропадает из salesReps и из выпадающего списка — без сброса фильтр
+  // остался бы висеть на исчезнувшем id, а <select> тем временем визуально
+  // показывал бы "Все торговые" (раз такого value нет среди option), пока
+  // список на самом деле продолжал бы фильтроваться по старому id.
+  useEffect(() => {
+    if (salesFilter && !salesReps.some(r => r.id === salesFilter)) setSalesFilter("");
+  }, [salesReps, salesFilter]);
   // Кассовые долги (sale_id, sales_id всегда null — см. сервер) не привязаны
   // ни к какому торговому, поэтому остаются видны при любом фильтре, а не
   // прячутся вместе с заявками остальных торговых.
