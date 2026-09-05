@@ -3341,12 +3341,13 @@ function PosSaleModal({ products, clients, onClose, onCompleted }) {
   const addToCart = (p) => {
     setCart(c => {
       const existing = c.find(l => l.code === p.code);
+      const avail = stockAmount(p);
       if (existing) {
         const nextQty = existing.qty + 1;
-        const capped = p.stock != null ? Math.min(nextQty, p.stock) : nextQty;
+        const capped = avail != null ? Math.min(nextQty, avail) : nextQty;
         return c.map(l => l.code === p.code ? { ...l, qty: capped } : l);
       }
-      return [...c, { code: p.code, name: p.name, price: p.price1 || 0, qty: 1, stock: p.stock }];
+      return [...c, { code: p.code, name: p.name, price: p.price1 || 0, qty: 1, stock: avail }];
     });
   };
   const changeQty = (code, delta) => {
@@ -3484,7 +3485,7 @@ function PosSaleModal({ products, clients, onClose, onCompleted }) {
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(140px,1fr))",gap:10,marginBottom:20,maxHeight:320,overflowY:"auto",padding:2}}>
           {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:15}}>Ничего не найдено</div>}
           {filtered.map(p=>{
-            const outOfStock = p.stock!=null && p.stock<=0;
+            const outOfStock = stockIsOut(p);
             const inCart = cart.find(l=>l.code===p.code);
             return (
               <div key={p.code} style={{border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden",background:C.white,opacity:outOfStock?0.5:1}}>
@@ -3729,12 +3730,13 @@ function CashierCabinet({ user, onLogout }) {
   const addToCart = (p) => {
     setCart(c => {
       const existing = c.find(l => l.code === p.code);
+      const avail = stockAmount(p);
       if (existing) {
         const nextQty = existing.qty + 1;
-        const capped = p.stock != null ? Math.min(nextQty, p.stock) : nextQty;
+        const capped = avail != null ? Math.min(nextQty, avail) : nextQty;
         return c.map(l => l.code === p.code ? { ...l, qty: capped } : l);
       }
-      return [...c, { code: p.code, name: p.name, price: p.price1 || 0, qty: 1, stock: p.stock }];
+      return [...c, { code: p.code, name: p.name, price: p.price1 || 0, qty: 1, stock: avail }];
     });
   };
   const changeQty = (code, delta) => {
@@ -3903,7 +3905,7 @@ function CashierCabinet({ user, onLogout }) {
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(140px,1fr))",gap:10}}>
             {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"20px 0",color:C.textFaint,fontSize:15}}>Ничего не найдено</div>}
             {filtered.map(p=>{
-              const outOfStock = p.stock!=null && p.stock<=0;
+              const outOfStock = stockIsOut(p);
               const inCart = cart.find(l=>l.code===p.code);
               return (
                 <div key={p.code} style={{border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden",background:C.white,opacity:outOfStock?0.5:1}}>
