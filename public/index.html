@@ -473,6 +473,26 @@ function daysWord(n) {
   return "дней";
 }
 
+// Остаток для показа персоналу при выборе товара. У обычного товара — короба́/шт
+// из stock (p.stock), их присылает 1С синком, число всегда свежее. У весового
+// товара (priced_by_weight) короба́ 1С не считает вообще (см. /api/stock/sync
+// на сервере) — их только вручную поддерживает склад на "Остатках", и они
+// быстро расходятся с реальностью. Единственное число, которое 1С обновляет
+// для весового товара — кг (p.stock_weight_kg), поэтому для него и показываем
+// именно его, а не устаревающие короба́.
+function stockAmount(p) {
+  return p.priced_by_weight ? p.stock_weight_kg : p.stock;
+}
+function stockLabel(p) {
+  const amt = stockAmount(p);
+  if (amt == null) return null;
+  return p.priced_by_weight ? `${amt} кг` : String(amt);
+}
+function stockIsOut(p) {
+  const amt = stockAmount(p);
+  return amt != null && amt <= 0;
+}
+
 function DebtsPanel({ readOnly }) {
   const [debts, setDebts] = useState([]);
   const [loadingDebts, setLoadingDebts] = useState(true);
@@ -868,7 +888,7 @@ function ReceiptFormModal({ user, onClose, onCreated }) {
                     {matched.map(p=>(
                       <div key={p.code} onMouseDown={()=>selectProduct(line.uid,p)} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:14}}>
                         <div style={{fontWeight:600}}>{p.display_name||p.name}</div>
-                        <div style={{fontSize:12,color:C.textFaint}}>{p.stock_unit||p.unit||''}{p.priced_by_weight?' · весовой':''}{p.group?' · '+p.group:''}{p.stock!=null?' · Остаток: '+p.stock:''}</div>
+                        <div style={{fontSize:12,color:C.textFaint}}>{p.stock_unit||p.unit||''}{p.priced_by_weight?' · весовой':''}{p.group?' · '+p.group:''}{stockLabel(p)!=null?' · Остаток: '+stockLabel(p):''}</div>
                       </div>
                     ))}
                   </div>
@@ -1783,7 +1803,7 @@ function SalesCabinet({ user, token, onLogout }) {
               {["Наименование","Кол-во","Цена ₸",""].map((h,i)=><div key={i} style={{fontSize:12,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
             </div>
             {lines.map(line=>{
-              const inStock=products.filter(p=>p.stock>0);
+              const inStock=products.filter(p=>!stockIsOut(p));
               const matched=line.search.length>0?inStock.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):inStock.slice(0,50);
               const lineWeight=estWeightOf(line);
               const lineTotal=lineWeight>0&&Number(line.price)>0?lineWeight*Number(line.price):null;
@@ -1799,11 +1819,12 @@ function SalesCabinet({ user, token, onLogout }) {
                       {line.showDrop&&matched.length>0&&(
                         <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:180,overflowY:"auto"}}>
                           {matched.map(p=>{
-                            const outOfStock = p.stock !== null && p.stock !== undefined && p.stock <= 0;
+                            const outOfStock = stockIsOut(p);
+                            const stockLbl = stockLabel(p);
                             return (
                             <div key={p.id} onMouseDown={()=>selectProduct(line.uid,p)} style={{padding:"9px 12px",cursor:outOfStock?"not-allowed":"pointer",borderBottom:`1px solid ${C.border}`,fontSize:15,opacity:outOfStock?0.5:1,background:outOfStock?C.surface:C.white}}>
                               <div style={{fontWeight:600}}>{p.name}</div>
-                              <div style={{fontSize:13,color:outOfStock?C.red:C.textFaint}}>{p.price>0?p.price.toLocaleString()+' ₸ / ':''}{p.unit}{p.group?' · '+p.group:''}{p.stock!==null&&p.stock!==undefined?(outOfStock?' · Нет в наличии':' · Остаток: '+p.stock):''}</div>
+                              <div style={{fontSize:13,color:outOfStock?C.red:C.textFaint}}>{p.price>0?p.price.toLocaleString()+' ₸ / ':''}{p.unit}{p.group?' · '+p.group:''}{stockLbl!=null?(outOfStock?' · Нет в наличии':' · Остаток: '+stockLbl):''}</div>
                             </div>
                           )})}
                         </div>
@@ -2208,8 +2229,8 @@ function StoreCabinet({ user, onLogout, desktop }) {
           </div>
         )}
         {filteredCatalog.map(p=>{
-          const outOfStock = p.stock !== null && p.stock !== undefined && p.stock <= 0;
-          const lowStock = !outOfStock && p.stock !== null && p.stock !== undefined && p.stock <= 5;
+          const outOfStock = stockIsOut(p);
+          const lowStock = !outOfStock && !p.priced_by_weight && p.stock !== null && p.stock !== undefined && p.stock <= 5;
           const inCart = lines.find(l=>l.productId===p.id);
           return (
             <div key={p.id} style={{border:`1px solid ${C.border}`,borderRadius:R,overflow:"hidden",background:C.white,opacity:outOfStock?0.55:1}}>
