@@ -3414,7 +3414,7 @@ function SalesCabinet({
   useRefetchOnVisible(loadDebts);
   const selectedClientDebt = clientId ? debts.filter(d => d.client_name === clients.find(c => c.code === clientId)?.name && d.overdue).reduce((s, d) => s + d.remaining, 0) : 0;
   const [products, setProducts] = useState([]);
-  useEffect(() => {
+  const loadProducts = useCallback(() => {
     fetch('/api/products').then(r => r.json()).then(data => setProducts(data.filter(p => p.has_alias).map((p, i) => ({
       id: i + 1,
       name: p.display_name || p.name,
@@ -3447,6 +3447,10 @@ function SalesCabinet({
       avg_box_weight: p.avg_box_weight != null ? p.avg_box_weight : null
     })))).catch(() => {});
   }, []);
+  useEffect(() => {
+    loadProducts();
+  }, []);
+  useRefetchOnVisible(loadProducts);
   const loadOrders = useCallback(async () => {
     try {
       const data = await apiCall('GET', '/api/orders');
