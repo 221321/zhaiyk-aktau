@@ -886,214 +886,9 @@ function ReturnFormModal({ user, onClose, onCreated }) {
   );
 }
 
-// Приход товара — ручное пополнение остатка складом/админом/менеджером
-// (см. POST /api/receipts на сервере). В отличие от возврата всегда
-// привязан к конкретному коду товара из 1С — без этого нечего прибавлять
-// к остатку, поэтому свободного формата (как у возврата) здесь нет.
-function ReceiptFormModal({ user, onClose, onCreated }) {
-  const [products, setProducts] = useState([]);
-  useEffect(() => { fetch('/api/products').then(r=>r.json()).then(setProducts).catch(()=>{}); }, []);
-
-  // Поставщик — необязательная привязка к контрагенту (см. ниже), для его
-  // поиска переиспользуем тот же справочник, что и для покупателей — в 1С
-  // это один список контрагентов без разделения ролей.
-  const [clients, setClients] = useState([]);
-  useEffect(() => { apiCall('GET','/api/clients').then(setClients).catch(()=>{}); }, []);
-
-  const newLine = () => ({uid:Math.random(),code:null,name:"",qty:"",weightKg:"",purchasePrice:"",search:"",showDrop:false,pricedByWeight:false,unit:"",stock:null,stockWeightKg:null});
-  const [lines, setLines] = useState([newLine()]);
-  const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
-  const addLine = () => setLines(ls=>[...ls,newLine()]);
-  const removeLine = (uid) => setLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
-  const selectProduct = (uid,p) => updateLine(uid,{
-    code:p.code,name:p.display_name||p.name,search:p.display_name||p.name,showDrop:false,
-    // Весовой товар (короб/тара, а факт. вес — отдельный кг-пул) — приход
-    // может прийти коробами и кг сразу, поэтому для него показываем оба
-    // поля вместо одного общего "Кол-во" (см. computeAvailableWeightKg).
-    pricedByWeight:!!p.priced_by_weight,
-    unit:p.stock_unit||p.unit||'',
-    stock:p.stock, stockWeightKg:p.stock_weight_kg,
-    qty:"", weightKg:"",
-  });
-
-  const [supplier, setSupplier] = useState('');
-  const [supplierCode, setSupplierCode] = useState('');
-  const [showSupplierDrop, setShowSupplierDrop] = useState(false);
-  const [comment, setComment] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
-  const filledLines = lines.filter(l=>l.code&&(l.pricedByWeight?(Number(l.qty)>0||Number(l.weightKg)>0):Number(l.qty)>0));
-  const canSubmit = filledLines.length>0;
-  const supplierQuery = supplier.trim().toLowerCase();
-  const supplierMatches = supplierQuery.length>0 ? clients.filter(c=>c.name.toLowerCase().includes(supplierQuery)).slice(0,20) : [];
-
-  const submit = async () => {
-    if (!canSubmit || submitting) return;
-    setError(""); setSubmitting(true);
-    try {
-      const items = filledLines.map(l=>({
-        code:l.code, name:l.name,
-        qty:Number(l.qty)||0,
-        weightKg:l.pricedByWeight&&l.weightKg!==""?Number(l.weightKg):null,
-        isWeightItem:!!l.pricedByWeight,
-        purchasePrice:l.purchasePrice!==""?Number(l.purchasePrice):null,
-      }));
-      await apiCall('POST','/api/receipts',{items,supplier,supplierCode,comment});
-      if (onCreated) onCreated();
-      onClose();
-    } catch(e) { setError(e.message); }
-    setSubmitting(false);
-  };
-
-  return (
-    <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
-      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
-        <div style={{...S.row,marginBottom:14}}>
-          <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>📥 Оформить приход</p>
-          <button style={S.btnSecondary} onClick={onClose}>✕</button>
-        </div>
-
-        <div style={{...S.row,marginBottom:2}}>
-          <label style={S.label}>Позиции {products.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:13}}>({products.length} поз. из 1С)</span>}</label>
-          {filledLines.length>0&&<span style={{fontSize:13,fontWeight:700,color:C.green,background:"#EAF5EE",padding:"3px 9px",borderRadius:99,whiteSpace:"nowrap"}}>✓ готово: {filledLines.length}</span>}
-        </div>
-        {lines.map(line=>(
-          <div key={line.uid} style={{marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${C.border}`}}>
-            <div style={{position:"relative",marginBottom:6}}>
-              <input style={{...S.input,padding:"8px 10px",fontSize:14}} placeholder="Введите товар..." value={line.search}
-                onChange={e=>updateLine(line.uid,{search:e.target.value,code:null,showDrop:true})}
-                onFocus={()=>updateLine(line.uid,{showDrop:true})}
-                onBlur={()=>setTimeout(()=>updateLine(line.uid,{showDrop:false}),180)}
-              />
-              {line.showDrop&&(()=>{
-                const matched = (line.search.length>0 ? products.filter(p=>(p.display_name||p.name).toLowerCase().includes(line.search.toLowerCase())) : products).slice(0,50);
-                return matched.length>0&&(
-                  <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:180,overflowY:"auto"}}>
-                    {matched.map(p=>(
-                      <div key={p.code} onMouseDown={()=>selectProduct(line.uid,p)} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:14}}>
-                        <div style={{fontWeight:600}}>{p.display_name||p.name}</div>
-                        <div style={{fontSize:12,color:C.textFaint}}>{p.stock_unit||p.unit||''}{p.priced_by_weight?' · весовой':''}{p.group?' · '+p.group:''}{stockLabel(p)!=null?' · Остаток: '+stockLabel(p):''}</div>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
-            <div style={{display:"flex",gap:6,alignItems:"flex-end"}}>
-              {line.pricedByWeight ? (
-                <>
-                  <div style={{flex:1,minWidth:0}}>
-                    <label style={{fontSize:11,color:C.textFaint}}>Коробов</label>
-                    <input type="number" style={{...S.input,padding:"7px 8px",fontSize:14,textAlign:"center"}} placeholder="кор" value={line.qty} onChange={e=>updateLine(line.uid,{qty:e.target.value})} onFocus={e=>e.target.select()}/>
-                  </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <label style={{fontSize:11,color:C.textFaint}}>Вес, кг</label>
-                    <input type="number" style={{...S.input,padding:"7px 8px",fontSize:14,textAlign:"center"}} placeholder="кг" value={line.weightKg} onChange={e=>updateLine(line.uid,{weightKg:e.target.value})} onFocus={e=>e.target.select()}/>
-                  </div>
-                </>
-              ) : (
-                <div style={{flex:1,minWidth:0}}>
-                  <label style={{fontSize:11,color:C.textFaint}}>Кол-во{line.unit?`, ${line.unit}`:''}</label>
-                  <input type="number" style={{...S.input,padding:"7px 8px",fontSize:14,textAlign:"center"}} placeholder="кол-во" value={line.qty} onChange={e=>updateLine(line.uid,{qty:e.target.value})} onFocus={e=>e.target.select()}/>
-                </div>
-              )}
-              <div style={{flex:1,minWidth:0}}>
-                <label style={{fontSize:11,color:C.textFaint}}>Цена закупки</label>
-                <input type="number" style={{...S.input,padding:"7px 8px",fontSize:14,textAlign:"right"}} placeholder="₸" value={line.purchasePrice} onChange={e=>updateLine(line.uid,{purchasePrice:e.target.value})} onFocus={e=>e.target.select()}/>
-              </div>
-              <button onClick={()=>removeLine(line.uid)} style={{width:32,height:34,flexShrink:0,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:14,color:C.textFaint}}>×</button>
-            </div>
-            {line.code&&(line.stock!=null||line.stockWeightKg!=null)&&(
-              <p style={{margin:"4px 0 0",fontSize:12,color:C.textFaint}}>
-                На складе сейчас: {line.stock!=null?`${line.stock} ${line.unit||''}`.trim():'—'}{line.stockWeightKg!=null?` · ${line.stockWeightKg} кг`:''}
-              </p>
-            )}
-          </div>
-        ))}
-        <button onClick={addLine} style={{...S.btnSecondary,marginBottom:10}}>+ Позиция</button>
-
-        <div style={{marginBottom:10}}>
-          <label style={S.label}>Поставщик, необязательно</label>
-          <div style={{position:"relative"}}>
-            <input style={S.input} value={supplier}
-              onChange={e=>{setSupplier(e.target.value);setSupplierCode('');setShowSupplierDrop(true);}}
-              onFocus={()=>setShowSupplierDrop(true)}
-              onBlur={()=>setTimeout(()=>setShowSupplierDrop(false),180)}
-              placeholder="Начните вводить название контрагента..."/>
-            {showSupplierDrop&&supplierMatches.length>0&&(
-              <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:160,overflowY:"auto"}}>
-                {supplierMatches.map(c=>(
-                  <div key={c.code} onMouseDown={()=>{setSupplier(c.name);setSupplierCode(c.code);setShowSupplierDrop(false);}} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:14}}>{c.name}</div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-        <div>
-          <label style={S.label}>Комментарий, необязательно</label>
-          <textarea style={S.textarea} value={comment} onChange={e=>setComment(e.target.value)}/>
-        </div>
-
-        {error && <p style={{...S.errorBox,marginTop:12,marginBottom:0}}>{error}</p>}
-
-        <button style={{...S.btnPrimary,marginTop:16,opacity:(canSubmit&&!submitting)?1:0.5,cursor:(canSubmit&&!submitting)?"pointer":"not-allowed"}} disabled={!canSubmit||submitting} onClick={submit}>{submitting?"Сохранение...":`📥 Оформить приход${filledLines.length>0?` (${filledLines.length})`:''}`}</button>
-      </div>
-    </div>
-  );
-}
-
-// История приходов — самодостаточная панель (сама грузит /api/receipts),
-// используется и на складе, и в отчёте админа/менеджера, как ProductAliasesPanel/
-// StockPanel выше. refreshKey — чтобы форсировать перезагрузку сразу после
-// оформления нового прихода в этой же вкладке, не дожидаясь useRefetchOnVisible.
-function ReceiptsHistoryPanel({ user, refreshKey }) {
-  const [receipts, setReceipts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const load = useCallback(async () => {
-    try { setReceipts(await apiCall('GET','/api/receipts')); } catch(e) {}
-    setLoading(false);
-  }, []);
-  useEffect(() => { load(); }, [refreshKey]);
-  useRefetchOnVisible(load);
-
-  const remove = async (id) => {
-    if (!window.confirm('Удалить эту запись из истории приходов? На остаток на складе это не повлияет — он теперь ведётся в 1С.')) return;
-    try { await apiCall('DELETE', `/api/receipts/${id}`); load(); } catch(e) { alert(e.message); }
-  };
-
-  return (
-    <>
-      <p style={{...S.sectionTitle,fontSize:17,marginTop:20}}>История приходов</p>
-      {loading?<div style={S.loadingWrap}>Загрузка...</div>
-        :receipts.length===0?<div style={{textAlign:"center",padding:"40px 0",color:C.textFaint}}>Приходов пока нет</div>
-        :receipts.map(r=>(
-          <div key={r.id} style={S.card}>
-            <div style={{...S.row,alignItems:"flex-start"}}>
-              <div style={{minWidth:0}}>
-                <p style={{margin:0,fontSize:15,fontWeight:700,color:C.text}}>{r.date}{r.supplier?' · '+r.supplier:''}</p>
-                <p style={{margin:"4px 0 0",fontSize:14,color:C.textSub,overflowWrap:"anywhere"}}>{r.items.map(it=>{
-                  const parts=[];
-                  if (it.qty>0) parts.push(`+${it.qty}${it.is_weight_item?' кор':''}`);
-                  if (it.weight_kg!=null) parts.push(`+${it.weight_kg} кг`);
-                  return `${it.name} (${parts.join(', ')})`;
-                }).join(', ')}</p>
-                {r.comment&&<p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>{r.comment}</p>}
-                <p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>Оформил: {r.created_by_name}</p>
-              </div>
-              {user.role==="admin"&&<button onClick={()=>remove(r.id)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:13,fontWeight:600,flexShrink:0}}>Удалить</button>}
-            </div>
-          </div>
-        ))
-      }
-    </>
-  );
-}
-
 // История взвешивания — кто и когда ввёл факт. вес по позиции заявки, см.
-// GET /api/weigh-log. Тот же паттерн самодостаточной панели, что и
-// ReceiptsHistoryPanel выше — сама грузит данные, ничего не делит с
-// родителем.
+// GET /api/weigh-log. Самодостаточная панель — сама грузит данные, ничего
+// не делит с родителем.
 function WeighLogPanel() {
   const [log, setLog] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4539,9 +4334,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
   useEffect(() => { loadReturns(); }, []);
   useRefetchOnVisible(loadReturns);
 
-  const [showReceiptModal, setShowReceiptModal] = useState(false);
-  const [receiptsRefreshKey, setReceiptsRefreshKey] = useState(0);
-
   // Сдача налички водителями (инкассация) — см. POST/PUT /api/cash-handovers.
   const [cashHandovers, setCashHandovers] = useState([]);
   const loadCashHandovers = useCallback(async () => {
@@ -5149,17 +4941,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   </div>
                 )}
               </>}
-          </div>
-        </div>
-        <div style={{maxWidth: desktop?560:"none"}}>
-          <div style={{...S.card,marginTop:10}}>
-            <div style={{...S.row,marginBottom:10}}>
-              <p style={{margin:0,fontSize:15,fontWeight:700,color:C.navy}}>Приход товара</p>
-              {['admin','manager'].includes(user.role)&&(
-                <button onClick={()=>setShowReceiptModal(true)} style={{padding:"6px 12px",borderRadius:8,border:`1.5px solid ${C.green}`,background:C.white,color:C.green,fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>📥 Оформить приход</button>
-              )}
-            </div>
-            <ReceiptsHistoryPanel user={user} refreshKey={receiptsRefreshKey}/>
           </div>
         </div>
         <div style={{maxWidth: desktop?560:"none"}}>
@@ -5879,7 +5660,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
-        {showReceiptModal&&<ReceiptFormModal user={user} onClose={()=>setShowReceiptModal(false)} onCreated={()=>setReceiptsRefreshKey(k=>k+1)}/>}
         <aside style={S.side}>
           <div style={{marginBottom:34}}><Brand size={44}/></div>
           <nav style={{flex:1}}>
@@ -5909,7 +5689,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
-      {showReceiptModal&&<ReceiptFormModal user={user} onClose={()=>setShowReceiptModal(false)} onCreated={()=>setReceiptsRefreshKey(k=>k+1)}/>}
       <div style={S.page}>
         {content}
       </div>
@@ -5934,8 +5713,6 @@ function WarehouseCabinet({ user, onLogout }) {
   const [stockSearch, setStockSearch] = useState("");
   const [stockCategory, setStockCategory] = useState("");
   const [hideEmpty, setHideEmpty] = useState(false);
-  const [showReceiptForm, setShowReceiptForm] = useState(false);
-  const [receiptsRefreshKey, setReceiptsRefreshKey] = useState(0);
 
   // Приём налички от водителей (инкассация) — см. POST/PUT /api/cash-handovers.
   const [cashHandovers, setCashHandovers] = useState([]);
@@ -6197,13 +5974,6 @@ function WarehouseCabinet({ user, onLogout }) {
           }
           <WeighLogPanel/>
         </>}
-        {tab==="receipts"&&<>
-          <div style={{...S.row,marginBottom:14}}>
-            <p style={{...S.sectionTitle,margin:0}}>Приход товара</p>
-            <button style={S.btnPrimary} onClick={()=>setShowReceiptForm(true)}>📥 Приход</button>
-          </div>
-          <ReceiptsHistoryPanel user={user} refreshKey={receiptsRefreshKey}/>
-        </>}
         {tab==="cash"&&<>
           <p style={S.sectionTitle}>Приём налички от водителей</p>
           {loadingHandovers?<div style={S.loadingWrap}>Загрузка...</div>:<>
@@ -6260,14 +6030,13 @@ function WarehouseCabinet({ user, onLogout }) {
         </>}
       </div>
       <div style={S.nav}>
-        {[["stock","📦","Остатки"],["shipping","🚚","Отгрузка"],["receipts","📥","Приход"],["cash","💰","Инкассация"]].map(([k,ic,lb])=>(
+        {[["stock","📦","Остатки"],["shipping","🚚","Отгрузка"],["cash","💰","Инкассация"]].map(([k,ic,lb])=>(
           <button key={k} style={{...S.navBtn(tab===k),flex:1,position:"relative"}} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
             {k==="cash"&&pendingHandovers.length>0&&<span style={{position:"absolute",top:2,right:"22%",background:C.red,color:C.white,fontSize:10,fontWeight:700,borderRadius:99,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{pendingHandovers.length}</span>}
           </button>
         ))}
       </div>
-      {showReceiptForm&&<ReceiptFormModal user={user} onClose={()=>setShowReceiptForm(false)} onCreated={()=>{ setReceiptsRefreshKey(k=>k+1); loadProducts(); }}/>}
     </div>
   );
 }

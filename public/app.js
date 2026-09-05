@@ -2148,526 +2148,9 @@ function ReturnFormModal({
   }, submitting ? "Сохранение..." : "↩️ Оформить возврат")));
 }
 
-// Приход товара — ручное пополнение остатка складом/админом/менеджером
-// (см. POST /api/receipts на сервере). В отличие от возврата всегда
-// привязан к конкретному коду товара из 1С — без этого нечего прибавлять
-// к остатку, поэтому свободного формата (как у возврата) здесь нет.
-function ReceiptFormModal({
-  user,
-  onClose,
-  onCreated
-}) {
-  const [products, setProducts] = useState([]);
-  useEffect(() => {
-    fetch('/api/products').then(r => r.json()).then(setProducts).catch(() => {});
-  }, []);
-
-  // Поставщик — необязательная привязка к контрагенту (см. ниже), для его
-  // поиска переиспользуем тот же справочник, что и для покупателей — в 1С
-  // это один список контрагентов без разделения ролей.
-  const [clients, setClients] = useState([]);
-  useEffect(() => {
-    apiCall('GET', '/api/clients').then(setClients).catch(() => {});
-  }, []);
-  const newLine = () => ({
-    uid: Math.random(),
-    code: null,
-    name: "",
-    qty: "",
-    weightKg: "",
-    purchasePrice: "",
-    search: "",
-    showDrop: false,
-    pricedByWeight: false,
-    unit: "",
-    stock: null,
-    stockWeightKg: null
-  });
-  const [lines, setLines] = useState([newLine()]);
-  const updateLine = (uid, patch) => setLines(ls => ls.map(l => l.uid === uid ? {
-    ...l,
-    ...patch
-  } : l));
-  const addLine = () => setLines(ls => [...ls, newLine()]);
-  const removeLine = uid => setLines(ls => ls.length > 1 ? ls.filter(l => l.uid !== uid) : ls);
-  const selectProduct = (uid, p) => updateLine(uid, {
-    code: p.code,
-    name: p.display_name || p.name,
-    search: p.display_name || p.name,
-    showDrop: false,
-    // Весовой товар (короб/тара, а факт. вес — отдельный кг-пул) — приход
-    // может прийти коробами и кг сразу, поэтому для него показываем оба
-    // поля вместо одного общего "Кол-во" (см. computeAvailableWeightKg).
-    pricedByWeight: !!p.priced_by_weight,
-    unit: p.stock_unit || p.unit || '',
-    stock: p.stock,
-    stockWeightKg: p.stock_weight_kg,
-    qty: "",
-    weightKg: ""
-  });
-  const [supplier, setSupplier] = useState('');
-  const [supplierCode, setSupplierCode] = useState('');
-  const [showSupplierDrop, setShowSupplierDrop] = useState(false);
-  const [comment, setComment] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const filledLines = lines.filter(l => l.code && (l.pricedByWeight ? Number(l.qty) > 0 || Number(l.weightKg) > 0 : Number(l.qty) > 0));
-  const canSubmit = filledLines.length > 0;
-  const supplierQuery = supplier.trim().toLowerCase();
-  const supplierMatches = supplierQuery.length > 0 ? clients.filter(c => c.name.toLowerCase().includes(supplierQuery)).slice(0, 20) : [];
-  const submit = async () => {
-    if (!canSubmit || submitting) return;
-    setError("");
-    setSubmitting(true);
-    try {
-      const items = filledLines.map(l => ({
-        code: l.code,
-        name: l.name,
-        qty: Number(l.qty) || 0,
-        weightKg: l.pricedByWeight && l.weightKg !== "" ? Number(l.weightKg) : null,
-        isWeightItem: !!l.pricedByWeight,
-        purchasePrice: l.purchasePrice !== "" ? Number(l.purchasePrice) : null
-      }));
-      await apiCall('POST', '/api/receipts', {
-        items,
-        supplier,
-        supplierCode,
-        comment
-      });
-      if (onCreated) onCreated();
-      onClose();
-    } catch (e) {
-      setError(e.message);
-    }
-    setSubmitting(false);
-  };
-  return /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "fixed",
-      inset: 0,
-      background: "rgba(28,25,23,0.45)",
-      zIndex: 200,
-      overflowY: "auto"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: C.white,
-      margin: "16px",
-      borderRadius: 16,
-      padding: 20,
-      maxWidth: 480,
-      marginLeft: "auto",
-      marginRight: "auto",
-      border: `1px solid ${C.border}`
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...S.row,
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: 0,
-      fontSize: 19,
-      fontWeight: 800,
-      fontFamily: FH,
-      color: C.navy
-    }
-  }, "\uD83D\uDCE5 \u041E\u0444\u043E\u0440\u043C\u0438\u0442\u044C \u043F\u0440\u0438\u0445\u043E\u0434"), /*#__PURE__*/React.createElement("button", {
-    style: S.btnSecondary,
-    onClick: onClose
-  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...S.row,
-      marginBottom: 2
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    style: S.label
-  }, "\u041F\u043E\u0437\u0438\u0446\u0438\u0438 ", products.length > 0 && /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: C.green,
-      fontWeight: 400,
-      fontSize: 13
-    }
-  }, "(", products.length, " \u043F\u043E\u0437. \u0438\u0437 1\u0421)")), filledLines.length > 0 && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 700,
-      color: C.green,
-      background: "#EAF5EE",
-      padding: "3px 9px",
-      borderRadius: 99,
-      whiteSpace: "nowrap"
-    }
-  }, "\u2713 \u0433\u043E\u0442\u043E\u0432\u043E: ", filledLines.length)), lines.map(line => /*#__PURE__*/React.createElement("div", {
-    key: line.uid,
-    style: {
-      marginBottom: 10,
-      paddingBottom: 10,
-      borderBottom: `1px solid ${C.border}`
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "relative",
-      marginBottom: 6
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    style: {
-      ...S.input,
-      padding: "8px 10px",
-      fontSize: 14
-    },
-    placeholder: "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0442\u043E\u0432\u0430\u0440...",
-    value: line.search,
-    onChange: e => updateLine(line.uid, {
-      search: e.target.value,
-      code: null,
-      showDrop: true
-    }),
-    onFocus: () => updateLine(line.uid, {
-      showDrop: true
-    }),
-    onBlur: () => setTimeout(() => updateLine(line.uid, {
-      showDrop: false
-    }), 180)
-  }), line.showDrop && (() => {
-    const matched = (line.search.length > 0 ? products.filter(p => (p.display_name || p.name).toLowerCase().includes(line.search.toLowerCase())) : products).slice(0, 50);
-    return matched.length > 0 && /*#__PURE__*/React.createElement("div", {
-      style: {
-        position: "absolute",
-        top: "100%",
-        left: 0,
-        right: 0,
-        background: C.white,
-        border: `1px solid ${C.border}`,
-        borderRadius: 8,
-        boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
-        zIndex: 50,
-        maxHeight: 180,
-        overflowY: "auto"
-      }
-    }, matched.map(p => /*#__PURE__*/React.createElement("div", {
-      key: p.code,
-      onMouseDown: () => selectProduct(line.uid, p),
-      style: {
-        padding: "9px 12px",
-        cursor: "pointer",
-        borderBottom: `1px solid ${C.border}`,
-        fontSize: 14
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontWeight: 600
-      }
-    }, p.display_name || p.name), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 12,
-        color: C.textFaint
-      }
-    }, p.stock_unit || p.unit || '', p.priced_by_weight ? ' · весовой' : '', p.group ? ' · ' + p.group : '', stockLabel(p) != null ? ' · Остаток: ' + stockLabel(p) : ''))));
-  })()), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 6,
-      alignItems: "flex-end"
-    }
-  }, line.pricedByWeight ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    style: {
-      fontSize: 11,
-      color: C.textFaint
-    }
-  }, "\u041A\u043E\u0440\u043E\u0431\u043E\u0432"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    style: {
-      ...S.input,
-      padding: "7px 8px",
-      fontSize: 14,
-      textAlign: "center"
-    },
-    placeholder: "\u043A\u043E\u0440",
-    value: line.qty,
-    onChange: e => updateLine(line.uid, {
-      qty: e.target.value
-    }),
-    onFocus: e => e.target.select()
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    style: {
-      fontSize: 11,
-      color: C.textFaint
-    }
-  }, "\u0412\u0435\u0441, \u043A\u0433"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    style: {
-      ...S.input,
-      padding: "7px 8px",
-      fontSize: 14,
-      textAlign: "center"
-    },
-    placeholder: "\u043A\u0433",
-    value: line.weightKg,
-    onChange: e => updateLine(line.uid, {
-      weightKg: e.target.value
-    }),
-    onFocus: e => e.target.select()
-  }))) : /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    style: {
-      fontSize: 11,
-      color: C.textFaint
-    }
-  }, "\u041A\u043E\u043B-\u0432\u043E", line.unit ? `, ${line.unit}` : ''), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    style: {
-      ...S.input,
-      padding: "7px 8px",
-      fontSize: 14,
-      textAlign: "center"
-    },
-    placeholder: "\u043A\u043E\u043B-\u0432\u043E",
-    value: line.qty,
-    onChange: e => updateLine(line.uid, {
-      qty: e.target.value
-    }),
-    onFocus: e => e.target.select()
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    style: {
-      fontSize: 11,
-      color: C.textFaint
-    }
-  }, "\u0426\u0435\u043D\u0430 \u0437\u0430\u043A\u0443\u043F\u043A\u0438"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    style: {
-      ...S.input,
-      padding: "7px 8px",
-      fontSize: 14,
-      textAlign: "right"
-    },
-    placeholder: "\u20B8",
-    value: line.purchasePrice,
-    onChange: e => updateLine(line.uid, {
-      purchasePrice: e.target.value
-    }),
-    onFocus: e => e.target.select()
-  })), /*#__PURE__*/React.createElement("button", {
-    onClick: () => removeLine(line.uid),
-    style: {
-      width: 32,
-      height: 34,
-      flexShrink: 0,
-      border: `1px solid ${C.border}`,
-      borderRadius: 8,
-      background: C.surface,
-      cursor: "pointer",
-      fontSize: 14,
-      color: C.textFaint
-    }
-  }, "\xD7")), line.code && (line.stock != null || line.stockWeightKg != null) && /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: "4px 0 0",
-      fontSize: 12,
-      color: C.textFaint
-    }
-  }, "\u041D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435 \u0441\u0435\u0439\u0447\u0430\u0441: ", line.stock != null ? `${line.stock} ${line.unit || ''}`.trim() : '—', line.stockWeightKg != null ? ` · ${line.stockWeightKg} кг` : ''))), /*#__PURE__*/React.createElement("button", {
-    onClick: addLine,
-    style: {
-      ...S.btnSecondary,
-      marginBottom: 10
-    }
-  }, "+ \u041F\u043E\u0437\u0438\u0446\u0438\u044F"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    style: S.label
-  }, "\u041F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A, \u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "relative"
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    style: S.input,
-    value: supplier,
-    onChange: e => {
-      setSupplier(e.target.value);
-      setSupplierCode('');
-      setShowSupplierDrop(true);
-    },
-    onFocus: () => setShowSupplierDrop(true),
-    onBlur: () => setTimeout(() => setShowSupplierDrop(false), 180),
-    placeholder: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u0430..."
-  }), showSupplierDrop && supplierMatches.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "absolute",
-      top: "100%",
-      left: 0,
-      right: 0,
-      background: C.white,
-      border: `1px solid ${C.border}`,
-      borderRadius: 8,
-      boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
-      zIndex: 50,
-      maxHeight: 160,
-      overflowY: "auto"
-    }
-  }, supplierMatches.map(c => /*#__PURE__*/React.createElement("div", {
-    key: c.code,
-    onMouseDown: () => {
-      setSupplier(c.name);
-      setSupplierCode(c.code);
-      setShowSupplierDrop(false);
-    },
-    style: {
-      padding: "9px 12px",
-      cursor: "pointer",
-      borderBottom: `1px solid ${C.border}`,
-      fontSize: 14
-    }
-  }, c.name))))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: S.label
-  }, "\u041A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0439, \u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E"), /*#__PURE__*/React.createElement("textarea", {
-    style: S.textarea,
-    value: comment,
-    onChange: e => setComment(e.target.value)
-  })), error && /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.errorBox,
-      marginTop: 12,
-      marginBottom: 0
-    }
-  }, error), /*#__PURE__*/React.createElement("button", {
-    style: {
-      ...S.btnPrimary,
-      marginTop: 16,
-      opacity: canSubmit && !submitting ? 1 : 0.5,
-      cursor: canSubmit && !submitting ? "pointer" : "not-allowed"
-    },
-    disabled: !canSubmit || submitting,
-    onClick: submit
-  }, submitting ? "Сохранение..." : `📥 Оформить приход${filledLines.length > 0 ? ` (${filledLines.length})` : ''}`)));
-}
-
-// История приходов — самодостаточная панель (сама грузит /api/receipts),
-// используется и на складе, и в отчёте админа/менеджера, как ProductAliasesPanel/
-// StockPanel выше. refreshKey — чтобы форсировать перезагрузку сразу после
-// оформления нового прихода в этой же вкладке, не дожидаясь useRefetchOnVisible.
-function ReceiptsHistoryPanel({
-  user,
-  refreshKey
-}) {
-  const [receipts, setReceipts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const load = useCallback(async () => {
-    try {
-      setReceipts(await apiCall('GET', '/api/receipts'));
-    } catch (e) {}
-    setLoading(false);
-  }, []);
-  useEffect(() => {
-    load();
-  }, [refreshKey]);
-  useRefetchOnVisible(load);
-  const remove = async id => {
-    if (!window.confirm('Удалить эту запись из истории приходов? На остаток на складе это не повлияет — он теперь ведётся в 1С.')) return;
-    try {
-      await apiCall('DELETE', `/api/receipts/${id}`);
-      load();
-    } catch (e) {
-      alert(e.message);
-    }
-  };
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.sectionTitle,
-      fontSize: 17,
-      marginTop: 20
-    }
-  }, "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u043F\u0440\u0438\u0445\u043E\u0434\u043E\u0432"), loading ? /*#__PURE__*/React.createElement("div", {
-    style: S.loadingWrap
-  }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : receipts.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      textAlign: "center",
-      padding: "40px 0",
-      color: C.textFaint
-    }
-  }, "\u041F\u0440\u0438\u0445\u043E\u0434\u043E\u0432 \u043F\u043E\u043A\u0430 \u043D\u0435\u0442") : receipts.map(r => /*#__PURE__*/React.createElement("div", {
-    key: r.id,
-    style: S.card
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...S.row,
-      alignItems: "flex-start"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: 0,
-      fontSize: 15,
-      fontWeight: 700,
-      color: C.text
-    }
-  }, r.date, r.supplier ? ' · ' + r.supplier : ''), /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: "4px 0 0",
-      fontSize: 14,
-      color: C.textSub,
-      overflowWrap: "anywhere"
-    }
-  }, r.items.map(it => {
-    const parts = [];
-    if (it.qty > 0) parts.push(`+${it.qty}${it.is_weight_item ? ' кор' : ''}`);
-    if (it.weight_kg != null) parts.push(`+${it.weight_kg} кг`);
-    return `${it.name} (${parts.join(', ')})`;
-  }).join(', ')), r.comment && /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: "4px 0 0",
-      fontSize: 13,
-      color: C.textFaint
-    }
-  }, r.comment), /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: "4px 0 0",
-      fontSize: 13,
-      color: C.textFaint
-    }
-  }, "\u041E\u0444\u043E\u0440\u043C\u0438\u043B: ", r.created_by_name)), user.role === "admin" && /*#__PURE__*/React.createElement("button", {
-    onClick: () => remove(r.id),
-    style: {
-      background: "none",
-      border: "none",
-      color: C.red,
-      cursor: "pointer",
-      fontSize: 13,
-      fontWeight: 600,
-      flexShrink: 0
-    }
-  }, "\u0423\u0434\u0430\u043B\u0438\u0442\u044C")))));
-}
-
 // История взвешивания — кто и когда ввёл факт. вес по позиции заявки, см.
-// GET /api/weigh-log. Тот же паттерн самодостаточной панели, что и
-// ReceiptsHistoryPanel выше — сама грузит данные, ничего не делит с
-// родителем.
+// GET /api/weigh-log. Самодостаточная панель — сама грузит данные, ничего
+// не делит с родителем.
 function WeighLogPanel() {
   const [log, setLog] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -9881,8 +9364,6 @@ function AdminCabinet({
     loadReturns();
   }, []);
   useRefetchOnVisible(loadReturns);
-  const [showReceiptModal, setShowReceiptModal] = useState(false);
-  const [receiptsRefreshKey, setReceiptsRefreshKey] = useState(0);
 
   // Сдача налички водителями (инкассация) — см. POST/PUT /api/cash-handovers.
   const [cashHandovers, setCashHandovers] = useState([]);
@@ -10994,43 +10475,6 @@ function AdminCabinet({
       color: C.textFaint
     }
   }, r.items.map(it => `${it.name} × ${it.qty}`).join(', '), r.sales_name ? ` · торговый: ${r.sales_name}` : ' · без торгового', r.reason ? ` · причина: ${r.reason}` : ''))))))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      maxWidth: desktop ? 560 : "none"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...S.card,
-      marginTop: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...S.row,
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: 0,
-      fontSize: 15,
-      fontWeight: 700,
-      color: C.navy
-    }
-  }, "\u041F\u0440\u0438\u0445\u043E\u0434 \u0442\u043E\u0432\u0430\u0440\u0430"), ['admin', 'manager'].includes(user.role) && /*#__PURE__*/React.createElement("button", {
-    onClick: () => setShowReceiptModal(true),
-    style: {
-      padding: "6px 12px",
-      borderRadius: 8,
-      border: `1.5px solid ${C.green}`,
-      background: C.white,
-      color: C.green,
-      fontSize: 13,
-      fontWeight: 700,
-      cursor: "pointer",
-      whiteSpace: "nowrap"
-    }
-  }, "\uD83D\uDCE5 \u041E\u0444\u043E\u0440\u043C\u0438\u0442\u044C \u043F\u0440\u0438\u0445\u043E\u0434")), /*#__PURE__*/React.createElement(ReceiptsHistoryPanel, {
-    user: user,
-    refreshKey: receiptsRefreshKey
-  }))), /*#__PURE__*/React.createElement("div", {
     style: {
       maxWidth: desktop ? 560 : "none"
     }
@@ -12794,10 +12238,6 @@ function AdminCabinet({
       user: user,
       onClose: () => setShowReturnModal(false),
       onCreated: loadReturns
-    }), showReceiptModal && /*#__PURE__*/React.createElement(ReceiptFormModal, {
-      user: user,
-      onClose: () => setShowReceiptModal(false),
-      onCreated: () => setReceiptsRefreshKey(k => k + 1)
     }), /*#__PURE__*/React.createElement("aside", {
       style: S.side
     }, /*#__PURE__*/React.createElement("div", {
@@ -12874,10 +12314,6 @@ function AdminCabinet({
     user: user,
     onClose: () => setShowReturnModal(false),
     onCreated: loadReturns
-  }), showReceiptModal && /*#__PURE__*/React.createElement(ReceiptFormModal, {
-    user: user,
-    onClose: () => setShowReceiptModal(false),
-    onCreated: () => setReceiptsRefreshKey(k => k + 1)
   }), /*#__PURE__*/React.createElement("div", {
     style: S.page
   }, content), /*#__PURE__*/React.createElement("div", {
@@ -12902,8 +12338,6 @@ function WarehouseCabinet({
   const [stockSearch, setStockSearch] = useState("");
   const [stockCategory, setStockCategory] = useState("");
   const [hideEmpty, setHideEmpty] = useState(false);
-  const [showReceiptForm, setShowReceiptForm] = useState(false);
-  const [receiptsRefreshKey, setReceiptsRefreshKey] = useState(0);
 
   // Приём налички от водителей (инкассация) — см. POST/PUT /api/cash-handovers.
   const [cashHandovers, setCashHandovers] = useState([]);
@@ -13440,23 +12874,7 @@ function WarehouseCabinet({
         }
       }, savingWeights ? "Сохраняю..." : "Сохранить вес"));
     })());
-  }), /*#__PURE__*/React.createElement(WeighLogPanel, null)), tab === "receipts" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...S.row,
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.sectionTitle,
-      margin: 0
-    }
-  }, "\u041F\u0440\u0438\u0445\u043E\u0434 \u0442\u043E\u0432\u0430\u0440\u0430"), /*#__PURE__*/React.createElement("button", {
-    style: S.btnPrimary,
-    onClick: () => setShowReceiptForm(true)
-  }, "\uD83D\uDCE5 \u041F\u0440\u0438\u0445\u043E\u0434")), /*#__PURE__*/React.createElement(ReceiptsHistoryPanel, {
-    user: user,
-    refreshKey: receiptsRefreshKey
-  })), tab === "cash" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+  }), /*#__PURE__*/React.createElement(WeighLogPanel, null)), tab === "cash" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u041F\u0440\u0438\u0451\u043C \u043D\u0430\u043B\u0438\u0447\u043A\u0438 \u043E\u0442 \u0432\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439"), loadingHandovers ? /*#__PURE__*/React.createElement("div", {
     style: S.loadingWrap
@@ -13584,7 +13002,7 @@ function WarehouseCabinet({
     }
   }, h.comment))))))), /*#__PURE__*/React.createElement("div", {
     style: S.nav
-  }, [["stock", "📦", "Остатки"], ["shipping", "🚚", "Отгрузка"], ["receipts", "📥", "Приход"], ["cash", "💰", "Инкассация"]].map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
+  }, [["stock", "📦", "Остатки"], ["shipping", "🚚", "Отгрузка"], ["cash", "💰", "Инкассация"]].map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
     key: k,
     style: {
       ...S.navBtn(tab === k),
@@ -13613,14 +13031,7 @@ function WarehouseCabinet({
       justifyContent: "center",
       padding: "0 3px"
     }
-  }, pendingHandovers.length)))), showReceiptForm && /*#__PURE__*/React.createElement(ReceiptFormModal, {
-    user: user,
-    onClose: () => setShowReceiptForm(false),
-    onCreated: () => {
-      setReceiptsRefreshKey(k => k + 1);
-      loadProducts();
-    }
-  }));
+  }, pendingHandovers.length)))));
 }
 function App() {
   const [user, setUser] = useState(null);
