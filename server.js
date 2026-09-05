@@ -1668,33 +1668,14 @@ app.post('/api/stock/sync', (req, res) => {
   res.json({ success: true, count });
 });
 
-// Зав. склад правит остаток вручную. unit — всегда сайт-only (1С его не
-// шлёт и не трогает). weight_kg — сайт-only ТОЛЬКО для обычного товара
-// (1С про него не знает); для развесного (priced_by_weight) weight_kg,
-// наоборот, обновляется и синком (см. /api/stock/sync выше) — эта ручная
-// правка тогда работает как корректировка между синками (например, склад
-// подвесил/довесил партию), а не как единственный источник числа. Короба́
-// (qty) для развесного товара 1С не шлёт никогда — это поле только для
-// склада и не участвует в проверке остатка при заказе (см. POST
-// /api/orders).
+// Ручная правка остатка со склада — ЗАПРЕЩЕНА по решению владельца:
+// остатки (и короба́, и кг для развесного товара) теперь полностью и
+// единственно приходят из 1С (см. /api/stock/sync выше, покрывает оба
+// поля для любого кода). Эндпоинт оставлен только чтобы дать понятную
+// ошибку старому клиенту/кэшу вместо тихого 404 — саму кнопку
+// "Редактировать" на "Остатках" убрали (см. public/index.html).
 app.put('/api/stock/:code', authMiddleware, (req, res) => {
-  if (!['warehouse', 'admin', 'manager', 'senior_sales'].includes(req.user.role)) {
-    return res.status(403).json({ error: 'Нет доступа' });
-  }
-  const { code } = req.params;
-  const { qty, unit, weight_kg } = req.body;
-  const patch = {};
-  if (qty !== undefined) patch.qty = Number(qty) || 0;
-  if (unit !== undefined) patch.unit = unit || null;
-  if (weight_kg !== undefined) patch.weight_kg = weight_kg === '' || weight_kg === null ? null : Number(weight_kg);
-
-  const stockCol = db.get('stock');
-  if (stockCol.find({ code }).value()) {
-    stockCol.find({ code }).assign(patch).write();
-  } else {
-    stockCol.push({ code, qty: 0, ...patch }).write();
-  }
-  res.json({ success: true });
+  res.status(403).json({ error: 'Остатки редактируются только из 1С (синхронизация), правка на сайте отключена' });
 });
 
 // Считает реально доступный остаток: физический остаток на сайте (его меняют
