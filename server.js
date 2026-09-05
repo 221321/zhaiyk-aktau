@@ -1869,6 +1869,132 @@ app.delete('/api/receipts/:id', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
+// ===== СДАЧА НАЛИЧКИ ВОДИТЕЛЕМ (инкассация) =====
+// Водитель весь день возит заявки и собирает нал у клиентов "на руки";
+// вечером (или в любой момент, если накопилось много) сдаёт её зав.
+// складу лично. Раньше на сайте это нигде не фиксировалось — не было
+// способа сверить, сколько водитель должен был собрать (это точно известно
+// по payment_cash доставленных им заявок) с тем, сколько он реально принёс,
+// и часто "недовозили нал" оставалось незамеченным. Модель: водитель
+// нажимает "Сдать наличку" — сайт сам считает, сколько за ним ещё числится
+// неоприходованной налички (см. computeDriverPendingCash), и создаёт запись
+// со статусом "ожидает"; склад (или админ/менеджер) потом вписывает, сколько
+// реально принял, и видна разница. Сумма от водителя в API не принимается
+// вообще — иначе он мог бы просто прислать число, совпадающее с ожидаемым,
+// и вся проверка потеряла бы смысл.
+db.defaults({ cashHandovers: [], nextCashHandoverId: 1 }).write();
+
+// Заявки этого водителя, доставленные с получением налички, которая ещё не
+// вошла ни в одну сдачу (cash_handover_id не проставлен) — то, что водитель
+// физически должен принести складу прямо сейчас.
+function computeDriverPendingCash(driverId) {
+  const orders = db.get('orders').value();
+  const pending = orders.filter(o =>
+    o.driver_id === driverId &&
+    o.status === 'delivered' &&
+    (Number(o.payment_cash) || 0) > 0 &&
+    !o.cash_handover_id
+  );
+  const amount = pending.reduce((s, o) => s + (Number(o.payment_cash) || 0), 0);
+  return { amount, orderIds: pending.map(o => o.id) };
+}
+
+app.get('/api/cash-handovers', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'operator', 'warehouse', 'driver'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  let list = db.get('cashHandovers').value();
+  // Водитель видит только свои сдачи — полный список (все водители) только
+  // у admin/manager/operator/warehouse (склад принимает налику у всех).
+  if (req.user.role === 'driver') list = list.filter(h => h.driver_id === req.user.id);
+  res.json(list.slice().reverse());
+});
+
+app.post('/api/cash-handovers', authMiddleware, (req, res) => {
+  if (!['driver', 'admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  let driverId, driverName;
+  if (req.user.role === 'driver') {
+    driverId = req.user.id;
+    driverName = req.user.name;
+  } else {
+    driverId = Number(req.body.driverId);
+    if (!driverId) return res.status(400).json({ error: 'Укажите водителя' });
+    const driver = db.get('users').find({ id: driverId }).value();
+    if (!driver || driver.role !== 'driver') return res.status(400).json({ error: 'Указанный пользователь не является водителем' });
+    driverName = driver.name;
+  }
+
+  const { amount, orderIds } = computeDriverPendingCash(driverId);
+  if (amount <= 0) {
+    return res.status(400).json({ error: 'За водителем нет неоприходованной наличности — сдавать нечего' });
+  }
+
+  const id = db.get('nextCashHandoverId').value();
+  const handover = {
+    id,
+    driver_id: driverId,
+    driver_name: driverName,
+    expected_amount: amount,
+    order_ids: orderIds,
+    status: 'pending',
+    actual_amount: null,
+    difference: null,
+    comment: '',
+    created_by_id: req.user.id,
+    created_by_name: req.user.name,
+    created_at: new Date().toISOString(),
+    date: new Date().toISOString().slice(0, 10),
+  };
+  db.get('cashHandovers').push(handover).write();
+  db.set('nextCashHandoverId', id + 1).write();
+
+  // Помечаем заявки этой сдачей — при следующей "Сдать наличку" этого же
+  // водителя они уже не попадут в pending повторно (см.
+  // computeDriverPendingCash).
+  const ordersCol = db.get('orders');
+  orderIds.forEach(oid => ordersCol.find({ id: oid }).assign({ cash_handover_id: id }).write());
+
+  res.json(handover);
+});
+
+app.put('/api/cash-handovers/:id/confirm', authMiddleware, (req, res) => {
+  if (!['warehouse', 'admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const id = parseInt(req.params.id);
+  const handover = db.get('cashHandovers').find({ id }).value();
+  if (!handover) return res.status(404).json({ error: 'Сдача не найдена' });
+  if (handover.status === 'confirmed') return res.status(400).json({ error: 'Эта сдача уже подтверждена' });
+  const actualAmount = Number(req.body.actualAmount);
+  if (!(actualAmount >= 0)) return res.status(400).json({ error: 'Укажите сумму, которую реально принял склад' });
+
+  db.get('cashHandovers').find({ id }).assign({
+    status: 'confirmed',
+    actual_amount: actualAmount,
+    difference: actualAmount - handover.expected_amount,
+    comment: (req.body.comment || '').trim(),
+    confirmed_by_id: req.user.id,
+    confirmed_by_name: req.user.name,
+    confirmed_at: new Date().toISOString(),
+  }).write();
+  res.json(db.get('cashHandovers').find({ id }).value());
+});
+
+app.delete('/api/cash-handovers/:id', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Только администратор может удалять сдачи налички' });
+  const id = parseInt(req.params.id);
+  const handover = db.get('cashHandovers').find({ id }).value();
+  if (!handover) return res.status(404).json({ error: 'Сдача не найдена' });
+  // Возвращаем заявки в "неоприходованные" — иначе эта наличность зависнет
+  // навсегда, не попадая ни в одну сдачу.
+  const ordersCol = db.get('orders');
+  (handover.order_ids || []).forEach(oid => ordersCol.find({ id: oid }).assign({ cash_handover_id: null }).write());
+  db.get('cashHandovers').remove({ id }).write();
+  res.json({ success: true });
+});
+
 // ===== СМЕНЫ КАССИРА (открыть/закрыть кассу) =====
 // Чисто учётная обёртка вокруг sales — не блокирует продажу (кассир мог
 // просто забыть открыть смену), а даёт кассиру и менеджеру видеть, с
