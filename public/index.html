@@ -4119,6 +4119,25 @@ function AdminCabinet({ user, onLogout, desktop }) {
     }
   };
 
+  // Отбор по периоду для списка заявок (вкладка "Заявки") — отдельный от
+  // dateFrom/dateTo отчёта выше, чтобы смена периода в отчёте не влияла
+  // молча на список заявок и наоборот. По умолчанию "Все" — список заявок
+  // и так всегда показывал всю историю, менять это неожиданно не хочется.
+  const [orderDatePreset, setOrderDatePreset] = useState("all");
+  const [orderDateFrom, setOrderDateFrom] = useState(todayStr);
+  const [orderDateTo, setOrderDateTo] = useState(todayStr);
+  const applyOrderDatePreset = (preset) => {
+    const now = new Date();
+    let from = new Date(now);
+    if (preset === "week") from.setDate(now.getDate() - 6);
+    else if (preset === "month") from.setDate(now.getDate() - 29);
+    setOrderDatePreset(preset);
+    if (preset !== "custom" && preset !== "all") {
+      setOrderDateFrom(from.toISOString().slice(0,10));
+      setOrderDateTo(todayStr);
+    }
+  };
+
   const [employees, setEmployees] = useState([]);
   const [users, setUsers] = useState([]);
   const [empSearch, setEmpSearch] = useState("");
@@ -4509,12 +4528,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
     .filter(o=>filter==="all"||o.status===filter)
     .filter(o=>!driverFilter||String(o.driver_id)===driverFilter)
     .filter(o=>!salesFilter||String(o.sales_id)===salesFilter)
+    .filter(o=>orderDatePreset==="all"||(o.date>=orderDateFrom&&o.date<=orderDateTo))
     .filter(o=>!q
       || String(o.id).includes(q)
       || (o.client_name||'').toLowerCase().includes(q)
       || (o.sales_name||'').toLowerCase().includes(q)
       || (o.driver_name||'').toLowerCase().includes(q)
-      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, q]);
+      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, orderDatePreset, orderDateFrom, orderDateTo, q]);
 
   const { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo } = useMemo(() => {
     // Погашение долга нал/QR "перетекает" из долга в наличку/QR того же
@@ -4755,6 +4775,28 @@ function AdminCabinet({ user, onLogout, desktop }) {
     </div>
   );
 
+  const orderDateFilterUI = (
+    <div style={{marginBottom:16}}>
+      <div style={{display:"flex",gap:6,marginBottom:orderDatePreset==="custom"?10:0,flexWrap:"wrap"}}>
+        {[["all","Все"],["day","День"],["week","Неделя"],["month","Месяц"],["custom","Свободный отбор"]].map(([k,lb])=>(
+          <button key={k} onClick={()=>applyOrderDatePreset(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${orderDatePreset===k?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:orderDatePreset===k?C.navy:C.white,color:orderDatePreset===k?C.white:C.textMid}}>{lb}</button>
+        ))}
+      </div>
+      {orderDatePreset==="custom"&&(
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",maxWidth:420}}>
+          <div style={{flex:1,minWidth:120}}>
+            <label style={{...S.label,marginBottom:4}}>С</label>
+            <input type="date" style={{...S.input,padding:"8px 10px",fontSize:15}} value={orderDateFrom} onChange={e=>setOrderDateFrom(e.target.value)}/>
+          </div>
+          <div style={{flex:1,minWidth:120}}>
+            <label style={{...S.label,marginBottom:4}}>По</label>
+            <input type="date" style={{...S.input,padding:"8px 10px",fontSize:15}} value={orderDateTo} onChange={e=>setOrderDateTo(e.target.value)}/>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   const driverFilterChips = driverOptions.length>0 && (
     <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
       <span style={{fontSize:14,color:C.textFaint,fontWeight:600}}>Водитель:</span>
@@ -4826,6 +4868,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
       {tab==="all"&&<>
         {!desktop&&<p style={S.sectionTitle}>Все заявки</p>}
         {searchInput}
+        {orderDateFilterUI}
         {filterChips}
         {driverFilterChips}
         {salesFilterChips}
