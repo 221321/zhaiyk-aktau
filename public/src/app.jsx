@@ -973,7 +973,6 @@ function buildWaybillInnerHtml(order) {
     <div class="sign">
       <p>Отпуск разрешил: <span class="signline">${COMPANY_INFO.releaseAuthorizedBy}</span> должность / подпись</p>
       <p>Отпустил (водитель): <span class="signline">${order.driver_name||''}</span> подпись</p>
-      <p>Запасы получил: <span class="signline">&nbsp;</span> подпись / расшифровка подписи</p>
     </div>`;
 }
 
