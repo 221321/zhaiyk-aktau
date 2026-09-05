@@ -1531,6 +1531,7 @@ function SalesCabinet({ user, token, onLogout }) {
       productId:prod.id,code:prod.code,name:prod.name,
       price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",
       search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock,
+      stockWeightKg:prod.stock_weight_kg,
       pricedByWeight:!!prod.pricedByWeight,
       weightPerBox: prod.avgWeightPerBox!=null ? String(Math.round(prod.avgWeightPerBox*100)/100) : ""
     });
@@ -1836,10 +1837,14 @@ function SalesCabinet({ user, token, onLogout }) {
                         </div>
                       )}
                     </div>
-                    <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"center"}} placeholder={line.pricedByWeight?"кор":"кол"} value={line.qty} type="number" min="1" max={line.stock!=null?line.stock:undefined}
+                    <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"center"}} placeholder={line.pricedByWeight?"кор":"кол"} value={line.qty} type="number" min="1" max={(!line.pricedByWeight&&line.stock!=null)?line.stock:undefined}
                       onChange={e=>{
+                        // Короба весового товара — только оценка торгового (1С их
+                        // не считает вообще, см. /api/stock/sync), ограничивать
+                        // ввод остатком коробов не нужно (сервер тоже не проверяет,
+                        // см. POST /api/orders) — точный расход выяснится на весах.
                         let v = e.target.value;
-                        if (line.stock!=null && Number(v) > line.stock) v = String(line.stock);
+                        if (!line.pricedByWeight && line.stock!=null && Number(v) > line.stock) v = String(line.stock);
                         updateLine(line.uid,{qty:v});
                       }}
                       onFocus={e=>e.target.select()}
@@ -1851,7 +1856,9 @@ function SalesCabinet({ user, token, onLogout }) {
                     />
                     <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:16,color:C.textFaint}}>×</button>
                   </div>
-                  {line.stock!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stock} {line.pricedByWeight?'кор':''}</div>}
+                  {line.pricedByWeight
+                    ? (line.stockWeightKg!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stockWeightKg} кг</div>)
+                    : (line.stock!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stock}</div>)}
                   {line.pricedByWeight&&(
                     <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>
                       <span style={{fontSize:13,color:C.textSub,whiteSpace:"nowrap"}}>⚖️ Вес короба, кг (примерно)</span>
@@ -2021,7 +2028,11 @@ function StoreCabinet({ user, onLogout, desktop }) {
         const capped = avail != null ? Math.min(nextQty, avail) : nextQty;
         return ls.map(l => l.productId === prod.id ? {...l, qty: String(capped)} : l);
       }
-      return [...ls, {uid:Math.random(),productId:prod.id,code:prod.code,name:prod.name,price:prod.price,search:prod.name,showDrop:false,qty:"1",stock:prod.stock}];
+      // stock здесь — уже разрешённый остаток (кг для весового товара, короба́
+      // для обычного, см. stockAmount) — им же ограничивает ручной ввод кол-ва
+      // в корзине ниже (то же поле line.stock, отдельного кг-поля тут нет:
+      // в отличие от SalesCabinet, здесь qty и так в единице p.unit, не в коробах).
+      return [...ls, {uid:Math.random(),productId:prod.id,code:prod.code,name:prod.name,price:prod.price,search:prod.name,showDrop:false,qty:"1",stock:stockAmount(prod)}];
     });
   };
 
