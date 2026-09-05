@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const low = require('lowdb');
 const FileSync = require('lowdb/adapters/FileSync');
 const webpush = require('web-push');
@@ -74,6 +75,19 @@ db.defaults({
 
 console.log('✅ База данных готова');
 
+// Одна активная сессия на аккаунт: пока с момента последней активности
+// сессии прошло меньше этого времени, вход под тем же логином с другого
+// устройства отклоняется — см. POST /api/login. Если владелец сессии
+// просто закрыл вкладку, не выйдя явно (POST /api/logout освобождает место
+// сразу), место освобождается само после этого времени простоя.
+const SESSION_IDLE_MS = 15 * 60 * 1000;
+// Не пишем last_seen_at на КАЖДЫЙ запрос (lowdb FileSync — это полная
+// синхронная перезапись db.json на каждый .write(), при активном
+// использовании это была бы отдельная запись всего файла на каждый клик) —
+// достаточно обновлять раз в этот интервал, сессия всё равно живёт, пока
+// разрыв между реальными обращениями меньше SESSION_IDLE_MS.
+const SESSION_HEARTBEAT_MS = 60 * 1000;
+
 // Middleware проверки токена
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
@@ -91,6 +105,19 @@ function authMiddleware(req, res, next) {
   const user = db.get('users').find({ id: payload.id }).value();
   if (!user || user.active === false) {
     return res.status(401).json({ error: 'Неверный токен' });
+  }
+  // Одна сессия на аккаунт (см. POST /api/login/SESSION_IDLE_MS выше):
+  // сравниваем БЕЗ проверки на truthy — user.session_sid может быть null
+  // (после явного /api/logout, см. там), и это тоже должно отличаться от
+  // sid в токене, иначе токен, разлогиненный явно, продолжал бы работать
+  // до истечения 7-дневного JWT. payload.sid===user.session_sid===undefined
+  // (оба не заданы) проходит нормально — это токены, выданные ещё до
+  // появления этой функции, и они не должны разом стать недействительными.
+  if (payload.sid !== user.session_sid) {
+    return res.status(401).json({ error: 'Сессия завершена: выполнен вход с другого устройства' });
+  }
+  if (!user.last_seen_at || (Date.now() - new Date(user.last_seen_at).getTime()) > SESSION_HEARTBEAT_MS) {
+    db.get('users').find({ id: user.id }).assign({ last_seen_at: new Date().toISOString() }).write();
   }
   req.user = { id: user.id, login: user.login, name: user.name, role: user.role, region: user.region, client_code: user.client_code || null };
   next();
@@ -168,11 +195,31 @@ app.post('/api/login', (req, res) => {
   if (user.active === false) {
     return res.status(403).json({ error: 'Доступ отключён. Обратитесь к администратору' });
   }
+  // Одна активная сессия на аккаунт: если уже есть сессия и она не "простаивала"
+  // дольше SESSION_IDLE_MS — отказываем; иначе (владелец либо явно вышел через
+  // POST /api/logout, либо просто ~15 минут не открывал приложение) считаем
+  // место свободным и перехватываем его этим входом.
+  if (user.session_sid && user.last_seen_at && (Date.now() - new Date(user.last_seen_at).getTime()) < SESSION_IDLE_MS) {
+    return res.status(409).json({ error: 'Уже выполнен вход в этот аккаунт на другом устройстве. Попробуйте через несколько минут или попросите выйти там.' });
+  }
+  const sid = crypto.randomUUID();
+  db.get('users').find({ id: user.id }).assign({ session_sid: sid, last_seen_at: new Date().toISOString() }).write();
   const token = jwt.sign(
-    { id: user.id, login: user.login, name: user.name, role: user.role, region: user.region, client_code: user.client_code || null },
+    { id: user.id, login: user.login, name: user.name, role: user.role, region: user.region, client_code: user.client_code || null, sid },
     JWT_SECRET, { expiresIn: '7d' }
   );
   res.json({ token, user: { id: user.id, name: user.name, role: user.role, region: user.region, client_code: user.client_code || null } });
+});
+
+// Явный выход — сразу освобождает сессию для нового входа, не дожидаясь
+// SESSION_IDLE_MS простоя (см. авторизацию выше). Если токен уже был
+// вытеснен более новым входом (sid не совпадает), authMiddleware сам
+// ответит 401 раньше, чем запрос дойдёт сюда — клиент на этот 401 и так
+// сбрасывает локальный токен и уходит на экран входа (см. apiCall на
+// фронте), так что результат тот же, просто без обращения к этому телу.
+app.post('/api/logout', authMiddleware, (req, res) => {
+  db.get('users').find({ id: req.user.id }).assign({ session_sid: null, last_seen_at: null }).write();
+  res.json({ success: true });
 });
 
 // ===== ORDERS =====
@@ -591,6 +638,12 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
 // заявки на факт. вес (для этих товаров цена уже указана за кг) и
 // пересчитывает total заявки — дальше это уже "живые" данные для отчётов,
 // остатка и для того, что менеджер увидит при синхронизации с 1С.
+// Журнал взвешивания — кто и когда ввёл факт. вес по позиции, отдельно от
+// самой заявки: позицию можно перевесить (см. deltaKg ниже), и без
+// отдельного лога было бы видно только последнее значение, а не то, кто и
+// сколько раз правил вес по этой заявке.
+db.defaults({ weighLog: [], nextWeighLogId: 1 }).write();
+
 app.post('/api/orders/weights', authMiddleware, (req, res) => {
   if (!['warehouse', 'admin', 'manager'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
@@ -671,12 +724,40 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     // весовым товаром предупреждает, пока это не выставлено на всех
     // весовых позициях заявки (см. is_weight_item, снимок при создании).
     item.weight_confirmed = true;
+    // Ответственный и время — на самой позиции (последнее значение, видно
+    // сразу в заявке) и отдельной строкой в weighLog (полная история,
+    // если позицию перевешивали несколько раз — см. комментарий у defaults).
+    item.weighed_by_id = req.user.id;
+    item.weighed_by_name = req.user.name;
+    item.weighed_at = new Date().toISOString();
     const total = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
     db.get('orders').find({ id: Number(orderId) }).assign({ items, total }).write();
     if (!updatedOrders.includes(Number(orderId))) updatedOrders.push(Number(orderId));
+
+    const logId = db.get('nextWeighLogId').value();
+    db.get('weighLog').push({
+      id: logId,
+      order_id: Number(orderId),
+      code,
+      item_name: item.name,
+      weight: newWeight,
+      prev_weight: oldKgQty || null,
+      weighed_by_id: req.user.id,
+      weighed_by_name: req.user.name,
+      weighed_at: item.weighed_at,
+    }).write();
+    db.set('nextWeighLogId', logId + 1).write();
   });
 
   res.json({ success: true, updatedOrders, errors: errors.length ? errors : undefined });
+});
+
+// История взвешивания — кто, когда и что взвесил (см. weighLog выше).
+app.get('/api/weigh-log', authMiddleware, (req, res) => {
+  if (!['warehouse', 'admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('weighLog').value().slice().reverse());
 });
 
 app.delete('/api/orders/:id', authMiddleware, (req, res) => {
@@ -881,6 +962,13 @@ app.get('/api/products', (req, res) => {
       // вес узнаётся только на складе (см. POST /api/orders/weights).
       // Помечает менеджер вручную на вкладке "Товары".
       priced_by_weight: !!(rec && rec.priced_by_weight),
+      // Средний вес одного короба, кг — вписывает менеджер вручную на
+      // вкладке "Товары" для развесного товара (вес каждый раз разный,
+      // 1С короба вообще не считает, см. /api/stock/sync). Используется
+      // только чтобы прикинуть кол-во коробов от актуального кг-остатка
+      // для персонала (см. stockAmount/stockLabel на фронте) — не влияет
+      // ни на резерв, ни на цену.
+      avg_box_weight: rec && rec.avg_box_weight != null ? rec.avg_box_weight : null,
       stock: availableMap[p.code] != null ? availableMap[p.code] : 0,
       // Единица измерения и вес остатка — правит зав. склад вручную на
       // экране "Остатки" (см. PUT /api/stock/:code), 1С шлёт только qty.
@@ -967,7 +1055,7 @@ app.post('/api/product-aliases', authMiddleware, (req, res) => {
   if (!['admin', 'manager', 'senior_sales'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const { code, alias, category, barcode, price1, price2, price3, commission, nkt_code, cost, priced_by_weight } = req.body;
+  const { code, alias, category, barcode, price1, price2, price3, commission, nkt_code, cost, priced_by_weight, avg_box_weight } = req.body;
   if (!code) return res.status(400).json({ error: 'Не передан код товара' });
 
   // Каждое поле — только если реально передано: экран "Товары" шлёт alias+цены
@@ -988,6 +1076,7 @@ app.post('/api/product-aliases', authMiddleware, (req, res) => {
   // заявке нельзя печатать до подтверждения веса (см. is_weight_item на
   // позиции заявки, снимается снимком с этого флага на момент создания).
   if (priced_by_weight !== undefined) patch.priced_by_weight = !!priced_by_weight;
+  if (avg_box_weight !== undefined) patch.avg_box_weight = avg_box_weight === '' || avg_box_weight === null ? null : Number(avg_box_weight);
   // Ручная правка кода НКТ на экране "НКТ" — помечаем 'manual', чтобы
   // отличить от автоподбора по штрихкоду (matchNktBatch ставит 'matched')
   // и не перезаписать её следующим массовым подбором.
@@ -1382,6 +1471,8 @@ app.get('/api/debts', authMiddleware, (req, res) => {
         order_id: o.id, sale_id: null,
         client_name: o.client_name,
         client_code: o.client_code || null,
+        sales_id: o.sales_id || null,
+        sales_name: o.sales_name || null,
         date: o.date,
         original_debt: o.payment_debt || 0,
         settled,
@@ -1406,6 +1497,11 @@ app.get('/api/debts', authMiddleware, (req, res) => {
         order_id: null, sale_id: s.id,
         client_name: s.client_name || 'Без клиента',
         client_code: s.client_code || null,
+        // Продажа кассы — не привязана к торговому представителю (пробивает
+        // кассир), в отличие от заявки. Фронт показывает такие долги при
+        // любом фильтре по торговому, а не прячет их.
+        sales_id: null,
+        sales_name: null,
         date: s.date,
         original_debt: s.payment_debt || 0,
         settled,
@@ -1415,9 +1511,12 @@ app.get('/api/debts', authMiddleware, (req, res) => {
       };
     });
 
+  // Самый просроченный (больше всего дней без оплаты) — вверху списка,
+  // самый свежий долг — внизу: по требованию владельца, чтобы оператор
+  // сначала видел тех, кому уже давно пора напомнить.
   const debts = [...orderDebts, ...saleDebts]
     .filter(d => d.remaining > 0)
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .sort((a, b) => b.days_ago - a.days_ago);
 
   res.json(debts);
 });

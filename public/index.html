@@ -130,7 +130,20 @@ async function apiCall(method, path, body) {
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(API + path, opts);
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Ошибка сервера');
+  if (!res.ok) {
+    // 401 на любом эндпоинте, кроме самого /api/login (там 401 значит просто
+    // "неверный пароль", а не протухший/перехваченный токен) — это токен,
+    // который authMiddleware больше не считает действительным: истёк, либо
+    // (см. "одна сессия на аккаунт" на сервере) кто-то другой вошёл под
+    // этим же логином и перехватил сессию. Раньше в этом случае экран
+    // просто зависал с ошибкой в никуда на следующем действии — теперь
+    // сразу сбрасываем токен и уходим на вход с понятным сообщением сервера.
+    if (res.status === 401 && path !== '/api/login' && getToken()) {
+      removeToken();
+      window.location.reload();
+    }
+    throw new Error(data.error || 'Ошибка сервера');
+  }
   return data;
 }
 
@@ -486,7 +499,17 @@ function stockAmount(p) {
 function stockLabel(p) {
   const amt = stockAmount(p);
   if (amt == null) return null;
-  return p.priced_by_weight ? `${amt} кг` : String(amt);
+  if (!p.priced_by_weight) return String(amt);
+  // Персоналу привычнее прикидывать в коробах, а не в кг — если менеджер
+  // задал средний вес короба на вкладке "Товары" (avg_box_weight; вес
+  // каждый раз разный, это только грубая прикидка, не точное число),
+  // считаем оценку коробов от актуального кг-остатка. Без этого поля
+  // показываем как есть, в кг.
+  if (p.avg_box_weight > 0) {
+    const boxes = Math.floor(amt / p.avg_box_weight);
+    return `≈ ${boxes} кор (${amt} кг)`;
+  }
+  return `${amt} кг`;
 }
 function stockIsOut(p) {
   // Развесной товар без настроенного кг-пула (weight_kg ещё ни разу не
@@ -535,6 +558,20 @@ function DebtsPanel({ readOnly }) {
     return { totals, counts };
   }, [debts]);
 
+  // Отбор по торговому — список берём прямо из самих долгов (sales_id/name
+  // приходит с /api/debts для заявок, см. сервер), отдельный запрос за
+  // списком сотрудников не нужен: operator, которому тоже доступна эта
+  // панель, не имеет доступа к /api/users. "Всего по клиенту" выше
+  // считается по полному списку долгов независимо от этого фильтра — это
+  // реальный суммарный долг клиента, а не только по видимым сейчас карточкам.
+  const [salesFilter, setSalesFilter] = useState("");
+  const salesReps = useMemo(() => {
+    const map = {};
+    debts.forEach(d => { if (d.sales_id) map[d.sales_id] = d.sales_name; });
+    return Object.entries(map).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+  }, [debts]);
+  const visibleDebts = salesFilter ? debts.filter(d=>String(d.sales_id)===salesFilter) : debts;
+
   const settle = async (d) => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
     const amount = Number(settleAmounts[key] ?? d.remaining);
@@ -554,8 +591,14 @@ function DebtsPanel({ readOnly }) {
   return (
     <>
       <p style={S.sectionTitle}>Должники</p>
-      {loadingDebts?<div style={S.loadingWrap}>Загрузка...</div>:debts.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Долгов нет</div>:
-        debts.map(d=>{
+      {salesReps.length>1&&(
+        <select style={{...S.select,marginBottom:12,width:"auto",minWidth:200}} value={salesFilter} onChange={e=>setSalesFilter(e.target.value)}>
+          <option value="">Все торговые</option>
+          {salesReps.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+      )}
+      {loadingDebts?<div style={S.loadingWrap}>Загрузка...</div>:visibleDebts.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Долгов нет</div>:
+        visibleDebts.map(d=>{
           const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
           return (
           <div key={key} style={{...S.card, borderLeft: d.overdue?`4px solid ${C.red}`:"4px solid #F59E0B", background: d.overdue?"#FEF2F2":C.white}}>
@@ -1007,6 +1050,51 @@ function ReceiptsHistoryPanel({ user, refreshKey }) {
         ))
       }
     </>
+  );
+}
+
+// История взвешивания — кто и когда ввёл факт. вес по позиции заявки, см.
+// GET /api/weigh-log. Тот же паттерн самодостаточной панели, что и
+// ReceiptsHistoryPanel выше — сама грузит данные, ничего не делит с
+// родителем.
+function WeighLogPanel() {
+  const [log, setLog] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => {
+    try { setLog(await apiCall('GET','/api/weigh-log')); } catch(e) {}
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, []);
+  useRefetchOnVisible(load);
+
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div style={{...S.card, padding:0, marginTop:16, overflow:"hidden"}}>
+      <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 14px",cursor:"pointer",background:C.surface}}>
+        <span style={{fontSize:15,fontWeight:700,color:C.navy}}>⚖️ История взвешивания</span>
+        <span style={{fontSize:14,color:C.textFaint}}>{open?"▲ Свернуть":"▼ Показать"}</span>
+      </div>
+      {open && (
+        <div style={{padding:10,maxHeight:420,overflowY:"auto",borderTop:`1px solid ${C.border}`}}>
+          {loading?<div style={S.loadingWrap}>Загрузка...</div>
+            :log.length===0?<div style={{textAlign:"center",padding:"20px 0",color:C.textFaint}}>Записей пока нет</div>
+            :log.map(l=>(
+              <div key={l.id} style={{padding:"8px 0",borderBottom:`1px solid ${C.border}`,fontSize:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+                  <span style={{color:C.text,fontWeight:600,overflowWrap:"anywhere"}}>{l.item_name}</span>
+                  <span style={{color:C.navy,fontWeight:700,whiteSpace:"nowrap"}}>{l.weight} кг</span>
+                </div>
+                <div style={{color:C.textFaint,fontSize:13,marginTop:2}}>
+                  Заявка №{l.order_id} · {l.weighed_by_name} · {new Date(l.weighed_at).toLocaleString('ru-RU')}
+                  {l.prev_weight!=null&&` · было ${l.prev_weight} кг`}
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1505,13 +1593,19 @@ function SalesCabinet({ user, token, onLogout }) {
     // сумму заявки по кол-ву коробов × примерный вес, а не только по
     // кол-ву коробов (что для цены "за кг" не имеет смысла).
     pricedByWeight: !!p.priced_by_weight,
-    avgWeightPerBox: (p.stock_weight_kg != null && p.stock > 0) ? (p.stock_weight_kg / p.stock) : null,
+    // Средний вес короба — сначала то, что менеджер задал вручную на
+    // "Товарах" (avg_box_weight, надёжное число), и только если его нет —
+    // старая грубая прикидка "кг-остаток / короба-остаток" (ненадёжна,
+    // т.к. короба-остаток сам протухший, см. stockAmount выше).
+    avgWeightPerBox: p.avg_box_weight != null ? p.avg_box_weight
+      : ((p.stock_weight_kg != null && p.stock > 0) ? (p.stock_weight_kg / p.stock) : null),
     // Snake_case-дубли — их читают общие хелперы stockAmount/stockLabel/
     // stockIsOut (см. выше), которые проверяют именно priced_by_weight/
     // stock_weight_kg, как отдаёт /api/products. Без этого хелперы решали
     // бы, что товар не весовой, и молча возвращались бы к протухшим коробам.
     priced_by_weight: !!p.priced_by_weight,
-    stock_weight_kg: p.stock_weight_kg != null ? p.stock_weight_kg : null
+    stock_weight_kg: p.stock_weight_kg != null ? p.stock_weight_kg : null,
+    avg_box_weight: p.avg_box_weight != null ? p.avg_box_weight : null
   }))))
   .catch(() => {});
   }, []);
@@ -1537,6 +1631,7 @@ function SalesCabinet({ user, token, onLogout }) {
       price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",
       search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock,
       stockWeightKg:prod.stock_weight_kg,
+      avgBoxWeight:prod.avg_box_weight,
       pricedByWeight:!!prod.pricedByWeight,
       weightPerBox: prod.avgWeightPerBox!=null ? String(Math.round(prod.avgWeightPerBox*100)/100) : ""
     });
@@ -1862,7 +1957,7 @@ function SalesCabinet({ user, token, onLogout }) {
                     <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:16,color:C.textFaint}}>×</button>
                   </div>
                   {line.pricedByWeight
-                    ? (line.stockWeightKg!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stockWeightKg} кг</div>)
+                    ? (line.stockWeightKg!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.avgBoxWeight>0?`≈ ${Math.floor(line.stockWeightKg/line.avgBoxWeight)} кор (${line.stockWeightKg} кг)`:`${line.stockWeightKg} кг`}</div>)
                     : (line.stock!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stock}</div>)}
                   {line.pricedByWeight&&(
                     <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>
@@ -1998,7 +2093,8 @@ function StoreCabinet({ user, onLogout, desktop }) {
         // полей весовой товар выглядел бы для них обычным, и они бы молча
         // возвращались к протухшим коробам (см. эти хелперы выше).
         priced_by_weight: !!p.priced_by_weight,
-        stock_weight_kg: p.stock_weight_kg != null ? p.stock_weight_kg : null
+        stock_weight_kg: p.stock_weight_kg != null ? p.stock_weight_kg : null,
+        avg_box_weight: p.avg_box_weight != null ? p.avg_box_weight : null
       }))))
       .catch(() => {});
   }, []);
@@ -2570,9 +2666,13 @@ function DriverCabinet({ user, onLogout }) {
 
   // Заявки от магазина в статусе "new" ещё не разобраны менеджером и не
   // видны в общей очереди — менеджер сам назначает водителя (тогда заявка
-  // переходит в in_transit с driver_id и появляется как обычно).
-  const queueAll = orders.filter(o=>(o.status==="new"&&o.source!=="store")||o.status==="in_transit");
-  const queueNew = orders.filter(o=>o.status==="new"&&o.source!=="store");
+  // переходит в in_transit с driver_id и появляется как обычно). Самовывоз
+  // (time_slot===PICKUP_SLOT) клиент забирает сам, водитель тут не нужен
+  // вообще — такие заявки в очередь водителя не попадают (админ/менеджер
+  // по-прежнему видят и обрабатывают их как обычно, это только очередь
+  // водителя).
+  const queueAll = orders.filter(o=>((o.status==="new"&&o.source!=="store")||o.status==="in_transit")&&o.time_slot!==PICKUP_SLOT);
+  const queueNew = orders.filter(o=>o.status==="new"&&o.source!=="store"&&o.time_slot!==PICKUP_SLOT);
   const queueActive = orders.filter(o=>o.status==="in_transit");
   const myActive = orders.filter(o=>o.status==="in_transit"&&o.driver_id===user.id);
 
@@ -2743,7 +2843,7 @@ function DriverCabinet({ user, onLogout }) {
 // из 150+ позиций. React.memo + стабильные (useCallback) колбэки в
 // AdminCabinet означают, что перерисовывается только та карточка, в которой
 // реально поменялось значение.
-const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, alias, price1, price2, price3, commission, cost, pricedByWeight, onChange, onEditRequest, onSave }) {
+const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, alias, price1, price2, price3, commission, cost, pricedByWeight, avgBoxWeight, onChange, onEditRequest, onSave }) {
   return (
     <div id={`product-card-${p.code}`} style={{...S.card, padding:10, marginBottom:6}}>
       <div style={{display:"flex",gap:10,marginBottom:6}}>
@@ -2768,6 +2868,21 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, ali
         <input type="checkbox" disabled={locked} checked={pricedByWeight} onChange={e=>onChange(p.code,'priced_by_weight',e.target.checked)}/>
         Весовой товар (цена за кг, кол-во в заявке — до факт. взвешивания на складе)
       </label>
+      {pricedByWeight&&(
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+          <span style={{fontSize:13,color:locked?C.textFaint:C.textMid,whiteSpace:"nowrap"}}>Средний вес короба, кг</span>
+          <input
+            style={{...S.input,width:80,padding:"6px 8px",fontSize:14,textAlign:"center",background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
+            placeholder="кг"
+            type="number"
+            disabled={locked}
+            value={avgBoxWeight}
+            onFocus={e=>e.target.select()}
+            onChange={e=>onChange(p.code,'avg_box_weight',e.target.value)}
+          />
+          <span style={{fontSize:12,color:C.textFaint}}>для оценки кол-ва коробов по кг-остатку (вес каждый раз разный, это прикидка)</span>
+        </div>
+      )}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 70px auto",gap:6,marginBottom:1}}>
         {["Цена 1","Цена 2","Цена 3","Закупка","₸ торговому",""].map((h,i)=><div key={i} style={{fontSize:11,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
       </div>
@@ -2881,6 +2996,7 @@ function ProductAliasesPanel({ desktop }) {
     const commission = resolve('commission');
     const cost = resolve('cost');
     const pricedByWeight = resolve('priced_by_weight');
+    const avgBoxWeight = resolve('avg_box_weight');
     setSavingCode(code);
     try {
       await apiCall('POST', '/api/product-aliases', {
@@ -2891,6 +3007,7 @@ function ProductAliasesPanel({ desktop }) {
         commission: commission === '' ? 0 : Number(commission),
         cost: cost === '' ? null : Number(cost),
         priced_by_weight: !!pricedByWeight,
+        avg_box_weight: avgBoxWeight === '' ? null : Number(avgBoxWeight),
       });
       await loadProducts();
       setEditingCodes(e => { const n = {...e}; delete n[code]; return n; });
@@ -2913,6 +3030,7 @@ function ProductAliasesPanel({ desktop }) {
         commission={getField(p,'commission')}
         cost={getField(p,'cost')}
         pricedByWeight={getField(p,'priced_by_weight')}
+        avgBoxWeight={getField(p,'avg_box_weight')}
         onChange={updateField}
         onEditRequest={onEditRequest}
         onSave={saveAlias}
@@ -4504,6 +4622,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     const commission = resolve('commission');
     const cost = resolve('cost');
     const pricedByWeight = resolve('priced_by_weight');
+    const avgBoxWeight = resolve('avg_box_weight');
     setSavingCode(code);
     try {
       await apiCall('POST', '/api/product-aliases', {
@@ -4514,6 +4633,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         commission: commission === '' ? 0 : Number(commission),
         cost: cost === '' ? null : Number(cost),
         priced_by_weight: !!pricedByWeight,
+        avg_box_weight: avgBoxWeight === '' ? null : Number(avgBoxWeight),
       });
       await loadProducts();
       setEditingCodes(e => { const n = {...e}; delete n[code]; return n; });
@@ -5289,6 +5409,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   commission={getField(p,'commission')}
                   cost={getField(p,'cost')}
                   pricedByWeight={getField(p,'priced_by_weight')}
+                  avgBoxWeight={getField(p,'avg_box_weight')}
                   onChange={updateField}
                   onEditRequest={onEditRequest}
                   onSave={saveAlias}
@@ -6101,7 +6222,10 @@ function WarehouseCabinet({ user, onLogout }) {
                         <p style={{margin:"0 0 6px",fontSize:14,fontWeight:700,color:C.textSub}}>№ {o.id} · {o.client_name}</p>
                         {weightItems.map(it=>(
                           <div key={it.code} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:6}}>
-                            <span style={{flex:1,minWidth:0,fontSize:14,color:C.textMid,overflowWrap:"anywhere"}}>{it.name} <span style={{color:C.textFaint}}>(было {it.qty})</span></span>
+                            <span style={{flex:1,minWidth:0,fontSize:14,color:C.textMid,overflowWrap:"anywhere"}}>
+                              {it.name} <span style={{color:C.textFaint}}>(было {it.qty})</span>
+                              {it.weight_confirmed&&it.weighed_by_name&&<span style={{display:"block",fontSize:12,color:C.textFaint}}>Взвесил: {it.weighed_by_name}{it.weighed_at?', '+new Date(it.weighed_at).toLocaleString('ru-RU'):''}</span>}
+                            </span>
                             <input
                               type="number"
                               placeholder="кг"
@@ -6122,6 +6246,7 @@ function WarehouseCabinet({ user, onLogout }) {
               );
             })
           }
+          <WeighLogPanel/>
         </>}
         {tab==="receipts"&&<>
           <div style={{...S.row,marginBottom:14}}>
@@ -6303,7 +6428,16 @@ function App() {
     setLoading(false);
   };
 
-  const handleLogout = () => { unsubscribeFromPush(); removeToken(); setUser(null); };
+  const handleLogout = () => {
+    unsubscribeFromPush();
+    // Best-effort: освобождаем сессию на сервере сразу (см. POST /api/logout),
+    // чтобы не ждать SESSION_IDLE_MS простоя, прежде чем кто-то другой сможет
+    // войти в этот же аккаунт. Не блокируем сам выход, если запрос не прошёл
+    // (например, токен уже истёк) — локально из приложения всё равно выходим.
+    apiCall('POST', '/api/logout').catch(()=>{});
+    removeToken();
+    setUser(null);
+  };
   const enablePush = () => {
     setPushMsg('Подключаем...');
     subscribeToPush().then((result) => {
