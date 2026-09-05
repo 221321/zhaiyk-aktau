@@ -3961,6 +3961,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [tab, setTab] = useState("all");
   const [filter, setFilter] = useState("all");
   const [driverFilter, setDriverFilter] = useState("");
+  const [salesFilter, setSalesFilter] = useState("");
   const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4434,16 +4435,25 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return Object.entries(map).map(([id,name])=>({id,name})).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ru'));
   }, [orders]);
 
+  // Список торговых для отбора — из самих заявок, тем же паттерном, что и
+  // driverOptions: только те, кто реально оформил хотя бы одну заявку.
+  const salesOptions = useMemo(() => {
+    const map = {};
+    orders.forEach(o => { if (o.sales_id) map[o.sales_id] = o.sales_name; });
+    return Object.entries(map).map(([id,name])=>({id,name})).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ru'));
+  }, [orders]);
+
   const q = orderSearch.trim().toLowerCase();
   const filtered = useMemo(() => orders
     .filter(o=>filter==="all"||o.status===filter)
     .filter(o=>!driverFilter||String(o.driver_id)===driverFilter)
+    .filter(o=>!salesFilter||String(o.sales_id)===salesFilter)
     .filter(o=>!q
       || String(o.id).includes(q)
       || (o.client_name||'').toLowerCase().includes(q)
       || (o.sales_name||'').toLowerCase().includes(q)
       || (o.driver_name||'').toLowerCase().includes(q)
-      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, q]);
+      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, q]);
 
   const { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo } = useMemo(() => {
     // Погашение долга нал/QR "перетекает" из долга в наличку/QR того же
@@ -4694,6 +4704,16 @@ function AdminCabinet({ user, onLogout, desktop }) {
     </div>
   );
 
+  const salesFilterChips = salesOptions.length>0 && (
+    <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+      <span style={{fontSize:14,color:C.textFaint,fontWeight:600}}>Торговый:</span>
+      <button onClick={()=>setSalesFilter("")} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${salesFilter===""?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:salesFilter===""?C.navy:C.white,color:salesFilter===""?C.white:C.textMid}}>Все</button>
+      {salesOptions.map(s=>(
+        <button key={s.id} onClick={()=>setSalesFilter(String(s.id))} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${salesFilter===String(s.id)?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:salesFilter===String(s.id)?C.navy:C.white,color:salesFilter===String(s.id)?C.white:C.textMid}}>{s.name}</button>
+      ))}
+    </div>
+  );
+
   const searchInput = (
     <input
       type="search"
@@ -4747,6 +4767,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {searchInput}
         {filterChips}
         {driverFilterChips}
+        {salesFilterChips}
         {!loading&&filtered.length>0&&(
           <button onClick={()=>printWaybillsBatch(filtered)} style={{...S.btnOutline,width:"auto",marginTop:0,marginBottom:16,padding:"9px 16px",fontSize:14}}>🖨 Печать накладных ({filtered.length})</button>
         )}
