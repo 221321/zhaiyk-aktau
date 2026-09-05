@@ -672,6 +672,7 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
   const isCurrentlyWeightItem = (code) => !!(aliasMap[code] && aliasMap[code].priced_by_weight);
   const updatedOrders = [];
   const errors = [];
+  const applied = [];
   entries.forEach(entry => {
     const { orderId, code, weight } = entry || {};
     if (!orderId || !code || weight === undefined || weight === null || weight === '') return;
@@ -748,6 +749,7 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     // чинили в /api/stock/sync, см. историю коммитов).
     db.get('orders').find({ id: Number(orderId) }).assign({ items, total }).value();
     if (!updatedOrders.includes(Number(orderId))) updatedOrders.push(Number(orderId));
+    applied.push({ orderId: Number(orderId), code });
 
     const logId = db.get('nextWeighLogId').value();
     db.get('weighLog').push({
@@ -768,7 +770,7 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
   });
   db.write();
 
-  res.json({ success: true, updatedOrders, errors: errors.length ? errors : undefined });
+  res.json({ success: true, updatedOrders, applied, errors: errors.length ? errors : undefined });
 });
 
 // История взвешивания — кто, когда и что взвесил (см. weighLog выше).
@@ -1110,7 +1112,10 @@ app.post('/api/product-aliases', authMiddleware, (req, res) => {
   // заявке нельзя печатать до подтверждения веса (см. is_weight_item на
   // позиции заявки, снимается снимком с этого флага на момент создания).
   if (priced_by_weight !== undefined) patch.priced_by_weight = !!priced_by_weight;
-  if (avg_box_weight !== undefined) patch.avg_box_weight = avg_box_weight === '' || avg_box_weight === null ? null : Number(avg_box_weight);
+  if (avg_box_weight !== undefined) {
+    const n = Number(avg_box_weight);
+    patch.avg_box_weight = (avg_box_weight === '' || avg_box_weight === null || !Number.isFinite(n) || n < 0) ? null : n;
+  }
   // Ручная правка кода НКТ на экране "НКТ" — помечаем 'manual', чтобы
   // отличить от автоподбора по штрихкоду (matchNktBatch ставит 'matched')
   // и не перезаписать её следующим массовым подбором.

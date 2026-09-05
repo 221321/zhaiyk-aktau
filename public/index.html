@@ -6124,7 +6124,12 @@ function WarehouseCabinet({ user, onLogout }) {
       if (res.errors && res.errors.length) {
         alert('Часть значений не сохранена:\n' + res.errors.join('\n'));
       }
-      setWeightForm(f=>{ const next={...f}; entries.forEach(e=>{ delete next[`${e.orderId}_${e.code}`]; }); return next; });
+      // Очищаем поле ввода только для реально принятых сервером позиций
+      // (res.applied) — иначе отклонённое значение (см. errors выше, например
+      // некорректный вес или нехватка остатка) тихо стиралось бы из формы,
+      // выглядя как ещё не введённое, хотя сотрудник его уже вписывал.
+      const appliedKeys = new Set((res.applied || []).map(a => `${a.orderId}_${a.code}`));
+      setWeightForm(f=>{ const next={...f}; entries.forEach(e=>{ const key=`${e.orderId}_${e.code}`; if (appliedKeys.has(key)) delete next[key]; }); return next; });
       setExpandedWeightsFor(null);
       loadOrders();
     } catch(e) { alert(e.message); }
