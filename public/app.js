@@ -2281,7 +2281,7 @@ function buildWaybillInnerHtml(order) {
     </table>
     <div class="totals">Всего отпущено на сумму: <b>${(order.total || 0).toLocaleString()} ₸</b></div>
     <div class="sign">
-      <p>Отпуск разрешил: <span class="signline">&nbsp;</span> должность / подпись / <b>${COMPANY_INFO.releaseAuthorizedBy}</b></p>
+      <p>Отпуск разрешил: <span class="signline">${COMPANY_INFO.releaseAuthorizedBy}</span> должность / подпись</p>
       <p>Отпустил (водитель): <span class="signline">${order.driver_name || ''}</span> подпись</p>
       <p>Запасы получил: <span class="signline">&nbsp;</span> подпись / расшифровка подписи</p>
     </div>`;
@@ -2410,7 +2410,9 @@ function printWaybillsBatch(orders) {
   } else if (!window.confirm(`Напечатать накладные по ${orders.length} ${orders.length === 1 ? 'заявке' : 'заявкам'}?`)) {
     return;
   }
-  const html = orders.map((o, i) => `<div${i < orders.length - 1 ? ' style="page-break-after:always;"' : ''}>${buildWaybillInnerHtml(o)}</div>`).join('');
+  // margin-bottom — только видимый на экране зазор между накладными в
+  // превью; на печать не влияет (там разрыв страницы делает page-break-after).
+  const html = orders.map((o, i) => `<div style="${i < orders.length - 1 ? 'page-break-after:always;' : ''}margin-bottom:32px;">${buildWaybillInnerHtml(o)}</div>`).join('');
   openPrintOverlay(html, WAYBILL_STYLE, true);
 }
 function buildLoadingListHtml(orders, driverName) {
