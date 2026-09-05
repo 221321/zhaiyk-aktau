@@ -886,6 +886,12 @@ function DriverPaymentBlock({
   const [cashPhotoUrl, setCashPhotoUrl] = useState(order.cash_photo || null);
   const [cashPhotoUploading, setCashPhotoUploading] = useState(false);
   const [cashPhotoError, setCashPhotoError] = useState("");
+  // Фото чека оплаты по QR — та же логика, что и cashPhoto выше: обязательно
+  // только если выбрана оплата по QR (см. canConfirm и на сервере, POST
+  // /api/orders/:id/qr-photo).
+  const [qrPhotoUrl, setQrPhotoUrl] = useState(order.qr_photo || null);
+  const [qrPhotoUploading, setQrPhotoUploading] = useState(false);
+  const [qrPhotoError, setQrPhotoError] = useState("");
   const [statusBusy, setStatusBusy] = useState(false);
   const total = order.total || 0;
   const cashPaid = payType.cash ? Number(payAmounts.cash) || 0 : 0;
@@ -900,7 +906,7 @@ function DriverPaymentBlock({
   // чтобы водитель видел причину сразу, не отправляя запрос).
   const orderItems = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : order.items || [];
   const pendingWeightItems = orderItems.filter(it => it.is_weight_item && !it.weight_confirmed);
-  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl && (!payType.cash || !!cashPhotoUrl) && pendingWeightItems.length === 0;
+  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl && (!payType.cash || !!cashPhotoUrl) && (!payType.qr || !!qrPhotoUrl) && pendingWeightItems.length === 0;
   const toggleCashQr = key => {
     const turningOn = !payType[key];
     if (turningOn && payAmounts[key] === "") {
@@ -966,6 +972,29 @@ function DriverPaymentBlock({
       setCashPhotoError(err.message || 'Не удалось загрузить фото');
     }
     setCashPhotoUploading(false);
+  };
+  const onQrPhotoSelected = async e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setQrPhotoError("");
+    setQrPhotoUploading(true);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = ev => resolve(ev.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const compressed = await compressImage(dataUrl, 1280, 0.75);
+      const res = await apiCall('POST', `/api/orders/${order.id}/qr-photo`, {
+        imageBase64: compressed
+      });
+      setQrPhotoUrl(res.url);
+    } catch (err) {
+      setQrPhotoError(err.message || 'Не удалось загрузить фото');
+    }
+    setQrPhotoUploading(false);
   };
   const changeStatus = async (status, payment, confirmMsg) => {
     if (statusBusy) return;
@@ -1265,7 +1294,60 @@ function DriverPaymentBlock({
       fontSize: 14,
       color: C.red
     }
-  }, cashPhotoError)), /*#__PURE__*/React.createElement("button", {
+  }, cashPhotoError)), payType.qr && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 8px",
+      fontSize: 15,
+      fontWeight: 700,
+      color: C.navy
+    }
+  }, "\u0424\u043E\u0442\u043E \u0447\u0435\u043A\u0430 \u043E\u043F\u043B\u0430\u0442\u044B \u043F\u043E QR: ", !qrPhotoUrl && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.red,
+      fontWeight: 400
+    }
+  }, "(\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E \u043F\u0440\u0438 \u043E\u043F\u043B\u0430\u0442\u0435 \u043F\u043E QR)")), qrPhotoUrl && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: qrPhotoUrl,
+    style: {
+      width: "100%",
+      maxHeight: 220,
+      objectFit: "cover",
+      borderRadius: 10,
+      border: `1px solid ${C.border}`
+    }
+  })), /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "image/*",
+    capture: "environment",
+    id: `qrPhotoInput_${order.id}`,
+    style: {
+      display: "none"
+    },
+    onChange: onQrPhotoSelected
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    disabled: qrPhotoUploading,
+    onClick: () => document.getElementById(`qrPhotoInput_${order.id}`).click(),
+    style: {
+      ...S.btnOutline,
+      opacity: qrPhotoUploading ? 0.5 : 1,
+      cursor: qrPhotoUploading ? "not-allowed" : "pointer"
+    }
+  }, qrPhotoUploading ? "Загрузка..." : qrPhotoUrl ? "📲 Переснять фото" : "📲 Сфотографировать чек"), qrPhotoError && /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "6px 0 0",
+      fontSize: 14,
+      color: C.red
+    }
+  }, qrPhotoError)), /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnSuccess,
       opacity: canConfirm && !statusBusy ? 1 : 0.4,
@@ -1441,7 +1523,7 @@ function DebtsPanel({
   };
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
-  }, "\u0414\u043E\u043B\u0436\u043D\u0438\u043A\u0438"), salesReps.length > 1 && /*#__PURE__*/React.createElement("select", {
+  }, "\u0414\u043E\u043B\u0436\u043D\u0438\u043A\u0438"), /*#__PURE__*/React.createElement("select", {
     style: {
       ...S.select,
       marginBottom: 12,
@@ -3244,6 +3326,31 @@ function OrderDetail({
     rel: "noopener noreferrer"
   }, /*#__PURE__*/React.createElement("img", {
     src: order.cash_photo,
+    style: {
+      width: "100%",
+      maxHeight: 220,
+      objectFit: "cover",
+      borderRadius: 10,
+      border: `1px solid ${C.border}`
+    }
+  }))), order.qr_photo && !(currentUser.role === "driver" && order.status === "in_transit") && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 8px",
+      fontSize: 14,
+      fontWeight: 600,
+      color: C.textFaint,
+      textTransform: "uppercase"
+    }
+  }, "\u0424\u043E\u0442\u043E \u0447\u0435\u043A\u0430 QR"), /*#__PURE__*/React.createElement("a", {
+    href: order.qr_photo,
+    target: "_blank",
+    rel: "noopener noreferrer"
+  }, /*#__PURE__*/React.createElement("img", {
+    src: order.qr_photo,
     style: {
       width: "100%",
       maxHeight: 220,

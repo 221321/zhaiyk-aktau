@@ -303,6 +303,12 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
   const [cashPhotoUrl, setCashPhotoUrl] = useState(order.cash_photo || null);
   const [cashPhotoUploading, setCashPhotoUploading] = useState(false);
   const [cashPhotoError, setCashPhotoError] = useState("");
+  // Фото чека оплаты по QR — та же логика, что и cashPhoto выше: обязательно
+  // только если выбрана оплата по QR (см. canConfirm и на сервере, POST
+  // /api/orders/:id/qr-photo).
+  const [qrPhotoUrl, setQrPhotoUrl] = useState(order.qr_photo || null);
+  const [qrPhotoUploading, setQrPhotoUploading] = useState(false);
+  const [qrPhotoError, setQrPhotoError] = useState("");
   const [statusBusy, setStatusBusy] = useState(false);
   const total = order.total || 0;
   const cashPaid = payType.cash ? Number(payAmounts.cash)||0 : 0;
@@ -317,7 +323,7 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
   // чтобы водитель видел причину сразу, не отправляя запрос).
   const orderItems = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const pendingWeightItems = orderItems.filter(it=>it.is_weight_item && !it.weight_confirmed);
-  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl && (!payType.cash || !!cashPhotoUrl) && pendingWeightItems.length===0;
+  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl && (!payType.cash || !!cashPhotoUrl) && (!payType.qr || !!qrPhotoUrl) && pendingWeightItems.length===0;
 
   const toggleCashQr = (key) => {
     const turningOn = !payType[key];
@@ -373,6 +379,28 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
       setCashPhotoError(err.message || 'Не удалось загрузить фото');
     }
     setCashPhotoUploading(false);
+  };
+
+  const onQrPhotoSelected = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setQrPhotoError("");
+    setQrPhotoUploading(true);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = ev => resolve(ev.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const compressed = await compressImage(dataUrl, 1280, 0.75);
+      const res = await apiCall('POST', `/api/orders/${order.id}/qr-photo`, { imageBase64: compressed });
+      setQrPhotoUrl(res.url);
+    } catch(err) {
+      setQrPhotoError(err.message || 'Не удалось загрузить фото');
+    }
+    setQrPhotoUploading(false);
   };
 
   const changeStatus = async (status, payment, confirmMsg) => {
@@ -446,6 +474,21 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
             {cashPhotoUploading?"Загрузка...":(cashPhotoUrl?"💵 Переснять фото":"💵 Сфотографировать наличность")}
           </button>
           {cashPhotoError&&<p style={{margin:"6px 0 0",fontSize:14,color:C.red}}>{cashPhotoError}</p>}
+        </div>
+      )}
+      {payType.qr&&(
+        <div style={{marginBottom:14}}>
+          <p style={{margin:"0 0 8px",fontSize:15,fontWeight:700,color:C.navy}}>Фото чека оплаты по QR: {!qrPhotoUrl&&<span style={{color:C.red,fontWeight:400}}>(обязательно при оплате по QR)</span>}</p>
+          {qrPhotoUrl&&(
+            <div style={{marginBottom:8}}>
+              <img src={qrPhotoUrl} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`}}/>
+            </div>
+          )}
+          <input type="file" accept="image/*" capture="environment" id={`qrPhotoInput_${order.id}`} style={{display:"none"}} onChange={onQrPhotoSelected}/>
+          <button type="button" disabled={qrPhotoUploading} onClick={()=>document.getElementById(`qrPhotoInput_${order.id}`).click()} style={{...S.btnOutline,opacity:qrPhotoUploading?0.5:1,cursor:qrPhotoUploading?"not-allowed":"pointer"}}>
+            {qrPhotoUploading?"Загрузка...":(qrPhotoUrl?"📲 Переснять фото":"📲 Сфотографировать чек")}
+          </button>
+          {qrPhotoError&&<p style={{margin:"6px 0 0",fontSize:14,color:C.red}}>{qrPhotoError}</p>}
         </div>
       )}
       <button style={{...S.btnSuccess,opacity:(canConfirm&&!statusBusy)?1:0.4,cursor:(canConfirm&&!statusBusy)?"pointer":"not-allowed"}} disabled={!canConfirm||statusBusy} onClick={()=>changeStatus("delivered",{cash:cashPaid,qr:qrPaid,debt:debtAmount})}>{statusBusy?"Сохранение...":"✅ Подтвердить доставку"}</button>
@@ -587,12 +630,10 @@ function DebtsPanel({ readOnly }) {
   return (
     <>
       <p style={S.sectionTitle}>Должники</p>
-      {salesReps.length>1&&(
-        <select style={{...S.select,marginBottom:12,width:"auto",minWidth:200}} value={salesFilter} onChange={e=>setSalesFilter(e.target.value)}>
-          <option value="">Все торговые</option>
-          {salesReps.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
-      )}
+      <select style={{...S.select,marginBottom:12,width:"auto",minWidth:200}} value={salesFilter} onChange={e=>setSalesFilter(e.target.value)}>
+        <option value="">Все торговые</option>
+        {salesReps.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+      </select>
       {loadingDebts?<div style={S.loadingWrap}>Загрузка...</div>:visibleDebts.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Долгов нет</div>:
         visibleDebts.map(d=>{
           const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
@@ -1477,6 +1518,14 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
             <p style={{margin:"0 0 8px",fontSize:14,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>Фото наличности</p>
             <a href={order.cash_photo} target="_blank" rel="noopener noreferrer">
               <img src={order.cash_photo} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`}}/>
+            </a>
+          </div>
+        )}
+        {order.qr_photo && !(currentUser.role==="driver" && order.status==="in_transit") && (
+          <div style={{marginTop:14}}>
+            <p style={{margin:"0 0 8px",fontSize:14,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>Фото чека QR</p>
+            <a href={order.qr_photo} target="_blank" rel="noopener noreferrer">
+              <img src={order.qr_photo} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`}}/>
             </a>
           </div>
         )}
