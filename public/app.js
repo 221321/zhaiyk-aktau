@@ -6453,6 +6453,7 @@ function StockMovementsReport({
   const q = search.trim().toLowerCase();
   const filtered = rows.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.code || '').includes(q));
   const numLabel = (v, unit) => `${v}${unit ? ' ' + unit : ''}`;
+  const money = v => Number(v || 0).toLocaleString('ru-RU');
   const exportCsv = () => downloadCsv(`ostatki_dvizhenie_${from}_${to}.csv`, filtered, [{
     label: 'Дата',
     get: r => r.date
@@ -6460,23 +6461,38 @@ function StockMovementsReport({
     label: 'Заявка №',
     get: r => r.order_id
   }, {
+    label: 'Статус',
+    get: r => SL[r.status] || r.status
+  }, {
+    label: 'Контрагент',
+    get: r => r.client_name || ''
+  }, {
+    label: 'Торговый',
+    get: r => r.sales_name || ''
+  }, {
+    label: 'Водитель',
+    get: r => r.driver_name || ''
+  }, {
     label: 'Код',
     get: r => r.code
   }, {
     label: 'Товар',
     get: r => r.name
   }, {
-    label: 'Торговый/Магазин',
-    get: r => r.sales_name || r.client_name || ''
+    label: 'Кол-во',
+    get: r => numLabel(r.qty, r.unit)
+  }, {
+    label: 'Сумма',
+    get: r => r.sum
   }, {
     label: 'Остаток до',
-    get: r => numLabel(r.balance_before, r.unit)
+    get: r => r.balance_before == null ? '' : numLabel(r.balance_before, r.unit)
   }, {
     label: 'Списано',
-    get: r => numLabel(r.delta, r.unit)
+    get: r => r.balance_after == null ? '' : numLabel(r.qty, r.unit)
   }, {
     label: 'Остаток после',
-    get: r => numLabel(r.balance_after, r.unit)
+    get: r => r.balance_after == null ? '' : numLabel(r.balance_after, r.unit)
   }]);
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -6492,7 +6508,7 @@ function StockMovementsReport({
       margin: "16px",
       borderRadius: 16,
       padding: 20,
-      maxWidth: 960,
+      maxWidth: 1200,
       marginLeft: "auto",
       marginRight: "auto",
       border: `1px solid ${C.border}`
@@ -6510,7 +6526,7 @@ function StockMovementsReport({
       fontFamily: FH,
       color: C.navy
     }
-  }, "\uD83D\uDCCA \u0414\u0432\u0438\u0436\u0435\u043D\u0438\u0435 \u043E\u0441\u0442\u0430\u0442\u043A\u043E\u0432"), /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCCA \u0414\u0432\u0438\u0436\u0435\u043D\u0438\u0435 \u043E\u0441\u0442\u0430\u0442\u043A\u043E\u0432 \u0438 \u0437\u0430\u044F\u0432\u043A\u0438"), /*#__PURE__*/React.createElement("button", {
     style: S.btnSecondary,
     onClick: onClose
   }, "\u2715")), /*#__PURE__*/React.createElement("p", {
@@ -6519,7 +6535,7 @@ function StockMovementsReport({
       fontSize: 13,
       color: C.textFaint
     }
-  }, "\u0422\u043E\u043B\u044C\u043A\u043E \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u0434\u043E\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043D\u044B\u0435 \u0437\u0430\u044F\u0432\u043A\u0438 \u2014 \u0442\u043E, \u0447\u0442\u043E \u0444\u0438\u0437\u0438\u0447\u0435\u0441\u043A\u0438 \u0441\u043F\u0438\u0441\u0430\u043B\u043E\u0441\u044C \u0441\u043E \u0441\u043A\u043B\u0430\u0434\u0430. \u0417\u0430\u044F\u0432\u043A\u0438 \u0432 \u0441\u0442\u0430\u0442\u0443\u0441\u0435 \"\u041E\u0436\u0438\u0434\u0430\u0435\u0442\"/\"\u0412 \u0440\u0430\u0431\u043E\u0442\u0435\"/\"\u041E\u0442\u043E\u0437\u0432\u0430\u043D\u0430\" \u043E\u0441\u0442\u0430\u0442\u043E\u043A \u0435\u0449\u0451 \u043D\u0435 \u043C\u0435\u043D\u044F\u044E\u0442 (\u0441\u043C. \u0440\u0435\u0437\u0435\u0440\u0432 \u043D\u0430 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0435 \u0442\u043E\u0432\u0430\u0440\u0430), \u043F\u043E\u044D\u0442\u043E\u043C\u0443 \u0438\u0445 \u0437\u0434\u0435\u0441\u044C \u043D\u0435\u0442."), /*#__PURE__*/React.createElement("div", {
+  }, "\u0412\u0441\u0435 \u0437\u0430\u044F\u0432\u043A\u0438 \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434 (\u043A\u0440\u043E\u043C\u0435 \u043E\u0442\u043E\u0437\u0432\u0430\u043D\u043D\u044B\u0445) \u2014 \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442, \u0442\u043E\u0440\u0433\u043E\u0432\u044B\u0439, \u0432\u043E\u0434\u0438\u0442\u0435\u043B\u044C, \u0441\u0443\u043C\u043C\u0430. \u0421\u0442\u043E\u043B\u0431\u0446\u044B \"\u041E\u0441\u0442\u0430\u0442\u043E\u043A \u0434\u043E/\u0421\u043F\u0438\u0441\u0430\u043D\u043E/\u041E\u0441\u0442\u0430\u0442\u043E\u043A \u043F\u043E\u0441\u043B\u0435\" \u0437\u0430\u043F\u043E\u043B\u043D\u0435\u043D\u044B \u0442\u043E\u043B\u044C\u043A\u043E \u0443 \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u0434\u043E\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043D\u044B\u0445 \u0437\u0430\u044F\u0432\u043E\u043A \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0442\u043E\u0433\u0434\u0430 \u0442\u043E\u0432\u0430\u0440 \u0444\u0438\u0437\u0438\u0447\u0435\u0441\u043A\u0438 \u0441\u043F\u0438\u0441\u0430\u043B\u0441\u044F \u0441\u043E \u0441\u043A\u043B\u0430\u0434\u0430."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -6580,7 +6596,7 @@ function StockMovementsReport({
       padding: "30px 0",
       color: C.textFaint
     }
-  }, "\u0417\u0430 \u044D\u0442\u043E\u0442 \u043F\u0435\u0440\u0438\u043E\u0434 \u0434\u043E\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043D\u044B\u0445 \u0437\u0430\u044F\u0432\u043E\u043A \u0441 \u0434\u0432\u0438\u0436\u0435\u043D\u0438\u0435\u043C \u043E\u0441\u0442\u0430\u0442\u043A\u0430 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E") : /*#__PURE__*/React.createElement("div", {
+  }, "\u0417\u0430 \u044D\u0442\u043E\u0442 \u043F\u0435\u0440\u0438\u043E\u0434 \u0437\u0430\u044F\u0432\u043E\u043A \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E") : /*#__PURE__*/React.createElement("div", {
     style: {
       overflowX: "auto"
     }
@@ -6588,7 +6604,7 @@ function StockMovementsReport({
     style: {
       width: "100%",
       borderCollapse: "collapse",
-      fontSize: 14
+      fontSize: 13
     }
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
     style: {
@@ -6607,15 +6623,33 @@ function StockMovementsReport({
     style: {
       padding: "6px 8px"
     }
+  }, "\u0421\u0442\u0430\u0442\u0443\u0441"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, "\u0422\u043E\u0440\u0433\u043E\u0432\u044B\u0439"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, "\u0412\u043E\u0434\u0438\u0442\u0435\u043B\u044C"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px"
+    }
   }, "\u0422\u043E\u0432\u0430\u0440"), /*#__PURE__*/React.createElement("th", {
     style: {
-      padding: "6px 8px"
+      padding: "6px 8px",
+      textAlign: "right"
     }
-  }, "\u041A\u043E\u0434"), /*#__PURE__*/React.createElement("th", {
+  }, "\u041A\u043E\u043B-\u0432\u043E"), /*#__PURE__*/React.createElement("th", {
     style: {
-      padding: "6px 8px"
+      padding: "6px 8px",
+      textAlign: "right"
     }
-  }, "\u0422\u043E\u0440\u0433\u043E\u0432\u044B\u0439/\u041C\u0430\u0433\u0430\u0437\u0438\u043D"), /*#__PURE__*/React.createElement("th", {
+  }, "\u0421\u0443\u043C\u043C\u0430"), /*#__PURE__*/React.createElement("th", {
     style: {
       padding: "6px 8px",
       textAlign: "right"
@@ -6646,36 +6680,70 @@ function StockMovementsReport({
     }
   }, r.order_id), /*#__PURE__*/React.createElement("td", {
     style: {
+      padding: "6px 8px",
+      whiteSpace: "nowrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      background: SB[r.status] || C.surface,
+      color: SC[r.status] || C.textSub,
+      padding: "2px 8px",
+      borderRadius: 20,
+      fontSize: 12,
+      fontWeight: 700
+    }
+  }, SL[r.status] || r.status)), /*#__PURE__*/React.createElement("td", {
+    style: {
       padding: "6px 8px"
     }
-  }, r.name), /*#__PURE__*/React.createElement("td", {
+  }, r.client_name || '—'), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, r.sales_name || '—'), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, r.driver_name || '—'), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, r.name, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.textFaint,
+      fontSize: 11
+    }
+  }, r.code)), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "6px 8px",
-      color: C.textFaint
+      textAlign: "right",
+      whiteSpace: "nowrap"
     }
-  }, r.code), /*#__PURE__*/React.createElement("td", {
+  }, numLabel(r.qty, r.unit)), /*#__PURE__*/React.createElement("td", {
     style: {
-      padding: "6px 8px"
+      padding: "6px 8px",
+      textAlign: "right",
+      whiteSpace: "nowrap"
     }
-  }, r.sales_name || r.client_name || '—'), /*#__PURE__*/React.createElement("td", {
+  }, money(r.sum)), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "6px 8px",
       textAlign: "right"
     }
-  }, numLabel(r.balance_before, r.unit)), /*#__PURE__*/React.createElement("td", {
+  }, r.balance_before == null ? '—' : numLabel(r.balance_before, r.unit)), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "6px 8px",
       textAlign: "right",
       fontWeight: 700,
-      color: C.red
+      color: r.balance_after == null ? C.textFaint : C.red
     }
-  }, "\u2212", numLabel(r.delta, r.unit)), /*#__PURE__*/React.createElement("td", {
+  }, r.balance_after == null ? '—' : `−${numLabel(r.qty, r.unit)}`), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "6px 8px",
       textAlign: "right",
       fontWeight: 700
     }
-  }, numLabel(r.balance_after, r.unit)))))))));
+  }, r.balance_after == null ? '—' : numLabel(r.balance_after, r.unit)))))))));
 }
 
 // Экран "Остатки на складе" — тот же, что у зав. склада (см.

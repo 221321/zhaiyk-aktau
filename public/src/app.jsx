@@ -2977,6 +2977,7 @@ function StockMovementsReport({ onClose }) {
   const filtered = rows.filter(r => !q || (r.name||'').toLowerCase().includes(q) || (r.code||'').includes(q));
 
   const numLabel = (v, unit) => `${v}${unit?' '+unit:''}`;
+  const money = v => Number(v||0).toLocaleString('ru-RU');
 
   const exportCsv = () => downloadCsv(
     `ostatki_dvizhenie_${from}_${to}.csv`,
@@ -2984,24 +2985,29 @@ function StockMovementsReport({ onClose }) {
     [
       { label: 'Дата', get: r => r.date },
       { label: 'Заявка №', get: r => r.order_id },
+      { label: 'Статус', get: r => SL[r.status]||r.status },
+      { label: 'Контрагент', get: r => r.client_name || '' },
+      { label: 'Торговый', get: r => r.sales_name || '' },
+      { label: 'Водитель', get: r => r.driver_name || '' },
       { label: 'Код', get: r => r.code },
       { label: 'Товар', get: r => r.name },
-      { label: 'Торговый/Магазин', get: r => r.sales_name || r.client_name || '' },
-      { label: 'Остаток до', get: r => numLabel(r.balance_before, r.unit) },
-      { label: 'Списано', get: r => numLabel(r.delta, r.unit) },
-      { label: 'Остаток после', get: r => numLabel(r.balance_after, r.unit) },
+      { label: 'Кол-во', get: r => numLabel(r.qty, r.unit) },
+      { label: 'Сумма', get: r => r.sum },
+      { label: 'Остаток до', get: r => r.balance_before==null ? '' : numLabel(r.balance_before, r.unit) },
+      { label: 'Списано', get: r => r.balance_after==null ? '' : numLabel(r.qty, r.unit) },
+      { label: 'Остаток после', get: r => r.balance_after==null ? '' : numLabel(r.balance_after, r.unit) },
     ]
   );
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
-      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:960,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
+      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:1200,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
         <div style={{...S.row,marginBottom:6}}>
-          <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>📊 Движение остатков</p>
+          <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>📊 Движение остатков и заявки</p>
           <button style={S.btnSecondary} onClick={onClose}>✕</button>
         </div>
         <p style={{margin:"0 0 14px",fontSize:13,color:C.textFaint}}>
-          Только реально доставленные заявки — то, что физически списалось со склада. Заявки в статусе "Ожидает"/"В работе"/"Отозвана" остаток ещё не меняют (см. резерв на карточке товара), поэтому их здесь нет.
+          Все заявки за период (кроме отозванных) — контрагент, торговый, водитель, сумма. Столбцы "Остаток до/Списано/Остаток после" заполнены только у реально доставленных заявок — только тогда товар физически списался со склада.
         </p>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
           <div>
@@ -3022,16 +3028,20 @@ function StockMovementsReport({ onClose }) {
           <button style={{...S.btnPrimary,width:"auto",padding:"9px 16px",fontSize:14}} onClick={exportCsv} disabled={filtered.length===0}>⬇ Скачать в Excel</button>
         </div>
         {loading?<div style={S.loadingWrap}>Загрузка...</div>
-          :filtered.length===0?<div style={{textAlign:"center",padding:"30px 0",color:C.textFaint}}>За этот период доставленных заявок с движением остатка не найдено</div>
+          :filtered.length===0?<div style={{textAlign:"center",padding:"30px 0",color:C.textFaint}}>За этот период заявок не найдено</div>
           :<div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
               <thead>
                 <tr style={{borderBottom:`2px solid ${C.border}`,textAlign:"left"}}>
                   <th style={{padding:"6px 8px"}}>Дата</th>
                   <th style={{padding:"6px 8px"}}>№</th>
+                  <th style={{padding:"6px 8px"}}>Статус</th>
+                  <th style={{padding:"6px 8px"}}>Контрагент</th>
+                  <th style={{padding:"6px 8px"}}>Торговый</th>
+                  <th style={{padding:"6px 8px"}}>Водитель</th>
                   <th style={{padding:"6px 8px"}}>Товар</th>
-                  <th style={{padding:"6px 8px"}}>Код</th>
-                  <th style={{padding:"6px 8px"}}>Торговый/Магазин</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Кол-во</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Сумма</th>
                   <th style={{padding:"6px 8px",textAlign:"right"}}>Остаток до</th>
                   <th style={{padding:"6px 8px",textAlign:"right"}}>Списано</th>
                   <th style={{padding:"6px 8px",textAlign:"right"}}>Остаток после</th>
@@ -3042,12 +3052,18 @@ function StockMovementsReport({ onClose }) {
                   <tr key={r.order_id+'_'+r.code+'_'+i} style={{borderBottom:`1px solid ${C.border}`}}>
                     <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>{r.date}</td>
                     <td style={{padding:"6px 8px"}}>{r.order_id}</td>
-                    <td style={{padding:"6px 8px"}}>{r.name}</td>
-                    <td style={{padding:"6px 8px",color:C.textFaint}}>{r.code}</td>
-                    <td style={{padding:"6px 8px"}}>{r.sales_name||r.client_name||'—'}</td>
-                    <td style={{padding:"6px 8px",textAlign:"right"}}>{numLabel(r.balance_before,r.unit)}</td>
-                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:C.red}}>−{numLabel(r.delta,r.unit)}</td>
-                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700}}>{numLabel(r.balance_after,r.unit)}</td>
+                    <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
+                      <span style={{background:SB[r.status]||C.surface,color:SC[r.status]||C.textSub,padding:"2px 8px",borderRadius:20,fontSize:12,fontWeight:700}}>{SL[r.status]||r.status}</span>
+                    </td>
+                    <td style={{padding:"6px 8px"}}>{r.client_name||'—'}</td>
+                    <td style={{padding:"6px 8px"}}>{r.sales_name||'—'}</td>
+                    <td style={{padding:"6px 8px"}}>{r.driver_name||'—'}</td>
+                    <td style={{padding:"6px 8px"}}>{r.name}<div style={{color:C.textFaint,fontSize:11}}>{r.code}</div></td>
+                    <td style={{padding:"6px 8px",textAlign:"right",whiteSpace:"nowrap"}}>{numLabel(r.qty,r.unit)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",whiteSpace:"nowrap"}}>{money(r.sum)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right"}}>{r.balance_before==null?'—':numLabel(r.balance_before,r.unit)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:r.balance_after==null?C.textFaint:C.red}}>{r.balance_after==null?'—':`−${numLabel(r.qty,r.unit)}`}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700}}>{r.balance_after==null?'—':numLabel(r.balance_after,r.unit)}</td>
                   </tr>
                 ))}
               </tbody>

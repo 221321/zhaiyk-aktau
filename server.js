@@ -1791,16 +1791,22 @@ app.get('/api/stock-movements', authMiddleware, (req, res) => {
   const stockMap = {};
   db.get('stock').value().forEach(s => { stockMap[s.code] = s; });
 
-  const deliveredOrders = db.get('orders').value().filter(o => o.status === 'delivered');
+  // Отозванные заявки ничего не значат и не двигают остаток — единственный
+  // статус, исключённый из отчёта (по решению владельца). Все остальные
+  // статусы показываем целиком: отчёт служит и базовой аналитикой
+  // (контрагент/торговый/водитель/сумма), а не только складским движением.
+  const orders = db.get('orders').value().filter(o => o.status !== 'revoked');
 
-  // Группируем доставленные позиции по коду товара — остаток "до/после"
-  // считается отдельно для каждого товара, от его текущего значения.
-  const byCode = {};
-  deliveredOrders.forEach(o => {
+  // Остаток "до/после" реконструируется только по факту доставки (см. PUT
+  // /api/orders/:id/status) — считаем его отдельно по коду товара, от
+  // текущего значения назад; для остальных статусов эти поля остаются null,
+  // так как физически остаток они ещё не поменяли.
+  const deliveredByCode = {};
+  orders.forEach(o => {
+    if (o.status !== 'delivered') return;
     const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
     items.forEach(it => {
       if (!it.code) return;
-      if (codeFilter && it.code !== codeFilter) return;
       const alias = aliasMap[it.code];
       const isWeightCode = !!(alias && alias.priced_by_weight);
       // Для весового товара движение — это подтверждённый факт. вес (кг-пул,
@@ -1815,42 +1821,53 @@ app.get('/api/stock-movements', authMiddleware, (req, res) => {
         delta = Number(it.qty) || 0;
       }
       if (delta == null) return;
-      (byCode[it.code] = byCode[it.code] || []).push({
-        order_id: o.id,
-        date: o.date,
-        sales_name: o.sales_name || null,
-        client_name: o.client_name || null,
-        delta,
-      });
+      (deliveredByCode[it.code] = deliveredByCode[it.code] || []).push({ order_id: o.id, delta });
     });
   });
-
-  const rows = [];
-  Object.keys(byCode).forEach(code => {
+  const balanceByOrderCode = {};
+  Object.keys(deliveredByCode).forEach(code => {
     const alias = aliasMap[code];
     const isWeightCode = !!(alias && alias.priced_by_weight);
-    const name = (alias && alias.alias) || productNameMap[code] || code;
     const stockRec = stockMap[code];
     let running = isWeightCode
       ? (stockRec && stockRec.weight_kg != null ? Number(stockRec.weight_kg) : 0)
       : (stockRec ? Number(stockRec.qty) || 0 : 0);
-    const list = byCode[code].slice().sort((a, b) => (b.order_id || 0) - (a.order_id || 0));
+    const list = deliveredByCode[code].slice().sort((a, b) => (b.order_id || 0) - (a.order_id || 0));
     list.forEach(ev => {
       const after = running;
       const before = running + ev.delta;
       running = before;
-      if (ev.date < from || ev.date > to) return;
+      balanceByOrderCode[`${ev.order_id}:${code}`] = { before, after };
+    });
+  });
+
+  const rows = [];
+  orders.forEach(o => {
+    if (o.date < from || o.date > to) return;
+    const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
+    items.forEach(it => {
+      if (!it.code) return;
+      if (codeFilter && it.code !== codeFilter) return;
+      const alias = aliasMap[it.code];
+      const isWeightCode = !!(alias && alias.priced_by_weight);
+      const name = (alias && alias.alias) || productNameMap[it.code] || it.code;
+      const qty = Number(it.qty) || 0;
+      const price = Number(it.price) || 0;
+      const balance = o.status === 'delivered' ? balanceByOrderCode[`${o.id}:${it.code}`] : null;
       rows.push({
-        order_id: ev.order_id,
-        date: ev.date,
-        code,
+        order_id: o.id,
+        date: o.date,
+        status: o.status,
+        client_name: o.client_name || null,
+        sales_name: o.sales_name || null,
+        driver_name: o.driver_name || null,
+        code: it.code,
         name,
         unit: isWeightCode ? 'кг' : '',
-        sales_name: ev.sales_name,
-        client_name: ev.client_name,
-        delta: ev.delta,
-        balance_before: before,
-        balance_after: after,
+        qty,
+        sum: qty * price,
+        balance_before: balance ? balance.before : null,
+        balance_after: balance ? balance.after : null,
       });
     });
   });
