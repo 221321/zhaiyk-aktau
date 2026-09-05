@@ -2445,6 +2445,30 @@ function DriverCabinet({ user, onLogout }) {
     setLoading(false);
   }, []);
 
+  // Сдача налички складу (инкассация) — см. POST /api/cash-handovers.
+  // Сумма считается на сервере из тех же orders, что уже загружены здесь
+  // (для мгновенного отображения без лишнего запроса), но окончательное
+  // решение — за сервером: тот же расчёт там продублирован намеренно.
+  const [cashHandovers, setCashHandovers] = useState([]);
+  const loadCashHandovers = useCallback(async () => {
+    try { setCashHandovers(await apiCall('GET','/api/cash-handovers')); } catch(e) {}
+  }, []);
+  useEffect(() => { loadCashHandovers(); }, []);
+  useRefetchOnVisible(loadCashHandovers);
+  const [handingOver, setHandingOver] = useState(false);
+  const pendingCashOrders = orders.filter(o=>o.driver_id===user.id&&o.status==="delivered"&&(Number(o.payment_cash)||0)>0&&!o.cash_handover_id);
+  const pendingCashAmount = pendingCashOrders.reduce((s,o)=>s+(Number(o.payment_cash)||0),0);
+  const handOverCash = async () => {
+    if (handingOver || pendingCashAmount<=0) return;
+    if (!window.confirm(`Сдать складу ${pendingCashAmount.toLocaleString()} ₸? Склад пересчитает и подтвердит фактическую сумму.`)) return;
+    setHandingOver(true);
+    try {
+      await apiCall('POST','/api/cash-handovers',{});
+      loadOrders(); loadCashHandovers();
+    } catch(e) { alert(e.message); }
+    setHandingOver(false);
+  };
+
   useEffect(() => { loadOrders(); }, []);
   useRefetchOnVisible(loadOrders);
 
@@ -2566,6 +2590,35 @@ function DriverCabinet({ user, onLogout }) {
           }
         </>}
         {tab==="cashbox"&&<>
+          <div style={{...S.card,marginBottom:16,background:pendingCashAmount>0?C.cashGreen:C.surface}}>
+            <div style={{...S.row,marginBottom:pendingCashAmount>0?8:0}}>
+              <div>
+                <p style={{margin:0,fontSize:13,fontWeight:700,color:pendingCashAmount>0?"#15803D":C.textFaint,textTransform:"uppercase"}}>Наличка на руках</p>
+                <p style={{margin:"2px 0 0",fontSize:22,fontWeight:800,fontFamily:FH,color:pendingCashAmount>0?"#15803D":C.textSub}}>{pendingCashAmount.toLocaleString()} ₸</p>
+              </div>
+              {pendingCashAmount>0&&(
+                <button onClick={handOverCash} disabled={handingOver} style={{...S.btnPrimary,width:"auto",marginTop:0,boxShadow:"none",padding:"11px 18px",opacity:handingOver?0.6:1}}>{handingOver?"Оформляю...":"💰 Сдать наличку"}</button>
+              )}
+            </div>
+            {pendingCashAmount>0&&<p style={{margin:0,fontSize:13,color:"#15803D"}}>{pendingCashOrders.length} {pendingCashOrders.length===1?'доставленная заявка':'доставленных заявок'} с оплатой налом ещё не сданы складу</p>}
+          </div>
+          {cashHandovers.length>0&&(
+            <div style={{marginBottom:16}}>
+              <p style={{...S.sectionTitle,fontSize:17}}>Мои сдачи налички</p>
+              {cashHandovers.map(h=>(
+                <div key={h.id} style={S.card}>
+                  <div style={S.row}>
+                    <span style={{fontSize:14,fontWeight:600,color:C.textSub}}>{h.date}</span>
+                    <span style={{fontSize:13,fontWeight:700,padding:"3px 9px",borderRadius:99,background:h.status==="pending"?"#FFFBEB":(h.difference<0?C.redSoft:"#EAF5EE"),color:h.status==="pending"?"#92400E":(h.difference<0?C.red:C.green)}}>
+                      {h.status==="pending"?"⏳ Ожидает":(h.difference<0?`Недостача ${Math.abs(h.difference).toLocaleString()} ₸`:(h.difference>0?`Излишек ${h.difference.toLocaleString()} ₸`:"✓ Сошлось"))}
+                    </span>
+                  </div>
+                  <p style={{margin:"6px 0 0",fontSize:15}}>Ожидалось: <b style={{fontFamily:FH}}>{h.expected_amount.toLocaleString()} ₸</b>{h.status==="confirmed"&&<> · Принято: <b style={{fontFamily:FH}}>{h.actual_amount.toLocaleString()} ₸</b></>}</p>
+                  {h.comment&&<p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>{h.comment}</p>}
+                </div>
+              ))}
+            </div>
+          )}
           <p style={S.sectionTitle}>Касса за период</p>
           {driverDateFilter}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
@@ -4282,6 +4335,14 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receiptsRefreshKey, setReceiptsRefreshKey] = useState(0);
 
+  // Сдача налички водителями (инкассация) — см. POST/PUT /api/cash-handovers.
+  const [cashHandovers, setCashHandovers] = useState([]);
+  const loadCashHandovers = useCallback(async () => {
+    try { setCashHandovers(await apiCall('GET','/api/cash-handovers')); } catch(e) {}
+  }, []);
+  useEffect(() => { loadCashHandovers(); }, []);
+  useRefetchOnVisible(loadCashHandovers);
+
   const [fiscalizingSaleId, setFiscalizingSaleId] = useState(null);
   const [fiscalErrorBySale, setFiscalErrorBySale] = useState({});
   const retryFiscal = useCallback(async (sale) => {
@@ -4866,6 +4927,47 @@ function AdminCabinet({ user, onLogout, desktop }) {
               )}
             </div>
             <ReceiptsHistoryPanel user={user} refreshKey={receiptsRefreshKey}/>
+          </div>
+        </div>
+        <div style={{maxWidth: desktop?560:"none"}}>
+          <div style={{...S.card,marginTop:10}}>
+            <p style={{margin:"0 0 10px",fontSize:15,fontWeight:700,color:C.navy}}>Сдача налички водителями</p>
+            {(()=>{
+              const periodHandovers = cashHandovers.filter(h=>h.date>=dateFrom&&h.date<=dateTo);
+              const pending = periodHandovers.filter(h=>h.status==="pending");
+              const confirmed = periodHandovers.filter(h=>h.status==="confirmed");
+              const shortfalls = confirmed.filter(h=>h.difference<0);
+              if (periodHandovers.length===0) return <p style={{margin:0,fontSize:15,color:C.textSub}}>За период сдач не было.</p>;
+              return <>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+                  <div>
+                    <p style={{margin:"0 0 2px",fontSize:12,color:C.textFaint,fontWeight:700,textTransform:"uppercase"}}>Сдач</p>
+                    <p style={{margin:0,fontSize:17,fontWeight:800,fontFamily:FH,color:C.text}}>{periodHandovers.length}</p>
+                  </div>
+                  <div>
+                    <p style={{margin:"0 0 2px",fontSize:12,color:C.textFaint,fontWeight:700,textTransform:"uppercase"}}>Ожидают</p>
+                    <p style={{margin:0,fontSize:17,fontWeight:800,fontFamily:FH,color:pending.length>0?"#92400E":C.text}}>{pending.length}</p>
+                  </div>
+                  <div>
+                    <p style={{margin:"0 0 2px",fontSize:12,color:C.textFaint,fontWeight:700,textTransform:"uppercase"}}>Недостач</p>
+                    <p style={{margin:0,fontSize:17,fontWeight:800,fontFamily:FH,color:shortfalls.length>0?C.red:C.text}}>{shortfalls.length}</p>
+                  </div>
+                </div>
+                {periodHandovers.slice().sort((a,b)=>b.id-a.id).map(h=>(
+                  <div key={h.id} style={{marginBottom:8,fontSize:13.5,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>
+                    <div style={S.row}>
+                      <span style={{fontWeight:600}}>{h.date} · {h.driver_name}</span>
+                      <span style={{fontWeight:700,color:h.status==="pending"?"#92400E":(h.difference<0?C.red:(h.difference>0?C.green:C.textSub))}}>
+                        {h.status==="pending"?"⏳ Ожидает":(h.difference===0?"✓ Сошлось":`${h.difference<0?'−':'+'}${Math.abs(h.difference).toLocaleString()} ₸`)}
+                      </span>
+                    </div>
+                    <p style={{margin:"2px 0 0",fontSize:12,color:C.textFaint}}>
+                      Ожидалось {h.expected_amount.toLocaleString()} ₸{h.status==="confirmed"?` · принято ${h.actual_amount.toLocaleString()} ₸`:''}{h.comment?` · ${h.comment}`:''}
+                    </p>
+                  </div>
+                ))}
+              </>;
+            })()}
           </div>
         </div>
         {(() => {
@@ -5593,6 +5695,31 @@ function WarehouseCabinet({ user, onLogout }) {
   const [showReceiptForm, setShowReceiptForm] = useState(false);
   const [receiptsRefreshKey, setReceiptsRefreshKey] = useState(0);
 
+  // Приём налички от водителей (инкассация) — см. POST/PUT /api/cash-handovers.
+  const [cashHandovers, setCashHandovers] = useState([]);
+  const [loadingHandovers, setLoadingHandovers] = useState(true);
+  const loadCashHandovers = useCallback(async () => {
+    try { setCashHandovers(await apiCall('GET','/api/cash-handovers')); } catch(e) {}
+    setLoadingHandovers(false);
+  }, []);
+  useEffect(() => { loadCashHandovers(); }, []);
+  useRefetchOnVisible(loadCashHandovers);
+  const [confirmingId, setConfirmingId] = useState(null);
+  const [confirmForm, setConfirmForm] = useState({ actualAmount:'', comment:'' });
+  const [savingConfirm, setSavingConfirm] = useState(false);
+  const startConfirm = (h) => { setConfirmingId(h.id); setConfirmForm({ actualAmount: String(h.expected_amount), comment:'' }); };
+  const submitConfirm = async (id) => {
+    setSavingConfirm(true);
+    try {
+      await apiCall('PUT', `/api/cash-handovers/${id}/confirm`, { actualAmount: confirmForm.actualAmount, comment: confirmForm.comment });
+      setConfirmingId(null);
+      loadCashHandovers();
+    } catch(e) { alert(e.message); }
+    setSavingConfirm(false);
+  };
+  const pendingHandovers = cashHandovers.filter(h=>h.status==="pending");
+  const confirmedHandovers = cashHandovers.filter(h=>h.status==="confirmed");
+
   const loadProducts = useCallback(async () => {
     try {
       const data = await fetch('/api/products').then(r => r.json());
@@ -5886,11 +6013,66 @@ function WarehouseCabinet({ user, onLogout }) {
           </div>
           <ReceiptsHistoryPanel user={user} refreshKey={receiptsRefreshKey}/>
         </>}
+        {tab==="cash"&&<>
+          <p style={S.sectionTitle}>Приём налички от водителей</p>
+          {loadingHandovers?<div style={S.loadingWrap}>Загрузка...</div>:<>
+            {pendingHandovers.length===0
+              ? <div style={{textAlign:"center",padding:"40px 0",color:C.textFaint}}>Ожидающих сдач нет</div>
+              : pendingHandovers.map(h=>(
+                <div key={h.id} style={{...S.card,background:"#FFFBEB",border:"1px solid #FDE68A"}}>
+                  <div style={S.row}>
+                    <div>
+                      <p style={S.cardTitle}>{h.driver_name}</p>
+                      <p style={S.cardSub}>{h.date} · заявок: {h.order_ids.length}</p>
+                    </div>
+                    <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:"#92400E"}}>{h.expected_amount.toLocaleString()} ₸</p>
+                  </div>
+                  {confirmingId!==h.id ? (
+                    <button onClick={()=>startConfirm(h)} style={{...S.btnPrimary,marginTop:10}}>Принять и подтвердить</button>
+                  ) : (
+                    <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                      <label style={{...S.label,fontSize:12}}>Сколько реально принято, ₸</label>
+                      <input type="number" style={{...S.input,marginBottom:8}} value={confirmForm.actualAmount} onChange={e=>setConfirmForm(f=>({...f,actualAmount:e.target.value}))} onFocus={e=>e.target.select()}/>
+                      <label style={{...S.label,fontSize:12}}>Комментарий, необязательно</label>
+                      <textarea style={{...S.textarea,marginBottom:8}} placeholder="Например: причина недостачи" value={confirmForm.comment} onChange={e=>setConfirmForm(f=>({...f,comment:e.target.value}))}/>
+                      <div style={{display:"flex",gap:8}}>
+                        <button onClick={()=>submitConfirm(h.id)} disabled={savingConfirm} style={{...S.btnPrimary,marginTop:0,opacity:savingConfirm?0.6:1}}>{savingConfirm?"Сохраняю...":"Подтвердить"}</button>
+                        <button onClick={()=>setConfirmingId(null)} disabled={savingConfirm} style={{...S.btnSecondary,marginTop:0}}>Отмена</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            }
+            {confirmedHandovers.length>0&&(
+              <>
+                <p style={{...S.sectionTitle,fontSize:17,marginTop:20}}>История</p>
+                {confirmedHandovers.map(h=>(
+                  <div key={h.id} style={S.card}>
+                    <div style={S.row}>
+                      <div>
+                        <p style={S.cardTitle}>{h.driver_name}</p>
+                        <p style={S.cardSub}>{h.date} · ожидалось {h.expected_amount.toLocaleString()} ₸ · принято {h.actual_amount.toLocaleString()} ₸</p>
+                      </div>
+                      {h.difference!==0&&(
+                        <span style={{fontSize:13,fontWeight:700,padding:"3px 9px",borderRadius:99,background:h.difference<0?C.redSoft:"#EAF5EE",color:h.difference<0?C.red:C.green}}>
+                          {h.difference<0?`Недостача ${Math.abs(h.difference).toLocaleString()}`:`Излишек ${h.difference.toLocaleString()}`} ₸
+                        </span>
+                      )}
+                    </div>
+                    {h.comment&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>{h.comment}</p>}
+                  </div>
+                ))}
+              </>
+            )}
+          </>}
+        </>}
       </div>
       <div style={S.nav}>
-        {[["stock","📦","Остатки"],["shipping","🚚","Отгрузка"],["receipts","📥","Приход"]].map(([k,ic,lb])=>(
-          <button key={k} style={{...S.navBtn(tab===k),flex:1}} onClick={()=>setTab(k)}>
+        {[["stock","📦","Остатки"],["shipping","🚚","Отгрузка"],["receipts","📥","Приход"],["cash","💰","Инкассация"]].map(([k,ic,lb])=>(
+          <button key={k} style={{...S.navBtn(tab===k),flex:1,position:"relative"}} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
+            {k==="cash"&&pendingHandovers.length>0&&<span style={{position:"absolute",top:2,right:"22%",background:C.red,color:C.white,fontSize:10,fontWeight:700,borderRadius:99,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{pendingHandovers.length}</span>}
           </button>
         ))}
       </div>
