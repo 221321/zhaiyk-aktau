@@ -702,6 +702,14 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     // computeAvailableStock/computeAvailableWeightKg).
     item.is_weight_item = true;
     const newWeight = Number(weight);
+    // <input type="number"> на клиенте не запрещает отрицательные/мусорные
+    // значения — без этой проверки NaN/отрицательный вес тихо портит и саму
+    // позицию (qty становится NaN, сумма заявки просто теряет строку), и
+    // кг-пул остатка (avail - NaN => NaN у всех следующих правок в пачке).
+    if (!Number.isFinite(newWeight) || newWeight < 0) {
+      errors.push(`"${item.name}" в заявке №${orderId}: некорректный вес "${weight}"`);
+      return;
+    }
     // До первого подтверждения qty позиции — это короба (другая единица,
     // другой пул), поэтому в кг-пуле она ещё ничего не резервирует: дельта
     // против кг-остатка — это весь вводимый вес. После подтверждения qty
