@@ -1668,6 +1668,7 @@ db.defaults({ stock: [] }).write();
 app.post('/api/stock/sync', (req, res) => {
   const { items, secret } = req.body;
   if (secret !== SYNC_SECRET) {
+    console.error(`[stock/sync] ${new Date().toISOString()} отклонён: неверный secret (items: ${(items || []).length})`);
     return res.status(403).json({ error: 'Нет доступа' });
   }
   // Мутируем массив в памяти и пишем на диск один раз в конце — 1С может
@@ -1696,8 +1697,17 @@ app.post('/api/stock/sync', (req, res) => {
     const isWeightItem = !!(aliasMap[it.code] && aliasMap[it.code].priced_by_weight);
     const rec = stockByCode[it.code];
     if (rec) {
+      // Если товар сейчас НЕ весовой, а weight_kg у него всё же заполнен —
+      // это осиротевшее значение с тех пор, когда он ещё был весовым (синк
+      // писал туда), а потом галочку "весовой товар" сняли в карточке.
+      // stockAmount()/computeAvailableStock читают только одно поле по
+      // текущему priced_by_weight, поэтому старое число в другом поле не
+      // видно никому и вводит в заблуждение при отладке — чистим его здесь,
+      // а не только пишем актуальное. Обратное (qty у весового товара)
+      // умышленно не трогаем — короба́ весового товара 1С не считает вовсе,
+      // это отдельное поле, которое не имеет отношения к синку.
       if (isWeightItem) rec.weight_kg = qty;
-      else rec.qty = qty;
+      else { rec.qty = qty; rec.weight_kg = null; }
     } else {
       const newRec = isWeightItem ? { code: it.code, qty: 0, weight_kg: qty } : { code: it.code, qty };
       stock.push(newRec);
@@ -1706,6 +1716,7 @@ app.post('/api/stock/sync', (req, res) => {
     count++;
   });
   db.write();
+  console.log(`[stock/sync] ${new Date().toISOString()} применено кодов: ${count} из ${(items || []).length} присланных`);
   res.json({ success: true, count });
 });
 
