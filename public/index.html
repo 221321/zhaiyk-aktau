@@ -140,6 +140,7 @@ async function apiCall(method, path, body) {
     // сразу сбрасываем токен и уходим на вход с понятным сообщением сервера.
     if (res.status === 401 && path !== '/api/login' && getToken()) {
       removeToken();
+      try { sessionStorage.setItem('forcedLogoutMessage', data.error || 'Сессия завершена, войдите заново'); } catch(e) {}
       window.location.reload();
     }
     throw new Error(data.error || 'Ошибка сервера');
@@ -2678,19 +2679,20 @@ function DriverCabinet({ user, onLogout }) {
   // Заявки от магазина в статусе "new" ещё не разобраны менеджером и не
   // видны в общей очереди — менеджер сам назначает водителя (тогда заявка
   // переходит в in_transit с driver_id и появляется как обычно). Самовывоз
-  // (time_slot===PICKUP_SLOT) клиент забирает сам, водитель тут не нужен
-  // вообще — такие заявки в очередь водителя не попадают (админ/менеджер
-  // по-прежнему видят и обрабатывают их как обычно, это только очередь
-  // водителя).
-  const queueAll = orders.filter(o=>((o.status==="new"&&o.source!=="store")||o.status==="in_transit")&&o.time_slot!==PICKUP_SLOT);
+  // (time_slot===PICKUP_SLOT) клиент забирает сам, свободному водителю
+  // незачем видеть его в общей очереди "доступно взять" — исключаем только
+  // отсюда (queueNew и new-часть queueAll). После того как её всё же
+  // назначили конкретному человеку (обычно так и оформляют выдачу с
+  // самовывоза — по факту через того же водителя/сотрудника на кассе) и
+  // статус стал in_transit, заявка должна вести себя как обычно и остаться
+  // видна в queueActive/myActive — иначе подтвердить её "Доставлено"
+  // (единственный путь для этого — DriverPaymentBlock у назначенного
+  // водителя, см. ниже) стало бы физически некому: у admin/manager в
+  // OrderDetail для in_transit нет своей кнопки завершения.
+  const queueAll = orders.filter(o=>(o.status==="new"&&o.source!=="store"&&o.time_slot!==PICKUP_SLOT)||o.status==="in_transit");
   const queueNew = orders.filter(o=>o.status==="new"&&o.source!=="store"&&o.time_slot!==PICKUP_SLOT);
-  // Та же оговорка про самовывоз, что и у queueAll/queueNew выше — ничего
-  // от водителя не должно быть видно нигде в его кабинете, даже если
-  // такую заявку всё же вручную назначили конкретному водителю (сервер это
-  // не запрещает, но раз убираем самовывоз из очереди — убираем везде
-  // последовательно, а не только там, откуда её обычно берут).
-  const queueActive = orders.filter(o=>o.status==="in_transit"&&o.time_slot!==PICKUP_SLOT);
-  const myActive = orders.filter(o=>o.status==="in_transit"&&o.driver_id===user.id&&o.time_slot!==PICKUP_SLOT);
+  const queueActive = orders.filter(o=>o.status==="in_transit");
+  const myActive = orders.filter(o=>o.status==="in_transit"&&o.driver_id===user.id);
 
   const myDoneAll = orders.filter(o=>o.driver_id===user.id&&o.date>=driverDateFrom&&o.date<=driverDateTo&&["delivered","cancelled","returned"].includes(o.status));
   const myDelivered = myDoneAll.filter(o=>o.status==="delivered");
@@ -4356,6 +4358,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [changingPwd, setChangingPwd] = useState(null);
   const [roleEdits, setRoleEdits] = useState({});
   const [savingRole, setSavingRole] = useState(null);
+  const [resettingSession, setResettingSession] = useState(null);
   const [empSectionsOpen, setEmpSectionsOpen] = useState({ noAccount: true, accounts: true, noStoreAccount: false });
 
   const loadEmployees = useCallback(async () => {
@@ -4429,6 +4432,16 @@ function AdminCabinet({ user, onLogout, desktop }) {
       setPasswordEdits(p => ({...p, [u.id]: ''}));
     } catch(e) { alert(e.message); }
     setChangingPwd(null);
+  };
+
+  const resetUserSession = async (u) => {
+    if (!window.confirm(`Сбросить активную сессию «${u.name}»? Это позволит войти с другого устройства прямо сейчас.`)) return;
+    setResettingSession(u.id);
+    try {
+      await apiCall('PUT', `/api/users/${u.id}/reset-session`, {});
+      await loadUsers();
+    } catch(e) { alert(e.message); }
+    setResettingSession(null);
   };
 
   const loadClients = useCallback(async () => {
@@ -5818,6 +5831,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                         <div>
                           <p style={S.cardTitle}>{u.name} {!u.active&&<span style={{color:C.red,fontSize:13,fontWeight:700}}>· ОТКЛЮЧЁН</span>}</p>
                           <p style={S.cardSub}>{u.login} · {ROLE_OPTIONS.find(([v])=>v===u.role)?.[1]||u.role}</p>
+                          {u.session_active&&<p style={{...S.cardSub,color:C.green,fontWeight:600}}>● Сессия активна{u.last_seen_at?` (посл. активность ${new Date(u.last_seen_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})})`:''}</p>}
                         </div>
                         <button
                           style={{...S.btnSecondary,opacity:togglingUser===u.id?0.5:1}}
@@ -5825,6 +5839,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
                           onClick={()=>toggleUser(u)}
                         >{u.active?"Отключить":"Включить"}</button>
                       </div>
+                      {u.session_active&&
+                        <button
+                          style={{...S.btnSecondary,marginTop:6,opacity:resettingSession===u.id?0.5:1}}
+                          disabled={resettingSession===u.id}
+                          onClick={()=>resetUserSession(u)}
+                        >{resettingSession===u.id?"...":"Сбросить сессию"}</button>
+                      }
                       <div style={{display:"flex",gap:6,marginTop:8}}>
                         <select
                           style={{...S.select,padding:"7px 8px",fontSize:14,flex:1}}
@@ -6343,7 +6364,13 @@ function App() {
   const [user, setUser] = useState(null);
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => {
+    try {
+      const msg = sessionStorage.getItem('forcedLogoutMessage');
+      if (msg) sessionStorage.removeItem('forcedLogoutMessage');
+      return msg || "";
+    } catch(e) { return ""; }
+  });
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
   const [pushStatus, setPushStatus] = useState(

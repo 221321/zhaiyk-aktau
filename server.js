@@ -788,7 +788,7 @@ app.get('/api/users', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const users = db.get('users').map(u => ({ id: u.id, login: u.login, name: u.name, role: u.role, region: u.region, client_code: u.client_code || null, active: u.active !== false, employee_code: u.employee_code || null })).value();
+  const users = db.get('users').map(u => ({ id: u.id, login: u.login, name: u.name, role: u.role, region: u.region, client_code: u.client_code || null, active: u.active !== false, employee_code: u.employee_code || null, session_active: !!(u.session_sid && u.last_seen_at && (Date.now() - new Date(u.last_seen_at).getTime()) < SESSION_IDLE_MS), last_seen_at: u.last_seen_at || null })).value();
   res.json(users);
 });
 
@@ -850,6 +850,21 @@ app.put('/api/users/:id/password', authMiddleware, (req, res) => {
   const user = db.get('users').find({ id }).value();
   if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
   db.get('users').find({ id }).assign({ password: bcrypt.hashSync(password, 10) }).write();
+  res.json({ success: true });
+});
+
+// Принудительно освободить сессию сотрудника (см. "одна сессия на
+// аккаунт" в authMiddleware/POST /api/login) — нужно, если человек потерял
+// токен, не выйдя явно (например, очистилось хранилище в PWA), и без этого
+// был бы заблокирован в собственном аккаунте на SESSION_IDLE_MS.
+app.put('/api/users/:id/reset-session', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const id = parseInt(req.params.id);
+  const user = db.get('users').find({ id }).value();
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  db.get('users').find({ id }).assign({ session_sid: null, last_seen_at: null }).write();
   res.json({ success: true });
 });
 
