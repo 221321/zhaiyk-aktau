@@ -1500,7 +1500,13 @@ function SalesCabinet({ user, token, onLogout }) {
     // сумму заявки по кол-ву коробов × примерный вес, а не только по
     // кол-ву коробов (что для цены "за кг" не имеет смысла).
     pricedByWeight: !!p.priced_by_weight,
-    avgWeightPerBox: (p.stock_weight_kg != null && p.stock > 0) ? (p.stock_weight_kg / p.stock) : null
+    avgWeightPerBox: (p.stock_weight_kg != null && p.stock > 0) ? (p.stock_weight_kg / p.stock) : null,
+    // Snake_case-дубли — их читают общие хелперы stockAmount/stockLabel/
+    // stockIsOut (см. выше), которые проверяют именно priced_by_weight/
+    // stock_weight_kg, как отдаёт /api/products. Без этого хелперы решали
+    // бы, что товар не весовой, и молча возвращались бы к протухшим коробам.
+    priced_by_weight: !!p.priced_by_weight,
+    stock_weight_kg: p.stock_weight_kg != null ? p.stock_weight_kg : null
   }))))
   .catch(() => {});
   }, []);
@@ -1975,7 +1981,12 @@ function StoreCabinet({ user, onLogout, desktop }) {
         code: p.code,
         stock: p.stock,
         photo: p.photo || null,
-        barcode: p.barcode || ''
+        barcode: p.barcode || '',
+        // Читают общие хелперы stockAmount/stockLabel/stockIsOut — без этих
+        // полей весовой товар выглядел бы для них обычным, и они бы молча
+        // возвращались к протухшим коробам (см. эти хелперы выше).
+        priced_by_weight: !!p.priced_by_weight,
+        stock_weight_kg: p.stock_weight_kg != null ? p.stock_weight_kg : null
       }))))
       .catch(() => {});
   }, []);
