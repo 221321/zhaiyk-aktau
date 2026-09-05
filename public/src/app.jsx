@@ -3015,7 +3015,8 @@ function StockPanel() {
                   <p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>{p.stock_unit||''}</p>
                 </div>
               </div>
-              {p.stock_weight_kg!=null&&<p style={{margin:"6px 0 0",fontSize:14,color:C.textSub,fontWeight:600}}>⚖️ Вес: {p.stock_weight_kg} кг</p>}
+              {p.stock_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_raw} · в заявках: {p.stock_reserved} · доступно: {p.stock}</p>}
+              {p.stock_weight_kg!=null&&<p style={{margin:"6px 0 0",fontSize:14,color:C.textSub,fontWeight:600}}>⚖️ Вес: {p.stock_weight_kg} кг{p.stock_weight_kg_reserved>0?` (в заявках: ${p.stock_weight_kg_reserved} кг, доступно: ${Math.max(0,p.stock_weight_kg-p.stock_weight_kg_reserved)} кг)`:''}</p>}
             </div>
           );
         })

@@ -999,6 +999,7 @@ app.get('/api/products', (req, res) => {
   const products = db.get('products').value();
   const aliases = db.get('productAliases').value();
   const availableMap = computeAvailableStock();
+  const breakdown = computeStockBreakdown();
   const aliasMap = {};
   aliases.forEach(a => { aliasMap[a.code] = a; });
   const stockMap = {};
@@ -1047,12 +1048,19 @@ app.get('/api/products', (req, res) => {
       // ни на резерв, ни на цену.
       avg_box_weight: rec && rec.avg_box_weight != null ? rec.avg_box_weight : null,
       stock: availableMap[p.code] != null ? availableMap[p.code] : 0,
+      // Разбивка для отчёта "Остатки" (см. StockPanel на фронте) — сколько
+      // физически прислала 1С и сколько из этого уже разобрано текущими
+      // заявками (new/in_transit), чтобы "доступно" (stock/stock_weight_kg
+      // выше) не выглядело немой цифрой без объяснения, откуда расхождение.
+      stock_raw: breakdown.rawQty[p.code] != null ? breakdown.rawQty[p.code] : 0,
+      stock_reserved: breakdown.reservedQty[p.code] || 0,
       // Единица измерения и вес остатка — правит зав. склад вручную на
       // экране "Остатки" (см. PUT /api/stock/:code), 1С шлёт только qty.
       // Нужно, когда товар физически весовой, а 1С отдаёт его коробками/
       // штуками — склад фиксирует, сколько реально килограммов в остатке.
       stock_unit: stockRec && stockRec.unit ? stockRec.unit : (p.unit || null),
       stock_weight_kg: stockRec && stockRec.weight_kg != null ? stockRec.weight_kg : null,
+      stock_weight_kg_reserved: breakdown.reservedKg[p.code] || 0,
       photo: rec && rec.photo ? rec.photo : null,
       // Код НКТ (NTIN) — подбирается по штрихкоду/названию через nct.gov.kz
       // (см. /api/nkt/*), либо вводится вручную. nkt_status: 'matched'
@@ -1807,6 +1815,42 @@ function computeAvailableWeightKg() {
     availableMap[code] = Math.max(0, weightMap[code] - (reservedKg[code] || 0));
   });
   return availableMap;
+}
+
+// Для отчёта "Остатки" (GET /api/products, поля stock_raw/stock_reserved) —
+// та же логика резерва, что в computeAvailableStock/computeAvailableWeightKg
+// выше, но возвращает физический остаток и резерв отдельно, а не только
+// итоговое "доступно". Отдельная функция, а не расширение существующих
+// (те уже используются в проверке заявок при оформлении и в резерве кг —
+// менять их форму ответа рискованно, здесь нужна только витрина для отчёта).
+function computeStockBreakdown() {
+  const stock = db.get('stock').value();
+  const rawQty = {}, rawKg = {};
+  stock.forEach(s => {
+    rawQty[s.code] = Number(s.qty) || 0;
+    if (s.weight_kg != null) rawKg[s.code] = Number(s.weight_kg) || 0;
+  });
+
+  const reservedQty = {}, reservedKg = {};
+  const orders = db.get('orders').value();
+  orders.forEach(o => {
+    if (!['new', 'in_transit'].includes(o.status)) return;
+    const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
+    items.forEach(it => {
+      if (!it.code) return;
+      if (it.is_weight_item) {
+        if (it.weight_confirmed) {
+          reservedKg[it.code] = (reservedKg[it.code] || 0) + (Number(it.qty) || 0);
+        } else {
+          reservedQty[it.code] = (reservedQty[it.code] || 0) + (Number(it.boxes) || 0);
+        }
+        return;
+      }
+      reservedQty[it.code] = (reservedQty[it.code] || 0) + (Number(it.qty) || 0);
+    });
+  });
+
+  return { rawQty, reservedQty, rawKg, reservedKg };
 }
 
 // Себестоимость на момент продажи/заявки — записывается построчно в сам
