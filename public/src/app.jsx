@@ -24,6 +24,30 @@ async function pickPhoneContact(onPicked) {
   }
 }
 
+// Напоминание должникам через WhatsApp — намеренно НЕ через официальный
+// Business API и НЕ через сторонние библиотеки-автоматизаторы (Baileys,
+// whatsapp-web.js): и то, и другое либо требует одобрения шаблонов Meta
+// под "долги" (регулируемая тема, могут не одобрить), либо банит рабочий
+// номер за паттерн автоматической массовой рассылки. wa.me — просто
+// диплинк в обычный WhatsApp с готовым текстом, отправляет его вживую сам
+// человек, поэтому риска блокировки номера нет вообще.
+function toWhatsAppDigits(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  // Казахстанские номера часто вводят с "8" (местный код выхода) — для
+  // wa.me нужен международный формат с "7".
+  if (digits.length === 11 && digits[0] === '8') return '7' + digits.slice(1);
+  return digits;
+}
+function waMeLink(phone, text) {
+  const digits = toWhatsAppDigits(phone);
+  if (!digits) return null;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
+function debtReminderText(d) {
+  const ref = d.order_id ? `накладной № ${d.order_id}` : `чеку № ${d.sale_id}`;
+  return `Здравствуйте, ${d.client_name}! Напоминаем о задолженности по ${ref} от ${d.date} на сумму ${d.remaining.toLocaleString()} ₸. Будем благодарны за оплату в ближайшее время.`;
+}
+
 const SL = { new: "Ожидает", in_transit: "В работе", delivered: "Доставлено", cancelled: "Отказ при получении", returned: "Возврат", revoked: "Отозвана" };
 const SC = { new: "#DA1A10", in_transit: "#B45309", delivered: "#15803D", cancelled: "#DC2626", returned: "#7C3AED", revoked: "#6B7280" };
 const SB = { new: "#FCEBEA", in_transit: "#FBF3E6", delivered: "#EAF5EE", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6" };
@@ -665,8 +689,15 @@ function DebtsPanel({ readOnly }) {
               </div>
               <p style={{margin:0,fontWeight:800,fontFamily:FH,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
             </div>
-            {d.delivery_photo&&(
-              <a href={d.delivery_photo} target="_blank" rel="noopener noreferrer" download style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:8,fontSize:14,fontWeight:600,color:C.navy,textDecoration:"none"}}>📄 Накладная</a>
+            {(d.delivery_photo||d.contact_phone)&&(
+              <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:8}}>
+                {d.delivery_photo&&(
+                  <a href={d.delivery_photo} target="_blank" rel="noopener noreferrer" download style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600,color:C.navy,textDecoration:"none"}}>📄 Накладная</a>
+                )}
+                {waMeLink(d.contact_phone,debtReminderText(d))&&(
+                  <a href={waMeLink(d.contact_phone,debtReminderText(d))} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600,color:"#25D366",textDecoration:"none"}}>💬 Написать в WhatsApp</a>
+                )}
+              </div>
             )}
             {!readOnly&&(
               <div style={{display:"flex",gap:6,marginTop:10}}>

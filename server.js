@@ -1537,6 +1537,10 @@ app.get('/api/debts', authMiddleware, (req, res) => {
   if (!['admin', 'manager', 'operator', 'driver', 'sales', 'senior_sales'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
+  // Телефон контактного лица клиента — для кнопки "написать в WhatsApp" в
+  // "Должниках" (см. GET /api/clients, тот же clientContacts по client_code).
+  const contactPhoneByCode = {};
+  db.get('clientContacts').value().forEach(c => { if (c.phone) contactPhoneByCode[c.code] = c.phone; });
   const orders = db.get('orders').value();
   const sales = db.get('sales').value() || [];
   const settlements = db.get('debtSettlements').value();
@@ -1569,7 +1573,8 @@ app.get('/api/debts', authMiddleware, (req, res) => {
         days_ago: daysAgoOf(o.date),
         // Фото подписанной накладной — оператору нужно скачать/скинуть
         // магазину-должнику как подтверждение поставки при напоминании об оплате.
-        delivery_photo: o.delivery_photo || null
+        delivery_photo: o.delivery_photo || null,
+        contact_phone: o.contact_phone || (o.client_code ? contactPhoneByCode[o.client_code] : null) || null
       };
     });
 
@@ -1595,7 +1600,8 @@ app.get('/api/debts', authMiddleware, (req, res) => {
         settled,
         remaining,
         overdue: remaining > 0 && daysAgoOf(s.date) > 7,
-        days_ago: daysAgoOf(s.date)
+        days_ago: daysAgoOf(s.date),
+        contact_phone: (s.client_code ? contactPhoneByCode[s.client_code] : null) || null
       };
     });
 

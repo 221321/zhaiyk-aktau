@@ -34,6 +34,30 @@ async function pickPhoneContact(onPicked) {
     // пользователь закрыл системный диалог выбора — это не ошибка
   }
 }
+
+// Напоминание должникам через WhatsApp — намеренно НЕ через официальный
+// Business API и НЕ через сторонние библиотеки-автоматизаторы (Baileys,
+// whatsapp-web.js): и то, и другое либо требует одобрения шаблонов Meta
+// под "долги" (регулируемая тема, могут не одобрить), либо банит рабочий
+// номер за паттерн автоматической массовой рассылки. wa.me — просто
+// диплинк в обычный WhatsApp с готовым текстом, отправляет его вживую сам
+// человек, поэтому риска блокировки номера нет вообще.
+function toWhatsAppDigits(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  // Казахстанские номера часто вводят с "8" (местный код выхода) — для
+  // wa.me нужен международный формат с "7".
+  if (digits.length === 11 && digits[0] === '8') return '7' + digits.slice(1);
+  return digits;
+}
+function waMeLink(phone, text) {
+  const digits = toWhatsAppDigits(phone);
+  if (!digits) return null;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
+function debtReminderText(d) {
+  const ref = d.order_id ? `накладной № ${d.order_id}` : `чеку № ${d.sale_id}`;
+  return `Здравствуйте, ${d.client_name}! Напоминаем о задолженности по ${ref} от ${d.date} на сумму ${d.remaining.toLocaleString()} ₸. Будем благодарны за оплату в ближайшее время.`;
+}
 const SL = {
   new: "Ожидает",
   in_transit: "В работе",
@@ -1606,7 +1630,14 @@ function DebtsPanel({
         fontFamily: FH,
         color: d.overdue ? C.red : "#92400E"
       }
-    }, d.remaining.toLocaleString(), " \u20B8")), d.delivery_photo && /*#__PURE__*/React.createElement("a", {
+    }, d.remaining.toLocaleString(), " \u20B8")), (d.delivery_photo || d.contact_phone) && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 14,
+        flexWrap: "wrap",
+        marginTop: 8
+      }
+    }, d.delivery_photo && /*#__PURE__*/React.createElement("a", {
       href: d.delivery_photo,
       target: "_blank",
       rel: "noopener noreferrer",
@@ -1615,13 +1646,25 @@ function DebtsPanel({
         display: "inline-flex",
         alignItems: "center",
         gap: 6,
-        marginTop: 8,
         fontSize: 14,
         fontWeight: 600,
         color: C.navy,
         textDecoration: "none"
       }
-    }, "\uD83D\uDCC4 \u041D\u0430\u043A\u043B\u0430\u0434\u043D\u0430\u044F"), !readOnly && /*#__PURE__*/React.createElement("div", {
+    }, "\uD83D\uDCC4 \u041D\u0430\u043A\u043B\u0430\u0434\u043D\u0430\u044F"), waMeLink(d.contact_phone, debtReminderText(d)) && /*#__PURE__*/React.createElement("a", {
+      href: waMeLink(d.contact_phone, debtReminderText(d)),
+      target: "_blank",
+      rel: "noopener noreferrer",
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 14,
+        fontWeight: 600,
+        color: "#25D366",
+        textDecoration: "none"
+      }
+    }, "\uD83D\uDCAC \u041D\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0432 WhatsApp")), !readOnly && /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         gap: 6,
