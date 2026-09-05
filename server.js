@@ -10,10 +10,26 @@ const webpush = require('web-push');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const IS_PRODUCTION = NODE_ENV === 'production';
 // Секреты берутся из окружения; значения ниже — fallback на случай отсутствия .env,
 // чтобы не сломать текущий деплой. Рекомендуется задать их в /etc/environment или .env на сервере.
-const JWT_SECRET = process.env.JWT_SECRET || 'zhaiyk_aktau_secret_2025';
-const SYNC_SECRET = process.env.SYNC_SECRET || '1c_zhaiyk_2025';
+const DEFAULT_JWT_SECRET = 'zhaiyk_aktau_secret_2025';
+const DEFAULT_SYNC_SECRET = '1c_zhaiyk_2025';
+const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
+const SYNC_SECRET = process.env.SYNC_SECRET || DEFAULT_SYNC_SECRET;
+
+// Боевой режим (NODE_ENV=production) не должен молча работать на дефолтных
+// секретах из открытого репозитория — иначе любой, кто читал код, может
+// подделать JWT сотрудника или обойти SYNC_SECRET синхронизации с 1С.
+if (IS_PRODUCTION && (JWT_SECRET === DEFAULT_JWT_SECRET || SYNC_SECRET === DEFAULT_SYNC_SECRET)) {
+  console.error(
+    '❌ NODE_ENV=production, но JWT_SECRET и/или SYNC_SECRET не заданы через переменные окружения ' +
+    '(используются небезопасные значения по умолчанию из исходного кода). ' +
+    'Задайте реальные секреты в /etc/environment или .env на сервере и перезапустите процесс.'
+  );
+  process.exit(1);
+}
 
 // ===== НКТ (nct.gov.kz) — поиск кода НКТ (NTIN) по GTIN/названию =====
 const NKT_OFD_BASE_URL = process.env.NKT_OFD_BASE_URL || 'https://nct.gov.kz/api/integration/ofd';
@@ -2204,5 +2220,5 @@ app.get('/{*path}', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Сервер ЖАЙЫК АКТАУ запущен на порту ${PORT}`);
+  console.log(`🚀 Сервер ЖАЙЫК АКТАУ запущен на порту ${PORT} (режим: ${NODE_ENV}${IS_PRODUCTION ? ', боевой' : ''})`);
 });
