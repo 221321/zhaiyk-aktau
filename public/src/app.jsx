@@ -2951,7 +2951,13 @@ function StockPanel() {
 
   const stockStats = products.reduce((acc,p)=>{
     acc.total++;
-    if (p.stock!=null && p.stock>0) acc.inStock++; else acc.outOfStock++;
+    // Та же проверка, что решает "в наличии"/"нет" у каждой карточки ниже
+    // (stockIsOut учитывает вес для весового товара) — раньше здесь была
+    // отдельная упрощённая проверка по p.stock>0, которая для весового
+    // товара всегда ложная (1С коробов для него не шлёт вовсе, см.
+    // /api/stock/sync), и в сводке он ошибочно уходил в "нет в наличии",
+    // хотя в списке ниже та же позиция показана в наличии по весу.
+    if (!stockIsOut(p)) acc.inStock++; else acc.outOfStock++;
     return acc;
   }, {total:0,inStock:0,outOfStock:0});
 
@@ -2961,10 +2967,10 @@ function StockPanel() {
   const filteredProducts = products
     .filter(p => !q || (p.display_name||p.name||'').toLowerCase().includes(q) || (p.code||'').includes(q))
     .filter(p => !stockCategory || p.group===stockCategory)
-    .filter(p => !hideEmpty || (p.stock!=null && p.stock>0))
+    .filter(p => !hideEmpty || !stockIsOut(p))
     .slice()
     .sort((a,b)=>{
-      const aOut = !(a.stock>0), bOut = !(b.stock>0);
+      const aOut = stockIsOut(a), bOut = stockIsOut(b);
       if (aOut!==bOut) return aOut?1:-1;
       return (a.display_name||a.name||'').localeCompare(b.display_name||b.name||'');
     });
@@ -2997,9 +3003,11 @@ function StockPanel() {
       {loadingProducts?<div style={S.loadingWrap}>Загрузка...</div>
         :filteredProducts.length===0?<div style={{textAlign:"center",padding:"40px 0",color:C.textFaint}}>Ничего не найдено</div>
         :filteredProducts.map(p=>{
-          const out = !(p.stock>0);
-          const low = !out && p.stock<=5;
+          const out = stockIsOut(p);
+          const amt = stockAmount(p);
+          const low = !out && amt!=null && amt<=5;
           const dot = out?C.red:(low?C.amber:C.green);
+          const label = stockLabel(p);
           return (
             <div key={p.code} style={{...S.card,opacity:out?0.7:1}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
@@ -3011,12 +3019,12 @@ function StockPanel() {
                   </div>
                 </div>
                 <div style={{textAlign:"right",flexShrink:0}}>
-                  <span style={{display:"inline-block",padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:FH,fontSize:17,background:out?C.redSoft:(low?"#FEF3C7":"#EAF5EE"),color:out?C.red:(low?C.amber:C.green)}}>{p.stock!=null?p.stock:'—'}</span>
-                  <p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>{p.stock_unit||''}</p>
+                  <span style={{display:"inline-block",padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:FH,fontSize:17,background:out?C.redSoft:(low?"#FEF3C7":"#EAF5EE"),color:out?C.red:(low?C.amber:C.green)}}>{label!=null?label:'—'}</span>
+                  {!p.priced_by_weight&&<p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>{p.stock_unit||''}</p>}
                 </div>
               </div>
               {p.stock_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_raw} · в заявках: {p.stock_reserved} · доступно: {p.stock}</p>}
-              {p.stock_weight_kg!=null&&<p style={{margin:"6px 0 0",fontSize:14,color:C.textSub,fontWeight:600}}>⚖️ Вес: {p.stock_weight_kg} кг{p.stock_weight_kg_reserved>0?` (в заявках: ${p.stock_weight_kg_reserved} кг, доступно: ${Math.max(0,p.stock_weight_kg-p.stock_weight_kg_reserved)} кг)`:''}</p>}
+              {p.stock_weight_kg_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_weight_kg} кг · в заявках: {p.stock_weight_kg_reserved} кг · доступно: {Math.max(0,p.stock_weight_kg-p.stock_weight_kg_reserved)} кг</p>}
             </div>
           );
         })
@@ -5764,7 +5772,13 @@ function WarehouseCabinet({ user, onLogout }) {
 
   const stockStats = products.reduce((acc,p)=>{
     acc.total++;
-    if (p.stock!=null && p.stock>0) acc.inStock++; else acc.outOfStock++;
+    // Та же проверка, что решает "в наличии"/"нет" у каждой карточки ниже
+    // (stockIsOut учитывает вес для весового товара) — раньше здесь была
+    // отдельная упрощённая проверка по p.stock>0, которая для весового
+    // товара всегда ложная (1С коробов для него не шлёт вовсе, см.
+    // /api/stock/sync), и в сводке он ошибочно уходил в "нет в наличии",
+    // хотя в списке ниже та же позиция показана в наличии по весу.
+    if (!stockIsOut(p)) acc.inStock++; else acc.outOfStock++;
     return acc;
   }, {total:0,inStock:0,outOfStock:0});
 
@@ -5774,10 +5788,10 @@ function WarehouseCabinet({ user, onLogout }) {
   const filteredProducts = products
     .filter(p => !q || (p.display_name||p.name||'').toLowerCase().includes(q) || (p.code||'').includes(q))
     .filter(p => !stockCategory || p.group===stockCategory)
-    .filter(p => !hideEmpty || (p.stock!=null && p.stock>0))
+    .filter(p => !hideEmpty || !stockIsOut(p))
     .slice()
     .sort((a,b)=>{
-      const aOut = !(a.stock>0), bOut = !(b.stock>0);
+      const aOut = stockIsOut(a), bOut = stockIsOut(b);
       if (aOut!==bOut) return aOut?1:-1;
       return (a.display_name||a.name||'').localeCompare(b.display_name||b.name||'');
     });
@@ -5873,9 +5887,11 @@ function WarehouseCabinet({ user, onLogout }) {
           {loadingProducts?<div style={S.loadingWrap}>Загрузка...</div>
             :filteredProducts.length===0?<div style={{textAlign:"center",padding:"40px 0",color:C.textFaint}}>Ничего не найдено</div>
             :filteredProducts.map(p=>{
-              const out = !(p.stock>0);
-              const low = !out && p.stock<=5;
+              const out = stockIsOut(p);
+              const amt = stockAmount(p);
+              const low = !out && amt!=null && amt<=5;
               const dot = out?C.red:(low?C.amber:C.green);
+              const label = stockLabel(p);
               return (
                 <div key={p.code} style={{...S.card,opacity:out?0.7:1}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
@@ -5887,11 +5903,12 @@ function WarehouseCabinet({ user, onLogout }) {
                       </div>
                     </div>
                     <div style={{textAlign:"right",flexShrink:0}}>
-                      <span style={{display:"inline-block",padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:FH,fontSize:17,background:out?C.redSoft:(low?"#FEF3C7":"#EAF5EE"),color:out?C.red:(low?C.amber:C.green)}}>{p.stock!=null?p.stock:'—'}</span>
-                      <p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>{p.stock_unit||''}</p>
+                      <span style={{display:"inline-block",padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:FH,fontSize:17,background:out?C.redSoft:(low?"#FEF3C7":"#EAF5EE"),color:out?C.red:(low?C.amber:C.green)}}>{label!=null?label:'—'}</span>
+                      {!p.priced_by_weight&&<p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>{p.stock_unit||''}</p>}
                     </div>
                   </div>
-                  {p.stock_weight_kg!=null&&<p style={{margin:"6px 0 0",fontSize:14,color:C.textSub,fontWeight:600}}>⚖️ Вес: {p.stock_weight_kg} кг</p>}
+                  {p.stock_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_raw} · в заявках: {p.stock_reserved} · доступно: {p.stock}</p>}
+                  {p.stock_weight_kg_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_weight_kg} кг · в заявках: {p.stock_weight_kg_reserved} кг · доступно: {Math.max(0,p.stock_weight_kg-p.stock_weight_kg_reserved)} кг</p>}
                 </div>
               );
             })

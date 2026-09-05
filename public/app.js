@@ -6421,7 +6421,13 @@ function StockPanel() {
   useRefetchOnVisible(loadProducts);
   const stockStats = products.reduce((acc, p) => {
     acc.total++;
-    if (p.stock != null && p.stock > 0) acc.inStock++;else acc.outOfStock++;
+    // Та же проверка, что решает "в наличии"/"нет" у каждой карточки ниже
+    // (stockIsOut учитывает вес для весового товара) — раньше здесь была
+    // отдельная упрощённая проверка по p.stock>0, которая для весового
+    // товара всегда ложная (1С коробов для него не шлёт вовсе, см.
+    // /api/stock/sync), и в сводке он ошибочно уходил в "нет в наличии",
+    // хотя в списке ниже та же позиция показана в наличии по весу.
+    if (!stockIsOut(p)) acc.inStock++;else acc.outOfStock++;
     return acc;
   }, {
     total: 0,
@@ -6430,9 +6436,9 @@ function StockPanel() {
   });
   const stockCategories = Array.from(new Set(products.map(p => p.group).filter(Boolean))).sort((a, b) => a.localeCompare(b));
   const q = stockSearch.trim().toLowerCase();
-  const filteredProducts = products.filter(p => !q || (p.display_name || p.name || '').toLowerCase().includes(q) || (p.code || '').includes(q)).filter(p => !stockCategory || p.group === stockCategory).filter(p => !hideEmpty || p.stock != null && p.stock > 0).slice().sort((a, b) => {
-    const aOut = !(a.stock > 0),
-      bOut = !(b.stock > 0);
+  const filteredProducts = products.filter(p => !q || (p.display_name || p.name || '').toLowerCase().includes(q) || (p.code || '').includes(q)).filter(p => !stockCategory || p.group === stockCategory).filter(p => !hideEmpty || !stockIsOut(p)).slice().sort((a, b) => {
+    const aOut = stockIsOut(a),
+      bOut = stockIsOut(b);
     if (aOut !== bOut) return aOut ? 1 : -1;
     return (a.display_name || a.name || '').localeCompare(b.display_name || b.name || '');
   });
@@ -6528,9 +6534,11 @@ function StockPanel() {
       color: C.textFaint
     }
   }, "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E") : filteredProducts.map(p => {
-    const out = !(p.stock > 0);
-    const low = !out && p.stock <= 5;
+    const out = stockIsOut(p);
+    const amt = stockAmount(p);
+    const low = !out && amt != null && amt <= 5;
     const dot = out ? C.red : low ? C.amber : C.green;
+    const label = stockLabel(p);
     return /*#__PURE__*/React.createElement("div", {
       key: p.code,
       style: {
@@ -6586,7 +6594,7 @@ function StockPanel() {
         background: out ? C.redSoft : low ? "#FEF3C7" : "#EAF5EE",
         color: out ? C.red : low ? C.amber : C.green
       }
-    }, p.stock != null ? p.stock : '—'), /*#__PURE__*/React.createElement("p", {
+    }, label != null ? label : '—'), !p.priced_by_weight && /*#__PURE__*/React.createElement("p", {
       style: {
         margin: "4px 0 0",
         fontSize: 13,
@@ -6598,14 +6606,13 @@ function StockPanel() {
         fontSize: 13,
         color: C.textFaint
       }
-    }, "\u0418\u0437 1\u0421: ", p.stock_raw, " \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", p.stock_reserved, " \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", p.stock), p.stock_weight_kg != null && /*#__PURE__*/React.createElement("p", {
+    }, "\u0418\u0437 1\u0421: ", p.stock_raw, " \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", p.stock_reserved, " \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", p.stock), p.stock_weight_kg_reserved > 0 && /*#__PURE__*/React.createElement("p", {
       style: {
         margin: "6px 0 0",
-        fontSize: 14,
-        color: C.textSub,
-        fontWeight: 600
+        fontSize: 13,
+        color: C.textFaint
       }
-    }, "\u2696\uFE0F \u0412\u0435\u0441: ", p.stock_weight_kg, " \u043A\u0433", p.stock_weight_kg_reserved > 0 ? ` (в заявках: ${p.stock_weight_kg_reserved} кг, доступно: ${Math.max(0, p.stock_weight_kg - p.stock_weight_kg_reserved)} кг)` : ''));
+    }, "\u0418\u0437 1\u0421: ", p.stock_weight_kg, " \u043A\u0433 \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", p.stock_weight_kg_reserved, " \u043A\u0433 \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", Math.max(0, p.stock_weight_kg - p.stock_weight_kg_reserved), " \u043A\u0433"));
   }));
 }
 
@@ -12414,7 +12421,13 @@ function WarehouseCabinet({
   useRefetchOnVisible(loadProducts, loadOrders);
   const stockStats = products.reduce((acc, p) => {
     acc.total++;
-    if (p.stock != null && p.stock > 0) acc.inStock++;else acc.outOfStock++;
+    // Та же проверка, что решает "в наличии"/"нет" у каждой карточки ниже
+    // (stockIsOut учитывает вес для весового товара) — раньше здесь была
+    // отдельная упрощённая проверка по p.stock>0, которая для весового
+    // товара всегда ложная (1С коробов для него не шлёт вовсе, см.
+    // /api/stock/sync), и в сводке он ошибочно уходил в "нет в наличии",
+    // хотя в списке ниже та же позиция показана в наличии по весу.
+    if (!stockIsOut(p)) acc.inStock++;else acc.outOfStock++;
     return acc;
   }, {
     total: 0,
@@ -12423,9 +12436,9 @@ function WarehouseCabinet({
   });
   const stockCategories = Array.from(new Set(products.map(p => p.group).filter(Boolean))).sort((a, b) => a.localeCompare(b));
   const q = stockSearch.trim().toLowerCase();
-  const filteredProducts = products.filter(p => !q || (p.display_name || p.name || '').toLowerCase().includes(q) || (p.code || '').includes(q)).filter(p => !stockCategory || p.group === stockCategory).filter(p => !hideEmpty || p.stock != null && p.stock > 0).slice().sort((a, b) => {
-    const aOut = !(a.stock > 0),
-      bOut = !(b.stock > 0);
+  const filteredProducts = products.filter(p => !q || (p.display_name || p.name || '').toLowerCase().includes(q) || (p.code || '').includes(q)).filter(p => !stockCategory || p.group === stockCategory).filter(p => !hideEmpty || !stockIsOut(p)).slice().sort((a, b) => {
+    const aOut = stockIsOut(a),
+      bOut = stockIsOut(b);
     if (aOut !== bOut) return aOut ? 1 : -1;
     return (a.display_name || a.name || '').localeCompare(b.display_name || b.name || '');
   });
@@ -12607,9 +12620,11 @@ function WarehouseCabinet({
       color: C.textFaint
     }
   }, "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E") : filteredProducts.map(p => {
-    const out = !(p.stock > 0);
-    const low = !out && p.stock <= 5;
+    const out = stockIsOut(p);
+    const amt = stockAmount(p);
+    const low = !out && amt != null && amt <= 5;
     const dot = out ? C.red : low ? C.amber : C.green;
+    const label = stockLabel(p);
     return /*#__PURE__*/React.createElement("div", {
       key: p.code,
       style: {
@@ -12665,20 +12680,25 @@ function WarehouseCabinet({
         background: out ? C.redSoft : low ? "#FEF3C7" : "#EAF5EE",
         color: out ? C.red : low ? C.amber : C.green
       }
-    }, p.stock != null ? p.stock : '—'), /*#__PURE__*/React.createElement("p", {
+    }, label != null ? label : '—'), !p.priced_by_weight && /*#__PURE__*/React.createElement("p", {
       style: {
         margin: "4px 0 0",
         fontSize: 13,
         color: C.textFaint
       }
-    }, p.stock_unit || ''))), p.stock_weight_kg != null && /*#__PURE__*/React.createElement("p", {
+    }, p.stock_unit || ''))), p.stock_reserved > 0 && /*#__PURE__*/React.createElement("p", {
       style: {
         margin: "6px 0 0",
-        fontSize: 14,
-        color: C.textSub,
-        fontWeight: 600
+        fontSize: 13,
+        color: C.textFaint
       }
-    }, "\u2696\uFE0F \u0412\u0435\u0441: ", p.stock_weight_kg, " \u043A\u0433"));
+    }, "\u0418\u0437 1\u0421: ", p.stock_raw, " \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", p.stock_reserved, " \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", p.stock), p.stock_weight_kg_reserved > 0 && /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "6px 0 0",
+        fontSize: 13,
+        color: C.textFaint
+      }
+    }, "\u0418\u0437 1\u0421: ", p.stock_weight_kg, " \u043A\u0433 \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", p.stock_weight_kg_reserved, " \u043A\u0433 \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", Math.max(0, p.stock_weight_kg - p.stock_weight_kg_reserved), " \u043A\u0433"));
   })), tab === "shipping" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u041E\u0442\u0433\u0440\u0443\u0437\u043A\u0430"), queueOrders.length > 0 && /*#__PURE__*/React.createElement("div", {
