@@ -489,8 +489,13 @@ function stockLabel(p) {
   return p.priced_by_weight ? `${amt} кг` : String(amt);
 }
 function stockIsOut(p) {
-  const amt = stockAmount(p);
-  return amt != null && amt <= 0;
+  // Развесной товар без настроенного кг-пула (weight_kg ещё ни разу не
+  // вписан на "Остатках", хотя флаг "Весовой товар" уже стоит) — это не
+  // "остаток неизвестен, значит бесконечно доступен", а безопасный дефолт
+  // "нет в наличии" (тот же, что раньше давал stock=0 у непроинициализи-
+  // рованной записи в stock, прежде чем этот файл начал смотреть на кг).
+  if (p.priced_by_weight) return p.stock_weight_kg == null || p.stock_weight_kg <= 0;
+  return p.stock != null && p.stock <= 0;
 }
 
 function DebtsPanel({ readOnly }) {
