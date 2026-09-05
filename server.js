@@ -1374,6 +1374,7 @@ app.get('/api/debts', authMiddleware, (req, res) => {
       return {
         order_id: o.id, sale_id: null,
         client_name: o.client_name,
+        client_code: o.client_code || null,
         date: o.date,
         original_debt: o.payment_debt || 0,
         settled,
@@ -1397,6 +1398,7 @@ app.get('/api/debts', authMiddleware, (req, res) => {
       return {
         order_id: null, sale_id: s.id,
         client_name: s.client_name || 'Без клиента',
+        client_code: s.client_code || null,
         date: s.date,
         original_debt: s.payment_debt || 0,
         settled,
@@ -1831,9 +1833,13 @@ app.delete('/api/returns/:id', authMiddleware, (req, res) => {
     const rec = stockCol.find({ code: it.code }).value();
     if (!rec) return;
     if (it.is_weight_item) {
-      if (rec.weight_kg != null) {
-        stockCol.find({ code: it.code }).assign({ weight_kg: Math.max(0, Number(rec.weight_kg) - (Number(it.qty) || 0)) }).write();
-      }
+      // rec.weight_kg может стать null уже ПОСЛЕ создания возврата, если
+      // склад вручную очистил "Вес, кг" в "Остатках" — раньше в этом случае
+      // откат молча ничего не делал (rec.weight_kg != null было false), и
+      // кг, зачисленные этим возвратом, так и оставались учтены нигде.
+      // Считаем пустой пул нулём, как и везде в этом файле.
+      const kg = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
+      stockCol.find({ code: it.code }).assign({ weight_kg: Math.max(0, kg - (Number(it.qty) || 0)) }).write();
       return;
     }
     stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - (Number(it.qty) || 0)) }).write();
