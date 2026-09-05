@@ -2976,7 +2976,7 @@ function StockMovementsReport({ onClose }) {
   const q = search.trim().toLowerCase();
   const filtered = rows.filter(r => !q || (r.name||'').toLowerCase().includes(q) || (r.code||'').includes(q));
 
-  const qtyLabel = (r) => r.is_weight_item ? (r.weight_confirmed ? `${r.qty} кг` : `≈${r.boxes||0} кор`) : `${r.qty}`;
+  const numLabel = (v, unit) => `${v}${unit?' '+unit:''}`;
 
   const exportCsv = () => downloadCsv(
     `ostatki_dvizhenie_${from}_${to}.csv`,
@@ -2987,18 +2987,22 @@ function StockMovementsReport({ onClose }) {
       { label: 'Код', get: r => r.code },
       { label: 'Товар', get: r => r.name },
       { label: 'Торговый/Магазин', get: r => r.sales_name || r.client_name || '' },
-      { label: 'Статус', get: r => SL[r.status] || r.status },
-      { label: 'Количество', get: r => qtyLabel(r) },
+      { label: 'Остаток до', get: r => numLabel(r.balance_before, r.unit) },
+      { label: 'Списано', get: r => numLabel(r.delta, r.unit) },
+      { label: 'Остаток после', get: r => numLabel(r.balance_after, r.unit) },
     ]
   );
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
-      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:900,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
-        <div style={{...S.row,marginBottom:14}}>
+      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:960,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
+        <div style={{...S.row,marginBottom:6}}>
           <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>📊 Движение остатков</p>
           <button style={S.btnSecondary} onClick={onClose}>✕</button>
         </div>
+        <p style={{margin:"0 0 14px",fontSize:13,color:C.textFaint}}>
+          Только реально доставленные заявки — то, что физически списалось со склада. Заявки в статусе "Ожидает"/"В работе"/"Отозвана" остаток ещё не меняют (см. резерв на карточке товара), поэтому их здесь нет.
+        </p>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
           <div>
             <label style={S.label}>С</label>
@@ -3018,7 +3022,7 @@ function StockMovementsReport({ onClose }) {
           <button style={{...S.btnPrimary,width:"auto",padding:"9px 16px",fontSize:14}} onClick={exportCsv} disabled={filtered.length===0}>⬇ Скачать в Excel</button>
         </div>
         {loading?<div style={S.loadingWrap}>Загрузка...</div>
-          :filtered.length===0?<div style={{textAlign:"center",padding:"30px 0",color:C.textFaint}}>За этот период движений не найдено</div>
+          :filtered.length===0?<div style={{textAlign:"center",padding:"30px 0",color:C.textFaint}}>За этот период доставленных заявок с движением остатка не найдено</div>
           :<div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
               <thead>
@@ -3028,8 +3032,9 @@ function StockMovementsReport({ onClose }) {
                   <th style={{padding:"6px 8px"}}>Товар</th>
                   <th style={{padding:"6px 8px"}}>Код</th>
                   <th style={{padding:"6px 8px"}}>Торговый/Магазин</th>
-                  <th style={{padding:"6px 8px"}}>Статус</th>
-                  <th style={{padding:"6px 8px",textAlign:"right"}}>Кол-во</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Остаток до</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Списано</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Остаток после</th>
                 </tr>
               </thead>
               <tbody>
@@ -3040,8 +3045,9 @@ function StockMovementsReport({ onClose }) {
                     <td style={{padding:"6px 8px"}}>{r.name}</td>
                     <td style={{padding:"6px 8px",color:C.textFaint}}>{r.code}</td>
                     <td style={{padding:"6px 8px"}}>{r.sales_name||r.client_name||'—'}</td>
-                    <td style={{padding:"6px 8px"}}>{SL[r.status]||r.status}</td>
-                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700}}>{qtyLabel(r)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right"}}>{numLabel(r.balance_before,r.unit)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:C.red}}>−{numLabel(r.delta,r.unit)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700}}>{numLabel(r.balance_after,r.unit)}</td>
                   </tr>
                 ))}
               </tbody>
