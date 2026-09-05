@@ -1443,20 +1443,32 @@ app.get('/api/debt-settlements', authMiddleware, (req, res) => {
   res.json(db.get('debtSettlements').value());
 });
 
-// ===== STOCK (остаток ведётся на сайте: приход/продажа/доставка/возврат
-// напрямую меняют qty, см. соответствующие эндпоинты) =====
+// ===== STOCK (остатки снова приходят из 1С через /api/stock/sync; продажа/
+// доставка/возврат по-прежнему списывают/приходуют qty напрямую в моменте —
+// см. соответствующие эндпоинты) =====
 db.defaults({ stock: [] }).write();
 
-// Отключено по решению владельца: 1С сокращена до номенклатуры/контрагентов/
-// сотрудников, остаток больше ей не присылается. Эндпоинт оставлен (а не
-// удалён), чтобы старая настройка обмена в 1С, если её забудут выключить,
-// не падала с ошибкой — но остаток теперь этот вызов не трогает.
+// 1С — снова источник остатков (решение владельца отменено). 1С может
+// присылать не полный снимок, а только изменившиеся коды — поэтому
+// обновляем/добавляем только присланные коды через upsert, а не полностью
+// заменяем коллекцию db.set(), иначе коды, отсутствующие в конкретном
+// пакете, молча обнулялись бы (см. computeAvailableStock: код без записи в
+// stock = остаток 0; этот баг уже однажды чинили, см. историю коммитов).
 app.post('/api/stock/sync', (req, res) => {
-  const { secret } = req.body;
+  const { items, secret } = req.body;
   if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  res.json({ success: true, count: 0, disabled: true });
+  const stockCol = db.get('stock');
+  (items || []).forEach(it => {
+    if (!it || !it.code) return;
+    if (stockCol.find({ code: it.code }).value()) {
+      stockCol.find({ code: it.code }).assign({ qty: it.qty }).write();
+    } else {
+      stockCol.push({ code: it.code, qty: it.qty }).write();
+    }
+  });
+  res.json({ success: true, count: (items || []).length });
 });
 
 // Зав. склад правит остаток вручную — 1С шлёт только qty в её единице
@@ -1782,11 +1794,12 @@ app.delete('/api/returns/:id', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
-// ===== ПРИХОД ТОВАРА (ручное пополнение остатка складом/админом/менеджером) =====
-// Как и возврат выше, приход сразу и напрямую увеличивает stock.qty — то же
-// поле, что склад правит вручную через PUT /api/stock/:code. Цена закупки
-// партии — только для истории/справки, на себестоимость в отчётах не
-// влияет (она по-прежнему берётся из псевдонимов товаров, см. getCostMap).
+// ===== ПРИХОД ТОВАРА (журнал; остаток больше НЕ меняет) =====
+// По решению владельца приход товара снова оформляется в 1С (менеджером), а
+// остаток на сайт приходит через /api/stock/sync — поэтому этот эндпоинт
+// больше не трогает stock.qty/weight_kg (иначе один и тот же приход задвоился
+// бы: один раз здесь, второй раз — следующим синком из 1С). Оставлен только
+// как журнал/история на сайте, на случай если он ещё нужен для отчётности.
 db.defaults({ receipts: [], nextReceiptId: 1 }).write();
 
 app.get('/api/receipts', authMiddleware, (req, res) => {
@@ -1829,18 +1842,8 @@ app.post('/api/receipts', authMiddleware, (req, res) => {
   }
   if (cleanItems.length === 0) return res.status(400).json({ error: 'Нет корректных позиций для прихода' });
 
-  const stockCol = db.get('stock');
-  cleanItems.forEach(it => {
-    const rec = stockCol.find({ code: it.code }).value();
-    if (rec) {
-      const patch = {};
-      if (it.qty > 0) patch.qty = (Number(rec.qty) || 0) + it.qty;
-      if (it.weight_kg != null) patch.weight_kg = (rec.weight_kg != null ? Number(rec.weight_kg) : 0) + it.weight_kg;
-      if (Object.keys(patch).length) stockCol.find({ code: it.code }).assign(patch).write();
-    } else {
-      stockCol.push({ code: it.code, qty: it.qty || 0, ...(it.weight_kg != null ? { weight_kg: it.weight_kg } : {}) }).write();
-    }
-  });
+  // Остаток этот приход больше не трогает — см. комментарий у db.defaults
+  // выше: приход теперь оформляется в 1С, а остаток сайту приходит синком.
 
   const id = db.get('nextReceiptId').value();
   const receipt = {
@@ -1869,18 +1872,8 @@ app.delete('/api/receipts/:id', authMiddleware, (req, res) => {
   const id = parseInt(req.params.id);
   const receipt = db.get('receipts').find({ id }).value();
   if (!receipt) return res.status(404).json({ error: 'Приход не найден' });
-  // Откатываем количество обратно — приход мутирует stock.qty/weight_kg
-  // напрямую (см. POST выше), поэтому удаление должно симметрично их
-  // вычесть, иначе остаток на складе останется задвоенным.
-  const stockCol = db.get('stock');
-  (receipt.items || []).forEach(it => {
-    const rec = stockCol.find({ code: it.code }).value();
-    if (!rec) return;
-    const patch = {};
-    if (it.qty > 0) patch.qty = Math.max(0, (Number(rec.qty) || 0) - it.qty);
-    if (it.weight_kg != null && rec.weight_kg != null) patch.weight_kg = Math.max(0, (Number(rec.weight_kg) || 0) - it.weight_kg);
-    if (Object.keys(patch).length) stockCol.find({ code: it.code }).assign(patch).write();
-  });
+  // Приход больше не меняет остаток (см. комментарий у db.defaults выше),
+  // поэтому удаление записи журнала теперь ничего не откатывает в stock.
   db.get('receipts').remove({ id }).write();
   res.json({ success: true });
 });
