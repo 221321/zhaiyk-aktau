@@ -1761,9 +1761,20 @@ app.get('/api/products/:code/history', authMiddleware, (req, res) => {
 });
 
 // Отчёт по движению остатков за период (для выгрузки в Excel на фронте) —
-// та же идея, что и /api/products/:code/history выше, только по всем
-// товарам сразу и с фильтром по датам, а не по одному коду. Строка на
-// каждую позицию каждой заявки, попавшей в период.
+// "остаток до / списано / остаток после" по каждой заявке, а не просто
+// список активности. Считаем только ДОСТАВЛЕННЫЕ заявки — статусы
+// "Ожидает"/"В работе"/"Отозвана" физический остаток вообще не меняют
+// (только резервируют виртуально, см. computeAvailableStock), показывать
+// их здесь как "движение" было бы враньём: до/после были бы одинаковыми.
+//
+// Остаток "до" каждой доставки восстанавливаем в обратном порядке от
+// ТЕКУЩЕГО значения того же пула, что видно на "Остатках" (weight_kg для
+// весового товара, qty для обычного — см. stockAmount на фронте), отменяя
+// доставки от новой к старой. Ограничение: 1С шлёт итоговое число, а не
+// изменение (см. /api/stock/sync) — если между двумя заявками была
+// синхронизация, промежуточные "до/после" в этом отчёте могут разойтись с
+// тем, что физически было на складе в тот момент. Для заявок за один день
+// без синка между ними — числа точные.
 app.get('/api/stock-movements', authMiddleware, (req, res) => {
   if (!['admin', 'manager', 'warehouse', 'operator'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
@@ -1777,32 +1788,73 @@ app.get('/api/stock-movements', authMiddleware, (req, res) => {
   db.get('products').value().forEach(p => { productNameMap[p.code] = p.name; });
   const aliasMap = {};
   db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+  const stockMap = {};
+  db.get('stock').value().forEach(s => { stockMap[s.code] = s; });
 
-  const orders = db.get('orders').value();
-  const rows = [];
-  orders.forEach(o => {
-    if (!o.date || o.date < from || o.date > to) return;
+  const deliveredOrders = db.get('orders').value().filter(o => o.status === 'delivered');
+
+  // Группируем доставленные позиции по коду товара — остаток "до/после"
+  // считается отдельно для каждого товара, от его текущего значения.
+  const byCode = {};
+  deliveredOrders.forEach(o => {
     const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
     items.forEach(it => {
       if (!it.code) return;
       if (codeFilter && it.code !== codeFilter) return;
       const alias = aliasMap[it.code];
-      const name = (alias && alias.alias) || productNameMap[it.code] || it.name || '';
-      rows.push({
+      const isWeightCode = !!(alias && alias.priced_by_weight);
+      // Для весового товара движение — это подтверждённый факт. вес (кг-пул,
+      // видимый на "Остатках"); неподтверждённые весовые позиции кг-пул не
+      // трогают вовсе (см. PUT /api/orders/:id/status), не считаем их здесь.
+      // Для обычного товара движение — qty (см. тот же эндпоинт: boxesDelta
+      // списывается с rec.qty для любой позиции без подтверждённого веса).
+      let delta = null;
+      if (isWeightCode) {
+        if (it.is_weight_item && it.weight_confirmed) delta = Number(it.qty) || 0;
+      } else {
+        delta = Number(it.qty) || 0;
+      }
+      if (delta == null) return;
+      (byCode[it.code] = byCode[it.code] || []).push({
         order_id: o.id,
         date: o.date,
-        code: it.code,
-        name,
         sales_name: o.sales_name || null,
         client_name: o.client_name || null,
-        status: o.status,
-        qty: it.qty != null ? it.qty : null,
-        boxes: it.boxes != null ? it.boxes : null,
-        is_weight_item: !!it.is_weight_item,
-        weight_confirmed: !!it.weight_confirmed,
+        delta,
       });
     });
   });
+
+  const rows = [];
+  Object.keys(byCode).forEach(code => {
+    const alias = aliasMap[code];
+    const isWeightCode = !!(alias && alias.priced_by_weight);
+    const name = (alias && alias.alias) || productNameMap[code] || code;
+    const stockRec = stockMap[code];
+    let running = isWeightCode
+      ? (stockRec && stockRec.weight_kg != null ? Number(stockRec.weight_kg) : 0)
+      : (stockRec ? Number(stockRec.qty) || 0 : 0);
+    const list = byCode[code].slice().sort((a, b) => (b.order_id || 0) - (a.order_id || 0));
+    list.forEach(ev => {
+      const after = running;
+      const before = running + ev.delta;
+      running = before;
+      if (ev.date < from || ev.date > to) return;
+      rows.push({
+        order_id: ev.order_id,
+        date: ev.date,
+        code,
+        name,
+        unit: isWeightCode ? 'кг' : '',
+        sales_name: ev.sales_name,
+        client_name: ev.client_name,
+        delta: ev.delta,
+        balance_before: before,
+        balance_after: after,
+      });
+    });
+  });
+
   rows.sort((a, b) => (b.order_id || 0) - (a.order_id || 0));
   res.json(rows);
 });
