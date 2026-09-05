@@ -1568,7 +1568,7 @@ function SalesCabinet({ user, token, onLogout }) {
   const selectedClientDebt = clientId ? debts.filter(d=>d.client_name===clients.find(c=>c.code===clientId)?.name && d.overdue).reduce((s,d)=>s+d.remaining,0) : 0;
 
   const [products, setProducts] = useState([]);
-  useEffect(() => {
+  const loadProducts = useCallback(() => {
     fetch('/api/products')
   .then(r => r.json())
   .then(data => setProducts(data.filter(p => p.has_alias).map((p, i) => ({
@@ -1605,6 +1605,8 @@ function SalesCabinet({ user, token, onLogout }) {
   }))))
   .catch(() => {});
   }, []);
+  useEffect(() => { loadProducts(); }, []);
+  useRefetchOnVisible(loadProducts);
 
   const loadOrders = useCallback(async () => {
     try {
