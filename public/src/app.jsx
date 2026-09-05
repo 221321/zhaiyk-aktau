@@ -2935,12 +2935,16 @@ function ProductAliasesPanel({ desktop }) {
 // сторонних библиотек для .xlsx). BOM в начале — чтобы Excel сразу понял
 // кодировку UTF-8 и не превратил кириллицу в кракозябры.
 function downloadCsv(filename, rows, columns) {
+  // Разделитель — ";", а не запятая: Excel с русской локалью (Windows)
+  // определяет разделитель CSV по системному "разделителю списка", а он в
+  // ru-RU — ";" (запятая там зарезервирована под десятичную точку). С "," всё
+  // содержимое схлопывается в один столбец при открытии — так и было.
   const esc = (v) => {
     const s = v == null ? '' : String(v);
-    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
-  const lines = [columns.map(c => esc(c.label)).join(',')];
-  rows.forEach(r => lines.push(columns.map(c => esc(c.get(r))).join(',')));
+  const lines = [columns.map(c => esc(c.label)).join(';')];
+  rows.forEach(r => lines.push(columns.map(c => esc(c.get(r))).join(';')));
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
