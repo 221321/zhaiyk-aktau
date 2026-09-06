@@ -12009,17 +12009,56 @@ function AdminCabinet({
     }, s.totalBonus.toLocaleString(undefined, {
       maximumFractionDigits: 0
     }), " \u20B8"))));
+    // Экспорт сводки — то же самое, что видно в карточках (по одной
+    // строке на человека), а не разбивка по позициям внутри — та
+    // видна только при разворачивании карточки на экране.
+    const exportSalesListCsv = (list, filenamePrefix) => downloadCsv(`${filenamePrefix}-${dateFrom}_${dateTo}.csv`, list, [{
+      label: 'Имя',
+      get: r => r.name
+    }, {
+      label: 'Позиций продано',
+      get: r => r.items.length
+    }, {
+      label: 'Выручка',
+      get: r => r.revenue
+    }, {
+      label: 'Наличка',
+      get: r => r.cash || 0
+    }, {
+      label: 'QR',
+      get: r => r.qr || 0
+    }, {
+      label: 'Долг',
+      get: r => r.debt || 0
+    }, {
+      label: 'Бонус',
+      get: r => r.totalBonus
+    }]);
     return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       style: {
         maxWidth: desktop ? 560 : "none"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...S.row,
+        marginTop: 8
       }
     }, /*#__PURE__*/React.createElement("p", {
       style: {
         ...S.sectionTitle,
         fontSize: 17,
-        marginTop: 8
+        margin: 0
       }
-    }, "\u041F\u043E \u0442\u043E\u0440\u0433\u043E\u0432\u044B\u043C \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u0438\u0442\u0435\u043B\u044F\u043C"), repList.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    }, "\u041F\u043E \u0442\u043E\u0440\u0433\u043E\u0432\u044B\u043C \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u0438\u0442\u0435\u043B\u044F\u043C"), repList.length > 0 && /*#__PURE__*/React.createElement("button", {
+      onClick: () => exportSalesListCsv(repList, 'otchet-torgovye'),
+      style: {
+        ...S.btnOutline,
+        width: "auto",
+        marginTop: 0,
+        padding: "6px 12px",
+        fontSize: 13
+      }
+    }, "\u2B07 \u0421\u043A\u0430\u0447\u0430\u0442\u044C \u0432 Excel")), repList.length === 0 ? /*#__PURE__*/React.createElement("div", {
       style: {
         textAlign: "center",
         padding: "32px 0",
@@ -12029,13 +12068,27 @@ function AdminCabinet({
       style: {
         maxWidth: desktop ? 560 : "none"
       }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...S.row,
+        marginTop: 20
+      }
     }, /*#__PURE__*/React.createElement("p", {
       style: {
         ...S.sectionTitle,
         fontSize: 17,
-        marginTop: 20
+        margin: 0
       }
-    }, "\u041C\u0430\u0433\u0430\u0437\u0438\u043D\u044B (\u0441\u0430\u043C\u043E\u0437\u0430\u043A\u0430\u0437)"), storeList.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    }, "\u041C\u0430\u0433\u0430\u0437\u0438\u043D\u044B (\u0441\u0430\u043C\u043E\u0437\u0430\u043A\u0430\u0437)"), storeList.length > 0 && /*#__PURE__*/React.createElement("button", {
+      onClick: () => exportSalesListCsv(storeList, 'otchet-magaziny'),
+      style: {
+        ...S.btnOutline,
+        width: "auto",
+        marginTop: 0,
+        padding: "6px 12px",
+        fontSize: 13
+      }
+    }, "\u2B07 \u0421\u043A\u0430\u0447\u0430\u0442\u044C \u0432 Excel")), storeList.length === 0 ? /*#__PURE__*/React.createElement("div", {
       style: {
         textAlign: "center",
         padding: "32px 0",

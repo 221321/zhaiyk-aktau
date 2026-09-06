@@ -5672,15 +5672,37 @@ function AdminCabinet({ user, onLogout, desktop }) {
               )}
             </div>
           );
+          // Экспорт сводки — то же самое, что видно в карточках (по одной
+          // строке на человека), а не разбивка по позициям внутри — та
+          // видна только при разворачивании карточки на экране.
+          const exportSalesListCsv = (list, filenamePrefix) => downloadCsv(
+            `${filenamePrefix}-${dateFrom}_${dateTo}.csv`,
+            list,
+            [
+              { label: 'Имя', get: r => r.name },
+              { label: 'Позиций продано', get: r => r.items.length },
+              { label: 'Выручка', get: r => r.revenue },
+              { label: 'Наличка', get: r => r.cash||0 },
+              { label: 'QR', get: r => r.qr||0 },
+              { label: 'Долг', get: r => r.debt||0 },
+              { label: 'Бонус', get: r => r.totalBonus },
+            ]
+          );
           return <>
             <div style={{maxWidth: desktop?560:"none"}}>
-              <p style={{...S.sectionTitle,fontSize:17,marginTop:8}}>По торговым представителям</p>
+              <div style={{...S.row,marginTop:8}}>
+                <p style={{...S.sectionTitle,fontSize:17,margin:0}}>По торговым представителям</p>
+                {repList.length>0&&<button onClick={()=>exportSalesListCsv(repList,'otchet-torgovye')} style={{...S.btnOutline,width:"auto",marginTop:0,padding:"6px 12px",fontSize:13}}>⬇ Скачать в Excel</button>}
+              </div>
               {repList.length===0
                 ? <div style={{textAlign:"center",padding:"32px 0",color:C.textFaint}}>Нет доставленных заявок за этот период</div>
                 : repList.map(renderSalesEntity)}
             </div>
             <div style={{maxWidth: desktop?560:"none"}}>
-              <p style={{...S.sectionTitle,fontSize:17,marginTop:20}}>Магазины (самозаказ)</p>
+              <div style={{...S.row,marginTop:20}}>
+                <p style={{...S.sectionTitle,fontSize:17,margin:0}}>Магазины (самозаказ)</p>
+                {storeList.length>0&&<button onClick={()=>exportSalesListCsv(storeList,'otchet-magaziny')} style={{...S.btnOutline,width:"auto",marginTop:0,padding:"6px 12px",fontSize:13}}>⬇ Скачать в Excel</button>}
+              </div>
               {storeList.length===0
                 ? <div style={{textAlign:"center",padding:"32px 0",color:C.textFaint}}>Нет самостоятельных заказов от магазинов за этот период</div>
                 : storeList.map(renderSalesEntity)}
