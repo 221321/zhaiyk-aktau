@@ -13072,6 +13072,30 @@ function WarehouseCabinet({
     loadOrders();
   }, []);
   useRefetchOnVisible(loadProducts, loadOrders);
+
+  // Сколько налички сейчас физически на руках у каждого водителя — та же
+  // логика, что и computeDriverPendingCash на сервере (доставлено, оплата
+  // налом, ещё не вошло ни в одну сдачу). Строго для информации: принимает
+  // склад по-прежнему только оформленную сдачу (см. pendingHandovers ниже),
+  // здесь нет действия "принять" — иначе можно было бы подтвердить сумму,
+  // которую водитель ещё не заявил как сданную.
+  const driverCashOnHand = useMemo(() => {
+    const byDriver = {};
+    orders.forEach(o => {
+      if (o.status === 'delivered' && (Number(o.payment_cash) || 0) > 0 && !o.cash_handover_id && o.driver_id) {
+        if (!byDriver[o.driver_id]) byDriver[o.driver_id] = {
+          driverId: o.driver_id,
+          name: o.driver_name || '—',
+          amount: 0,
+          count: 0
+        };
+        byDriver[o.driver_id].amount += Number(o.payment_cash) || 0;
+        byDriver[o.driver_id].count += 1;
+      }
+    });
+    return Object.values(byDriver).sort((a, b) => b.amount - a.amount);
+  }, [orders]);
+  const driverCashOnHandTotal = driverCashOnHand.reduce((s, d) => s + d.amount, 0);
   const stockStats = products.reduce((acc, p) => {
     acc.total++;
     // Та же проверка, что решает "в наличии"/"нет" у каждой карточки ниже
@@ -13590,6 +13614,73 @@ function WarehouseCabinet({
     })());
   }), /*#__PURE__*/React.createElement(WeighLogPanel, null)), tab === "cash" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
+  }, "\u041D\u0430\u043B\u0438\u0447\u043A\u0430 \u043D\u0430 \u0440\u0443\u043A\u0430\u0445 \u0443 \u0432\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 10px",
+      fontSize: 13,
+      color: C.textFaint
+    }
+  }, "\u0414\u043B\u044F \u0438\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u0438 \u2014 \u0435\u0449\u0451 \u043D\u0435 \u0441\u0434\u0430\u043D\u043E \u0441\u043A\u043B\u0430\u0434\u0443, \u043F\u0440\u0438\u043D\u044F\u0442\u044C \u043C\u043E\u0436\u043D\u043E \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u043E\u0441\u043B\u0435 \u0442\u043E\u0433\u043E, \u043A\u0430\u043A \u0432\u043E\u0434\u0438\u0442\u0435\u043B\u044C \u043E\u0444\u043E\u0440\u043C\u0438\u0442 \u0441\u0434\u0430\u0447\u0443 \u043D\u0438\u0436\u0435."), loadingOrders ? /*#__PURE__*/React.createElement("div", {
+    style: S.loadingWrap
+  }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : driverCashOnHand.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.card,
+      marginBottom: 16,
+      textAlign: "center",
+      color: C.textFaint
+    }
+  }, "\u041D\u0438 \u0443 \u043A\u043E\u0433\u043E \u043D\u0435\u0442 \u043D\u0435\u0443\u0447\u0442\u0451\u043D\u043D\u043E\u0439 \u043D\u0430\u043B\u0438\u0447\u043A\u0438") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.card,
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.row,
+      marginBottom: driverCashOnHand.length > 0 ? 10 : 0,
+      paddingBottom: 10,
+      borderBottom: `1px solid ${C.border}`
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      color: C.textSub
+    }
+  }, "\u0418\u0442\u043E\u0433\u043E \u043D\u0430 \u0440\u0443\u043A\u0430\u0445"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 19,
+      fontWeight: 800,
+      fontFamily: FH,
+      color: "#15803D"
+    }
+  }, driverCashOnHandTotal.toLocaleString(), " \u20B8")), driverCashOnHand.map(d => /*#__PURE__*/React.createElement("div", {
+    key: d.driverId,
+    style: {
+      ...S.row,
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 15,
+      color: C.text
+    }
+  }, d.name, " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.textFaint,
+      fontSize: 13
+    }
+  }, "(", d.count, " ", d.count === 1 ? 'заявка' : 'заявок', ")")), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 15,
+      fontWeight: 700,
+      fontFamily: FH
+    }
+  }, d.amount.toLocaleString(), " \u20B8")))), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...S.sectionTitle,
+      marginTop: 20
+    }
   }, "\u041F\u0440\u0438\u0451\u043C \u043D\u0430\u043B\u0438\u0447\u043A\u0438 \u043E\u0442 \u0432\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439"), loadingHandovers ? /*#__PURE__*/React.createElement("div", {
     style: S.loadingWrap
   }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : /*#__PURE__*/React.createElement(React.Fragment, null, pendingHandovers.length === 0 ? /*#__PURE__*/React.createElement("div", {
