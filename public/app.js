@@ -7076,6 +7076,7 @@ function StockMovementsReport({
   const [from, setFrom] = useState(todayStr);
   const [to, setTo] = useState(todayStr);
   const [search, setSearch] = useState('');
+  const [salesFilter, setSalesFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [rows, setRows] = useState([]);
@@ -7094,10 +7095,15 @@ function StockMovementsReport({
     load();
   }, [load]);
 
-  // Список водителей и статусов — из самих строк за период, а не фиксированный
-  // список: тогда в фильтре не будет пунктов, по которым всё равно пусто.
+  // Список торговых/водителей/статусов — из самих строк за период, а не
+  // фиксированный список: тогда в фильтре не будет пунктов, по которым всё
+  // равно пусто.
+  const salesOptions = useMemo(() => Array.from(new Set(rows.map(r => r.sales_name).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ru')), [rows]);
   const driverOptions = useMemo(() => Array.from(new Set(rows.map(r => r.driver_name).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ru')), [rows]);
   const statusOptions = useMemo(() => Array.from(new Set(rows.map(r => r.status).filter(Boolean))), [rows]);
+  useEffect(() => {
+    if (salesFilter && !salesOptions.includes(salesFilter)) setSalesFilter('');
+  }, [salesOptions, salesFilter]);
   useEffect(() => {
     if (driverFilter && !driverOptions.includes(driverFilter)) setDriverFilter('');
   }, [driverOptions, driverFilter]);
@@ -7105,7 +7111,7 @@ function StockMovementsReport({
     if (statusFilter && !statusOptions.includes(statusFilter)) setStatusFilter('');
   }, [statusOptions, statusFilter]);
   const q = search.trim().toLowerCase();
-  const filtered = rows.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.code || '').includes(q)).filter(r => !driverFilter || r.driver_name === driverFilter).filter(r => !statusFilter || r.status === statusFilter);
+  const filtered = rows.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.code || '').includes(q)).filter(r => !salesFilter || r.sales_name === salesFilter).filter(r => !driverFilter || r.driver_name === driverFilter).filter(r => !statusFilter || r.status === statusFilter);
   const numLabel = (v, unit) => `${v}${unit ? ' ' + unit : ''}`;
   const money = v => Number(v || 0).toLocaleString('ru-RU');
   const exportCsv = () => downloadCsv(`ostatki_dvizhenie_${from}_${to}.csv`, filtered, [{
@@ -7223,6 +7229,21 @@ function StockMovementsReport({
     value: search,
     onChange: e => setSearch(e.target.value)
   })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0422\u043E\u0440\u0433\u043E\u0432\u044B\u0439"), /*#__PURE__*/React.createElement("select", {
+    style: {
+      ...S.select,
+      width: "auto",
+      minWidth: 180
+    },
+    value: salesFilter,
+    onChange: e => setSalesFilter(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u0412\u0441\u0435 \u0442\u043E\u0440\u0433\u043E\u0432\u044B\u0435"), salesOptions.map(name => /*#__PURE__*/React.createElement("option", {
+    key: name,
+    value: name
+  }, name)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     style: S.label
   }, "\u0412\u043E\u0434\u0438\u0442\u0435\u043B\u044C"), /*#__PURE__*/React.createElement("select", {
     style: {
