@@ -1744,6 +1744,77 @@ app.post('/api/debts/settle', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
+// Погашение долга "по клиенту одной суммой" — оператору не нужно вручную
+// считать, сколько накладных закрывается и сколько остаётся: вводит общую
+// полученную сумму, сервер сам раскладывает её по накладным/продажам этого
+// клиента от старой к новой (FIFO), пока сумма не закончится. Использует ту
+// же формулу remaining, что и GET /api/debts — иначе принцип "сначала старые"
+// разошёлся бы с тем, что оператор видит в списке должников.
+app.post('/api/debts/settle-client', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'operator'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { clientCode, amount, method } = req.body;
+  if (!clientCode || !amount || Number(amount) <= 0) {
+    return res.status(400).json({ error: 'Укажите сумму погашения' });
+  }
+
+  const settlements = db.get('debtSettlements').value();
+  const settledByOrder = {};
+  const settledBySale = {};
+  settlements.forEach(s => {
+    if (s.order_id) settledByOrder[s.order_id] = (settledByOrder[s.order_id] || 0) + s.amount;
+    if (s.sale_id) settledBySale[s.sale_id] = (settledBySale[s.sale_id] || 0) + s.amount;
+  });
+
+  const items = [];
+  db.get('orders').value()
+    .filter(o => o.status === 'delivered' && o.client_code === clientCode && (o.payment_debt || 0) > 0)
+    .forEach(o => {
+      const remaining = Math.max(0, (o.payment_debt || 0) - (settledByOrder[o.id] || 0));
+      if (remaining > 0) items.push({ order_id: o.id, sale_id: null, client_name: o.client_name, date: o.date, remaining });
+    });
+  (db.get('sales').value() || [])
+    .filter(s => s.status !== 'voided' && s.client_code === clientCode && (s.payment_debt || 0) > 0)
+    .forEach(s => {
+      const remaining = Math.max(0, (s.payment_debt || 0) - (settledBySale[s.id] || 0));
+      if (remaining > 0) items.push({ order_id: null, sale_id: s.id, client_name: s.client_name || 'Без клиента', date: s.date, remaining });
+    });
+
+  if (items.length === 0) {
+    return res.status(404).json({ error: 'Долгов по этому клиенту не найдено' });
+  }
+
+  // Старые -> новые по дате; при совпадении даты — по id накладной/продажи,
+  // чтобы порядок распределения был всегда одинаковым.
+  items.sort((a, b) => a.date !== b.date ? (a.date < b.date ? -1 : 1) : (a.order_id || a.sale_id) - (b.order_id || b.sale_id));
+
+  let amountLeft = Number(amount);
+  const now = Date.now();
+  const created = [];
+  items.forEach((it, i) => {
+    if (amountLeft <= 0) return;
+    const pay = Math.min(it.remaining, amountLeft);
+    amountLeft -= pay;
+    const entry = {
+      id: now + i,
+      order_id: it.order_id, sale_id: it.sale_id,
+      client_name: it.client_name,
+      amount: pay,
+      method: method || 'cash',
+      date: new Date().toISOString().slice(0, 10),
+      settled_by: req.user.name
+    };
+    db.get('debtSettlements').push(entry).write();
+    created.push(entry);
+  });
+
+  // Если ввели больше, чем реально должен клиент, — лишнее никуда не
+  // распределяем (закрывать долг "с запасом" нельзя), просто сообщаем,
+  // сколько фактически удалось погасить.
+  res.json({ success: true, settled: created, unallocated: amountLeft });
+});
+
 // Полная история погашений долгов — для выгрузки в 1С (просто данные, без проводок)
 app.get('/api/debt-settlements', authMiddleware, (req, res) => {
   if (!['admin', 'manager', 'operator'].includes(req.user.role)) {
