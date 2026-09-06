@@ -3014,20 +3014,41 @@ function buildLoadingListHtml(orders, driverName) {
       if (!totals[key]) totals[key] = {
         name: it.name,
         code: it.code || '',
-        qty: 0
+        qty: 0,
+        isWeight: false,
+        allWeighed: true,
+        weighedBy: new Set()
       };
       totals[key].qty += Number(it.qty) || 0;
+      // "Отметка склада" раньше всегда печаталась пустой ячейкой для ручной
+      // записи, даже если зав. склад уже взвесил позицию в приложении (см.
+      // POST /api/orders/weights) — теперь подтягиваем факт. отметку оттуда:
+      // если позиция весовая и по ВСЕМ заявкам партии уже подтверждена,
+      // считаем её взвешенной и подписываем, кто взвесил.
+      if (it.is_weight_item) {
+        totals[key].isWeight = true;
+        if (it.weight_confirmed) {
+          if (it.weighed_by_name) totals[key].weighedBy.add(it.weighed_by_name);
+        } else totals[key].allWeighed = false;
+      } else {
+        totals[key].allWeighed = false;
+      }
     });
   });
-  const rows = Object.values(totals).sort((a, b) => a.name.localeCompare(b.name)).map((it, i) => `
+  const rows = Object.values(totals).sort((a, b) => a.name.localeCompare(b.name)).map((it, i) => {
+    const unit = it.isWeight ? 'кг' : 'шт';
+    const weighed = it.isWeight && it.allWeighed;
+    return `
     <tr>
       <td style="text-align:center">${i + 1}</td>
       <td>${it.name}</td>
       <td style="text-align:center">${it.code}</td>
+      <td style="text-align:center">${unit}</td>
       <td style="text-align:center">${it.qty}</td>
-      <td></td>
-      <td></td>
-    </tr>`).join('');
+      <td style="text-align:center">${weighed ? it.qty : ''}</td>
+      <td style="text-align:center">${weighed ? '✓ ' + (Array.from(it.weighedBy).join(', ') || 'взвешено') : ''}</td>
+    </tr>`;
+  }).join('');
   const now = new Date();
   const orderNumbers = orders.map(o => '№' + o.id).join(', ');
   return `
@@ -3039,7 +3060,7 @@ function buildLoadingListHtml(orders, driverName) {
     </div>
     <div class="tablewrap">
     <table>
-      <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Кол-во к отгрузке</th><th>Вес, кг</th><th>Отметка склада</th></tr>
+      <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Ед. изм.</th><th>Кол-во к отгрузке</th><th>Вес, кг</th><th>Отметка склада</th></tr>
       ${rows}
     </table>
     </div>
