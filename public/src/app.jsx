@@ -1449,23 +1449,32 @@ function printWaybillsBatch(orders) {
   openPrintOverlay(html, WAYBILL_STYLE, true);
 }
 
-function buildLoadingListHtml(orders, driverName) {
+function buildLoadingListHtml(orders, driverName, productByCode) {
+  const productByCode_ = productByCode || {};
   const totals = {};
   orders.forEach(o=>{
     const items = typeof o.items === 'string' ? JSON.parse(o.items||'[]') : (o.items||[]);
     items.forEach(it=>{
       const key = it.code || it.name;
-      if (!totals[key]) totals[key] = { name: it.name, code: it.code||'', qty: 0, isWeight: false, allWeighed: true, weighedBy: new Set() };
+      if (!totals[key]) totals[key] = { name: it.name, code: it.code||'', qty: 0, isWeight: false, allWeighed: true };
       totals[key].qty += Number(it.qty)||0;
+      // "Ед. изм." по одному только снимку is_weight_item на заявке — та же
+      // ловушка, что уже чинили в WarehouseCabinet (см. isWeightItem там):
+      // заявка, оформленная до того как товар отметили "Весовой" в карточке,
+      // осталась бы с is_weight_item=false и ошибочно показывала бы "шт".
+      // Подстраховываемся live-флагом priced_by_weight из каталога, когда он
+      // доступен (передаётся из WarehouseCabinet, где каталог уже загружен).
+      const isWeight = !!(it.is_weight_item || (productByCode_[it.code] && productByCode_[it.code].priced_by_weight));
       // "Отметка склада" раньше всегда печаталась пустой ячейкой для ручной
       // записи, даже если зав. склад уже взвесил позицию в приложении (см.
       // POST /api/orders/weights) — теперь подтягиваем факт. отметку оттуда:
       // если позиция весовая и по ВСЕМ заявкам партии уже подтверждена,
-      // считаем её взвешенной и подписываем, кто взвесил.
-      if (it.is_weight_item) {
+      // считаем её взвешенной. Без привязки к конкретному имени — это общая
+      // отметка склада, а не подпись того, кто именно нажал "Сохранить вес"
+      // (им мог быть и менеджер/админ, исправлявший ошибку веса).
+      if (isWeight) {
         totals[key].isWeight = true;
-        if (it.weight_confirmed) { if (it.weighed_by_name) totals[key].weighedBy.add(it.weighed_by_name); }
-        else totals[key].allWeighed = false;
+        if (!it.weight_confirmed) totals[key].allWeighed = false;
       } else {
         totals[key].allWeighed = false;
       }
@@ -1482,7 +1491,7 @@ function buildLoadingListHtml(orders, driverName) {
       <td style="text-align:center">${unit}</td>
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:center">${weighed?it.qty:''}</td>
-      <td style="text-align:center">${weighed?'✓ '+(Array.from(it.weighedBy).join(', ')||'взвешено'):''}</td>
+      <td style="text-align:center">${weighed?'✓ взвешено':''}</td>
     </tr>`;
   }).join('');
   const now = new Date();
@@ -1507,9 +1516,9 @@ function buildLoadingListHtml(orders, driverName) {
     </div>`;
 }
 
-function printLoadingList(orders, driverName) {
+function printLoadingList(orders, driverName, productByCode) {
   if (!orders.length) { alert('Нет заявок в статусе "В работе" для формирования листа'); return; }
-  openPrintOverlay(buildLoadingListHtml(orders, driverName), LOADING_LIST_STYLE, false);
+  openPrintOverlay(buildLoadingListHtml(orders, driverName, productByCode), LOADING_LIST_STYLE, false);
 }
 
 async function shareWaybillPdf(order) {
@@ -6809,7 +6818,7 @@ function WarehouseCabinet({ user, onLogout }) {
                 <p style={S.cardTitle}>{g.name}</p>
                 <p style={S.cardSub}>{g.orders.length} {g.orders.length===1?'заявка':'заявок'} в работе</p>
                 <div style={{display:"flex",gap:8,marginTop:10}}>
-                  <button onClick={()=>printLoadingList(g.orders,g.name)} style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист</button>
+                  <button onClick={()=>printLoadingList(g.orders,g.name,productByCode)} style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист</button>
                   <button onClick={()=>setExpandedWeightsFor(k=>k===g.key?null:g.key)} style={{flex:1,padding:"11px",background:expanded?C.debtAmber:C.white,color:expanded?"#92400E":C.navy,border:`1.5px solid ${C.navy}`,borderRadius:10,fontSize:15,fontWeight:700,cursor:"pointer"}}>⚖️ {expanded?"Скрыть":"Ввести вес"}</button>
                 </div>
                 {expanded&&(()=>{
