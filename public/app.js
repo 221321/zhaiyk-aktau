@@ -1432,16 +1432,40 @@ function DriverPaymentBlock({
       display: "none"
     },
     onChange: onQrPhotoSelected
-  }), /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "image/*",
+    id: `qrPhotoGalleryInput_${order.id}`,
+    style: {
+      display: "none"
+    },
+    onChange: onQrPhotoSelected
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
     type: "button",
     disabled: qrPhotoUploading,
     onClick: () => document.getElementById(`qrPhotoInput_${order.id}`).click(),
     style: {
       ...S.btnOutline,
+      flex: 1,
       opacity: qrPhotoUploading ? 0.5 : 1,
       cursor: qrPhotoUploading ? "not-allowed" : "pointer"
     }
-  }, qrPhotoUploading ? "Загрузка..." : qrPhotoUrl ? "📲 Переснять фото" : "📲 Сфотографировать чек"), qrPhotoError && /*#__PURE__*/React.createElement("p", {
+  }, qrPhotoUploading ? "Загрузка..." : qrPhotoUrl ? "📲 Переснять фото" : "📲 Сфотографировать чек"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    disabled: qrPhotoUploading,
+    onClick: () => document.getElementById(`qrPhotoGalleryInput_${order.id}`).click(),
+    style: {
+      ...S.btnOutline,
+      flex: 1,
+      opacity: qrPhotoUploading ? 0.5 : 1,
+      cursor: qrPhotoUploading ? "not-allowed" : "pointer"
+    }
+  }, "\uD83D\uDDBC\uFE0F \u0418\u0437 \u0433\u0430\u043B\u0435\u0440\u0435\u0438")), qrPhotoError && /*#__PURE__*/React.createElement("p", {
     style: {
       margin: "6px 0 0",
       fontSize: 14,
@@ -7052,6 +7076,8 @@ function StockMovementsReport({
   const [from, setFrom] = useState(todayStr);
   const [to, setTo] = useState(todayStr);
   const [search, setSearch] = useState('');
+  const [driverFilter, setDriverFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
@@ -7067,8 +7093,19 @@ function StockMovementsReport({
   useEffect(() => {
     load();
   }, [load]);
+
+  // Список водителей и статусов — из самих строк за период, а не фиксированный
+  // список: тогда в фильтре не будет пунктов, по которым всё равно пусто.
+  const driverOptions = useMemo(() => Array.from(new Set(rows.map(r => r.driver_name).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ru')), [rows]);
+  const statusOptions = useMemo(() => Array.from(new Set(rows.map(r => r.status).filter(Boolean))), [rows]);
+  useEffect(() => {
+    if (driverFilter && !driverOptions.includes(driverFilter)) setDriverFilter('');
+  }, [driverOptions, driverFilter]);
+  useEffect(() => {
+    if (statusFilter && !statusOptions.includes(statusFilter)) setStatusFilter('');
+  }, [statusOptions, statusFilter]);
   const q = search.trim().toLowerCase();
-  const filtered = rows.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.code || '').includes(q));
+  const filtered = rows.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.code || '').includes(q)).filter(r => !driverFilter || r.driver_name === driverFilter).filter(r => !statusFilter || r.status === statusFilter);
   const numLabel = (v, unit) => `${v}${unit ? ' ' + unit : ''}`;
   const money = v => Number(v || 0).toLocaleString('ru-RU');
   const exportCsv = () => downloadCsv(`ostatki_dvizhenie_${from}_${to}.csv`, filtered, [{
@@ -7185,7 +7222,37 @@ function StockMovementsReport({
     placeholder: "\u041F\u043E\u0438\u0441\u043A...",
     value: search,
     onChange: e => setSearch(e.target.value)
-  }))), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0412\u043E\u0434\u0438\u0442\u0435\u043B\u044C"), /*#__PURE__*/React.createElement("select", {
+    style: {
+      ...S.select,
+      width: "auto",
+      minWidth: 180
+    },
+    value: driverFilter,
+    onChange: e => setDriverFilter(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u0412\u0441\u0435 \u0432\u043E\u0434\u0438\u0442\u0435\u043B\u0438"), driverOptions.map(name => /*#__PURE__*/React.createElement("option", {
+    key: name,
+    value: name
+  }, name)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0421\u0442\u0430\u0442\u0443\u0441 \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0438"), /*#__PURE__*/React.createElement("select", {
+    style: {
+      ...S.select,
+      width: "auto",
+      minWidth: 160
+    },
+    value: statusFilter,
+    onChange: e => setStatusFilter(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u0412\u0441\u0435 \u0441\u0442\u0430\u0442\u0443\u0441\u044B"), statusOptions.map(st => /*#__PURE__*/React.createElement("option", {
+    key: st,
+    value: st
+  }, SL[st] || st))))), /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.row,
       marginBottom: 10
