@@ -13874,6 +13874,16 @@ function WarehouseCabinet({
     if (aOut !== bOut) return aOut ? 1 : -1;
     return (a.display_name || a.name || '').localeCompare(b.display_name || b.name || '');
   });
+
+  // Вкладка "Заявки" зав. склада — только просмотр (см. OrderDetail: без
+  // onUpdateStatus/onDeleteOrder/onFixItemCost/onFixItemWeight никакие кнопки
+  // изменения там не показываются ни для одной роли, кроме перечисленных явно).
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderFilter, setOrderFilter] = useState("all");
+  const ORDER_FILTERS = [["all", "Все"], ["new", "Ожидает"], ["in_transit", "В работе"], ["delivered", "Доставлено"], ["cancelled", "Отказ"], ["returned", "Возврат"], ["revoked", "Отозвана"]];
+  const oq = orderSearch.trim().toLowerCase();
+  const filteredOrders = orders.filter(o => orderFilter === "all" || o.status === orderFilter).filter(o => !oq || String(o.id).includes(oq) || (o.client_name || '').toLowerCase().includes(oq) || (o.sales_name || '').toLowerCase().includes(oq));
   const [driverFilter, setDriverFilter] = useState("");
   const queueOrders = orders.filter(o => o.status === "new");
   const activeOrders = orders.filter(o => o.status === "in_transit");
@@ -14154,7 +14164,56 @@ function WarehouseCabinet({
     }, "\u0418\u0437 1\u0421: ", p.stock_weight_kg, " \u043A\u0433 \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", p.stock_weight_kg_reserved, " \u043A\u0433 \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", Math.max(0, p.stock_weight_kg - p.stock_weight_kg_reserved), " \u043A\u0433"), /*#__PURE__*/React.createElement(ProductHistoryToggle, {
       code: p.code
     }));
-  })), tab === "shipping" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+  })), tab === "orders" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+    style: S.sectionTitle
+  }, "\u0417\u0430\u044F\u0432\u043A\u0438"), /*#__PURE__*/React.createElement("input", {
+    type: "search",
+    style: {
+      ...S.input,
+      marginBottom: 12
+    },
+    placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u043D\u043E\u043C\u0435\u0440\u0443, \u043A\u043B\u0438\u0435\u043D\u0442\u0443, \u0442\u043E\u0440\u0433\u043E\u0432\u043E\u043C\u0443\u2026",
+    value: orderSearch,
+    onChange: e => setOrderSearch(e.target.value),
+    autoComplete: "off"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginBottom: 16,
+      flexWrap: "wrap"
+    }
+  }, ORDER_FILTERS.map(([k, lb]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    onClick: () => setOrderFilter(k),
+    style: {
+      padding: "6px 13px",
+      borderRadius: 99,
+      border: `1px solid ${orderFilter === k ? C.navy : C.border}`,
+      cursor: "pointer",
+      fontSize: 14,
+      fontWeight: 600,
+      background: orderFilter === k ? C.navy : C.white,
+      color: orderFilter === k ? C.white : C.textMid
+    }
+  }, lb))), loadingOrders ? /*#__PURE__*/React.createElement("div", {
+    style: S.loadingWrap
+  }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : filteredOrders.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      padding: "48px 0",
+      color: C.textFaint
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 40,
+      marginBottom: 12
+    }
+  }, "\uD83D\uDCCB"), /*#__PURE__*/React.createElement("p", null, "\u0417\u0430\u044F\u0432\u043E\u043A \u043D\u0435\u0442")) : filteredOrders.map(o => /*#__PURE__*/React.createElement(OrderCard, {
+    key: o.id,
+    order: o,
+    onOpen: setSelectedOrder
+  }))), tab === "shipping" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u041E\u0442\u0433\u0440\u0443\u0437\u043A\u0430"), queueOrders.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -14563,9 +14622,13 @@ function WarehouseCabinet({
       fontSize: 13,
       color: C.textFaint
     }
-  }, h.comment))))))), /*#__PURE__*/React.createElement("div", {
+  }, h.comment))))))), selectedOrder && /*#__PURE__*/React.createElement(OrderDetail, {
+    order: selectedOrder,
+    onClose: () => setSelectedOrder(null),
+    currentUser: user
+  }), /*#__PURE__*/React.createElement("div", {
     style: S.nav
-  }, [["stock", "📦", "Остатки"], ["shipping", "🚚", "Отгрузка"], ["cash", "💰", "Инкассация"]].map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
+  }, [["stock", "📦", "Остатки"], ["orders", "📋", "Заявки"], ["shipping", "🚚", "Отгрузка"], ["cash", "💰", "Инкассация"]].map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
     key: k,
     style: {
       ...S.navBtn(tab === k),

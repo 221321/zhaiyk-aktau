@@ -6529,6 +6529,18 @@ function WarehouseCabinet({ user, onLogout }) {
       return (a.display_name||a.name||'').localeCompare(b.display_name||b.name||'');
     });
 
+  // Вкладка "Заявки" зав. склада — только просмотр (см. OrderDetail: без
+  // onUpdateStatus/onDeleteOrder/onFixItemCost/onFixItemWeight никакие кнопки
+  // изменения там не показываются ни для одной роли, кроме перечисленных явно).
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderFilter, setOrderFilter] = useState("all");
+  const ORDER_FILTERS = [["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
+  const oq = orderSearch.trim().toLowerCase();
+  const filteredOrders = orders
+    .filter(o=>orderFilter==="all"||o.status===orderFilter)
+    .filter(o=>!oq || String(o.id).includes(oq) || (o.client_name||'').toLowerCase().includes(oq) || (o.sales_name||'').toLowerCase().includes(oq));
+
   const [driverFilter, setDriverFilter] = useState("");
   const queueOrders = orders.filter(o=>o.status==="new");
   const activeOrders = orders.filter(o=>o.status==="in_transit");
@@ -6653,6 +6665,20 @@ function WarehouseCabinet({ user, onLogout }) {
                 </div>
               );
             })
+          }
+        </>}
+        {tab==="orders"&&<>
+          <p style={S.sectionTitle}>Заявки</p>
+          <input type="search" style={{...S.input,marginBottom:12}} placeholder="Поиск по номеру, клиенту, торговому…" value={orderSearch} onChange={e=>setOrderSearch(e.target.value)} autoComplete="off"/>
+          <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+            {ORDER_FILTERS.map(([k,lb])=>(
+              <button key={k} onClick={()=>setOrderFilter(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${orderFilter===k?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:orderFilter===k?C.navy:C.white,color:orderFilter===k?C.white:C.textMid}}>{lb}</button>
+            ))}
+          </div>
+          {loadingOrders?<div style={S.loadingWrap}>Загрузка...</div>
+            :filteredOrders.length===0
+              ?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заявок нет</p></div>
+              :filteredOrders.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder}/>)
           }
         </>}
         {tab==="shipping"&&<>
@@ -6813,8 +6839,9 @@ function WarehouseCabinet({ user, onLogout }) {
           </>}
         </>}
       </div>
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} currentUser={user}/>}
       <div style={S.nav}>
-        {[["stock","📦","Остатки"],["shipping","🚚","Отгрузка"],["cash","💰","Инкассация"]].map(([k,ic,lb])=>(
+        {[["stock","📦","Остатки"],["orders","📋","Заявки"],["shipping","🚚","Отгрузка"],["cash","💰","Инкассация"]].map(([k,ic,lb])=>(
           <button key={k} style={{...S.navBtn(tab===k),flex:1,position:"relative"}} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
             {k==="cash"&&pendingHandovers.length>0&&<span style={{position:"absolute",top:2,right:"22%",background:C.red,color:C.white,fontSize:10,fontWeight:700,borderRadius:99,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{pendingHandovers.length}</span>}
