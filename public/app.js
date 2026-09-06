@@ -1606,7 +1606,15 @@ function DebtsPanel({
   // Кассовые долги (sale_id, sales_id всегда null — см. сервер) не привязаны
   // ни к какому торговому, поэтому остаются видны при любом фильтре, а не
   // прячутся вместе с заявками остальных торговых.
-  const visibleDebts = salesFilter ? debts.filter(d => !d.sales_id || String(d.sales_id) === salesFilter) : debts;
+  const bySalesFilter = salesFilter ? debts.filter(d => !d.sales_id || String(d.sales_id) === salesFilter) : debts;
+  // Поиск по контрагенту — список должников может быть длинным, искать
+  // конкретного клиента прокруткой и глазами неудобно. Ищем и по имени, и
+  // по коду клиента (тем же, что показан в "Всего по клиенту"), но не по
+  // номеру заявки/чека — это отдельный, более узкий поиск, не то, что
+  // обычно вспоминают в первую очередь про должника.
+  const [clientSearch, setClientSearch] = useState("");
+  const q = clientSearch.trim().toLowerCase();
+  const visibleDebts = !q ? bySalesFilter : bySalesFilter.filter(d => (d.client_name || '').toLowerCase().includes(q) || (d.client_code || '').toLowerCase().includes(q));
   const settle = async d => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
     const amount = Number(settleAmounts[key] ?? d.remaining);
@@ -1634,10 +1642,27 @@ function DebtsPanel({
   };
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
-  }, "\u0414\u043E\u043B\u0436\u043D\u0438\u043A\u0438"), /*#__PURE__*/React.createElement("select", {
+  }, "\u0414\u043E\u043B\u0436\u043D\u0438\u043A\u0438"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginBottom: 12,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "search",
+    style: {
+      ...S.input,
+      flex: 1,
+      minWidth: 200
+    },
+    placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u0443...",
+    value: clientSearch,
+    onChange: e => setClientSearch(e.target.value),
+    autoComplete: "off"
+  }), /*#__PURE__*/React.createElement("select", {
     style: {
       ...S.select,
-      marginBottom: 12,
       width: "auto",
       minWidth: 200
     },
@@ -1648,7 +1673,7 @@ function DebtsPanel({
   }, "\u0412\u0441\u0435 \u0442\u043E\u0440\u0433\u043E\u0432\u044B\u0435"), salesReps.map(r => /*#__PURE__*/React.createElement("option", {
     key: r.id,
     value: r.id
-  }, r.name))), loadingDebts ? /*#__PURE__*/React.createElement("div", {
+  }, r.name)))), loadingDebts ? /*#__PURE__*/React.createElement("div", {
     style: S.loadingWrap
   }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : visibleDebts.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {

@@ -698,7 +698,17 @@ function DebtsPanel({ readOnly }) {
   // Кассовые долги (sale_id, sales_id всегда null — см. сервер) не привязаны
   // ни к какому торговому, поэтому остаются видны при любом фильтре, а не
   // прячутся вместе с заявками остальных торговых.
-  const visibleDebts = salesFilter ? debts.filter(d=>!d.sales_id||String(d.sales_id)===salesFilter) : debts;
+  const bySalesFilter = salesFilter ? debts.filter(d=>!d.sales_id||String(d.sales_id)===salesFilter) : debts;
+  // Поиск по контрагенту — список должников может быть длинным, искать
+  // конкретного клиента прокруткой и глазами неудобно. Ищем и по имени, и
+  // по коду клиента (тем же, что показан в "Всего по клиенту"), но не по
+  // номеру заявки/чека — это отдельный, более узкий поиск, не то, что
+  // обычно вспоминают в первую очередь про должника.
+  const [clientSearch, setClientSearch] = useState("");
+  const q = clientSearch.trim().toLowerCase();
+  const visibleDebts = !q ? bySalesFilter : bySalesFilter.filter(d =>
+    (d.client_name||'').toLowerCase().includes(q) || (d.client_code||'').toLowerCase().includes(q)
+  );
 
   const settle = async (d) => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
@@ -719,10 +729,20 @@ function DebtsPanel({ readOnly }) {
   return (
     <>
       <p style={S.sectionTitle}>Должники</p>
-      <select style={{...S.select,marginBottom:12,width:"auto",minWidth:200}} value={salesFilter} onChange={e=>setSalesFilter(e.target.value)}>
-        <option value="">Все торговые</option>
-        {salesReps.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
-      </select>
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <input
+          type="search"
+          style={{...S.input,flex:1,minWidth:200}}
+          placeholder="Поиск по контрагенту..."
+          value={clientSearch}
+          onChange={e=>setClientSearch(e.target.value)}
+          autoComplete="off"
+        />
+        <select style={{...S.select,width:"auto",minWidth:200}} value={salesFilter} onChange={e=>setSalesFilter(e.target.value)}>
+          <option value="">Все торговые</option>
+          {salesReps.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+      </div>
       {loadingDebts?<div style={S.loadingWrap}>Загрузка...</div>:visibleDebts.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Долгов нет</div>:
         visibleDebts.map(d=>{
           const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
