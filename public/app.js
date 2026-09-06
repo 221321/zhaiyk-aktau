@@ -6651,8 +6651,15 @@ function ProductAliasesPanel({
       }
     }, aliasSearch.trim() ? "Ничего не найдено" : "Пусто") : list.map(renderProductCard)));
   };
+
+  // p.name — сырое название из 1С (меняется от поставки к поставке, см.
+  // GET /api/products), а не то, что видит пользователь — там display_name
+  // (постоянный псевдоним, если задан). Раньше поиск сверял запрос только с
+  // p.name: искать по названию, под которым товар знают на сайте (тому же,
+  // что показано в предупреждении отчёта о прибыли), было невозможно —
+  // "Ничего не найдено" даже когда товар точно есть.
   const q = aliasSearch.trim().toLowerCase();
-  const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.code || '').includes(q));
+  const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name || '').toLowerCase().includes(q) || (p.code || '').includes(q));
   const withoutAlias = filtered.filter(p => !p.has_alias);
   const withAlias = filtered.filter(p => p.has_alias);
   return /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
@@ -12011,8 +12018,12 @@ function AdminCabinet({
         onSave: saveAlias
       });
     };
+
+    // p.name — сырое название из 1С, а не то, что видит пользователь
+    // (display_name — постоянный псевдоним, если задан) — см. тот же
+    // фикс в ProductAliasesPanel.
     const q = aliasSearch.trim().toLowerCase();
-    const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.code || '').includes(q));
+    const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name || '').toLowerCase().includes(q) || (p.code || '').includes(q));
     const withoutAlias = filtered.filter(p => !p.has_alias);
     const withAlias = filtered.filter(p => p.has_alias);
 
