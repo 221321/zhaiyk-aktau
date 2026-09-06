@@ -2819,10 +2819,14 @@ function OrderDetail({
   onClose,
   onUpdateStatus,
   onDeleteOrder,
+  onFixItemCost,
   currentUser,
   drivers
 }) {
   const [selectedDriverId, setSelectedDriverId] = useState("");
+  const [fixingCostIndex, setFixingCostIndex] = useState(null);
+  const [costInput, setCostInput] = useState("");
+  const [savingCost, setSavingCost] = useState(false);
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : order.items || [];
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment || '{}') : order.payment || {
     cash: order.payment_cash || 0,
@@ -2976,8 +2980,11 @@ function OrderDetail({
   }, "\u0421\u043E\u0441\u0442\u0430\u0432"), items.map((item, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
     style: {
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
       ...S.row,
-      marginBottom: 8,
       fontSize: 15
     }
   }, /*#__PURE__*/React.createElement("span", {
@@ -2992,7 +2999,76 @@ function OrderDetail({
     style: {
       color: C.text
     }
-  }, (item.qty * item.price).toLocaleString(), " \u20B8")))), /*#__PURE__*/React.createElement("hr", {
+  }, (item.qty * item.price).toLocaleString(), " \u20B8"))), onFixItemCost && item.cost == null && (fixingCostIndex === i ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginTop: 6
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    autoFocus: true,
+    style: {
+      ...S.input,
+      padding: "6px 8px",
+      fontSize: 14
+    },
+    placeholder: "\u0417\u0430\u043A\u0443\u043F\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043D\u0430 \u0437\u0430 \u0435\u0434., \u20B8",
+    value: costInput,
+    onChange: e => setCostInput(e.target.value),
+    onFocus: e => e.target.select()
+  }), /*#__PURE__*/React.createElement("button", {
+    disabled: savingCost || !costInput,
+    style: {
+      ...S.btnPrimary,
+      width: "auto",
+      marginTop: 0,
+      padding: "6px 14px",
+      fontSize: 14,
+      opacity: savingCost || !costInput ? 0.5 : 1
+    },
+    onClick: async () => {
+      setSavingCost(true);
+      try {
+        await onFixItemCost(order.id, i, Number(costInput));
+        setFixingCostIndex(null);
+        setCostInput("");
+      } catch (e) {
+        alert(e.message);
+      }
+      setSavingCost(false);
+    }
+  }, savingCost ? "..." : "Сохранить"), /*#__PURE__*/React.createElement("button", {
+    disabled: savingCost,
+    style: {
+      ...S.btnSecondary,
+      width: "auto",
+      marginTop: 0,
+      padding: "6px 14px",
+      fontSize: 14
+    },
+    onClick: () => {
+      setFixingCostIndex(null);
+      setCostInput("");
+    }
+  }, "\u041E\u0442\u043C\u0435\u043D\u0430")) : /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "4px 0 0",
+      fontSize: 13,
+      color: "#92400E"
+    }
+  }, "\u26A0\uFE0F \u041D\u0435\u0442 \u0437\u0430\u043A\u0443\u043F\u043E\u0447\u043D\u043E\u0439 \u0446\u0435\u043D\u044B (\u0442\u043E\u0432\u0430\u0440 \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D \u0438\u0437 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0430) \u2014 ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.navy,
+      fontWeight: 600,
+      cursor: "pointer",
+      textDecoration: "underline"
+    },
+    onClick: () => {
+      setFixingCostIndex(i);
+      setCostInput("");
+    }
+  }, "\u0443\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E"))))), /*#__PURE__*/React.createElement("hr", {
     style: S.divider
   }), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -10387,6 +10463,17 @@ function AdminCabinet({
       alert(e.message);
     }
   };
+
+  // Ручная правка закупочной цены позиции без кода товара (см. комментарий
+  // у PUT /api/orders/:orderId/items/:itemIndex/cost на сервере) — не
+  // закрывает модалку заявки, чтобы сразу было видно результат.
+  const fixItemCost = async (orderId, itemIndex, cost) => {
+    const updated = await apiCall('PUT', `/api/orders/${orderId}/items/${itemIndex}/cost`, {
+      cost
+    });
+    setSelectedOrder(updated);
+    loadOrders();
+  };
   const [expandedSales, setExpandedSales] = useState({});
   const [cashboxGroupBy, setCashboxGroupBy] = useState("driver");
   // Клик по кругляшкам НАЛ/QR/ДОЛГ в сводке "Касса за период" прокручивает
@@ -13105,6 +13192,7 @@ function AdminCabinet({
       onClose: () => setSelectedOrder(null),
       onUpdateStatus: handleUpdate,
       onDeleteOrder: handleDelete,
+      onFixItemCost: fixItemCost,
       currentUser: user,
       drivers: users.filter(u => u.role === "driver" && u.active !== false)
     }), showPosModal && /*#__PURE__*/React.createElement(PosSaleModal, {
@@ -13181,6 +13269,7 @@ function AdminCabinet({
     onClose: () => setSelectedOrder(null),
     onUpdateStatus: handleUpdate,
     onDeleteOrder: handleDelete,
+    onFixItemCost: fixItemCost,
     currentUser: user,
     drivers: users.filter(u => u.role === "driver" && u.active !== false)
   }), showPosModal && /*#__PURE__*/React.createElement(PosSaleModal, {

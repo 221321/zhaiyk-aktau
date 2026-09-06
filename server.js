@@ -677,6 +677,35 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   }
 });
 
+// Ручная правка закупочной цены ОДНОЙ позиции в уже оформленной заявке —
+// нужна для позиций без кода товара (см. POST /api/orders): такую позицию
+// вписали в заявку свободным текстом мимо каталога (это теперь запрещено
+// на фронте, но старые заявки с такими позициями остались), у неё нет
+// code, поэтому getCostMap её найти и посчитать не может — отчёт о
+// прибыли честно показывает предупреждение, но исправить это редактированием
+// карточки товара на "Товарах" невозможно: там нечего редактировать, товар
+// ни к чему не привязан. Правим cost прямо на позиции конкретной заявки —
+// это разовая ручная коррекция истории, а не изменение каталога.
+app.put('/api/orders/:orderId/items/:itemIndex/cost', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'operator'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const orderId = parseInt(req.params.orderId);
+  const itemIndex = parseInt(req.params.itemIndex);
+  const { cost } = req.body;
+  const newCost = Number(cost);
+  if (!Number.isFinite(newCost) || newCost < 0) {
+    return res.status(400).json({ error: 'Некорректная закупочная цена' });
+  }
+  const order = db.get('orders').find({ id: orderId }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+  const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+  if (!items[itemIndex]) return res.status(404).json({ error: 'Позиция не найдена' });
+  items[itemIndex].cost = newCost;
+  db.get('orders').find({ id: orderId }).assign({ items }).write();
+  res.json(db.get('orders').find({ id: orderId }).value());
+});
+
 // Факт. вес для весового товара — часть заявок содержит позиции, вес которых
 // известен только когда зав. склад реально взвешивает их при отгрузке
 // водителю (заказано "4 коробки", а сколько это в кг — узнаётся на весах).
