@@ -570,7 +570,7 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
           {qrPhotoError&&<p style={{margin:"6px 0 0",fontSize:14,color:C.red}}>{qrPhotoError}</p>}
         </div>
       )}
-      <button style={{...S.btnSuccess,opacity:(canConfirm&&!statusBusy)?1:0.4,cursor:(canConfirm&&!statusBusy)?"pointer":"not-allowed"}} disabled={!canConfirm||statusBusy} onClick={()=>changeStatus("delivered",{cash:cashPaid,qr:qrPaid,debt:debtAmount})}>{statusBusy?"Сохранение...":"✅ Подтвердить доставку"}</button>
+      <button style={{...S.btnSuccess,opacity:(canConfirm&&!statusBusy)?1:0.4,cursor:(canConfirm&&!statusBusy)?"pointer":"not-allowed"}} disabled={!canConfirm||statusBusy} onClick={()=>changeStatus("delivered",{cash:cashPaid,qr:qrPaid,debt:debtAmount},`Подтвердить доставку заявки № ${order.id} на ${total.toLocaleString()} ₸? Остаток на складе спишется, оплату потом не изменить.`)}>{statusBusy?"Сохранение...":"✅ Подтвердить доставку"}</button>
       <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:8,opacity:statusBusy?0.5:1,cursor:statusBusy?"not-allowed":"pointer"}} disabled={statusBusy} onClick={()=>changeStatus("returned",null,`Оформить возврат по заявке № ${order.id}? Действие нельзя отменить.`)}>↩️ Оформить возврат</button>
     </div>
   );
@@ -1446,11 +1446,14 @@ async function shareWaybillPdf(order) {
   }
 }
 
-function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, currentUser, drivers }) {
+function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, currentUser, drivers }) {
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [fixingCostIndex, setFixingCostIndex] = useState(null);
   const [costInput, setCostInput] = useState("");
   const [savingCost, setSavingCost] = useState(false);
+  const [fixingWeightIndex, setFixingWeightIndex] = useState(null);
+  const [weightInput, setWeightInput] = useState("");
+  const [savingWeight, setSavingWeight] = useState(false);
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment||'{}') : (order.payment||{cash:order.payment_cash||0,qr:order.payment_qr||0,debt:order.payment_debt||0});
   // Весовые позиции, вес которых ещё не подтверждён складом (см.
@@ -1515,6 +1518,25 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
               ) : (
                 <p style={{margin:"4px 0 0",fontSize:13,color:"#92400E"}}>
                   ⚠️ Нет закупочной цены (товар не выбран из каталога) — <span style={{color:C.navy,fontWeight:600,cursor:"pointer",textDecoration:"underline"}} onClick={()=>{setFixingCostIndex(i);setCostInput("");}}>указать вручную</span>
+                </p>
+              )
+            )}
+            {onFixItemWeight && item.is_weight_item && item.weight_confirmed && (
+              fixingWeightIndex===i ? (
+                <div style={{display:"flex",gap:6,marginTop:6}}>
+                  <input type="number" autoFocus style={{...S.input,padding:"6px 8px",fontSize:14}} placeholder="Правильный вес, кг" value={weightInput} onChange={e=>setWeightInput(e.target.value)} onFocus={e=>e.target.select()}/>
+                  <button disabled={savingWeight||!weightInput} style={{...S.btnPrimary,width:"auto",marginTop:0,padding:"6px 14px",fontSize:14,opacity:(savingWeight||!weightInput)?0.5:1}} onClick={async()=>{
+                    if (!window.confirm(`Исправить вес «${item.name}» на ${weightInput} кг? Сумма заявки и остаток на складе пересчитаются.`)) return;
+                    setSavingWeight(true);
+                    try { await onFixItemWeight(order.id, item.code, Number(weightInput)); setFixingWeightIndex(null); setWeightInput(""); }
+                    catch(e) { alert(e.message); }
+                    setSavingWeight(false);
+                  }}>{savingWeight?"...":"Сохранить"}</button>
+                  <button disabled={savingWeight} style={{...S.btnSecondary,width:"auto",marginTop:0,padding:"6px 14px",fontSize:14}} onClick={()=>{setFixingWeightIndex(null);setWeightInput("");}}>Отмена</button>
+                </div>
+              ) : (
+                <p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>
+                  Взвесил: {item.weighed_by_name||'—'}{item.weighed_at?', '+fmtDT(item.weighed_at):''} — <span style={{color:C.navy,fontWeight:600,cursor:"pointer",textDecoration:"underline"}} onClick={()=>{setFixingWeightIndex(i);setWeightInput(String(item.qty));}}>исправить ошибку веса</span>
                 </p>
               )
             )}
@@ -4966,6 +4988,19 @@ function AdminCabinet({ user, onLogout, desktop }) {
     loadOrders();
   };
 
+  // Исправление уже подтверждённого веса (человеческий фактор при
+  // взвешивании) — доступно только admin/manager, см. проверку
+  // canOverride в POST /api/orders/weights на сервере. Переиспользуем тот
+  // же массовый эндпоинт склада, просто с одной записью.
+  const fixItemWeight = async (orderId, code, weight) => {
+    const res = await apiCall('POST', '/api/orders/weights', { entries: [{ orderId, code, weight }] });
+    if (res.errors && res.errors.length) throw new Error(res.errors.join('\n'));
+    const data = await apiCall('GET', '/api/orders');
+    setOrders(data);
+    const updated = data.find(o=>o.id===orderId);
+    if (updated) setSelectedOrder(updated);
+  };
+
   const [expandedSales, setExpandedSales] = useState({});
   const [cashboxGroupBy, setCashboxGroupBy] = useState("driver");
   // Клик по кругляшкам НАЛ/QR/ДОЛГ в сводке "Касса за период" прокручивает
@@ -6176,7 +6211,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return (
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
         <AutofillDecoy/>
-        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={fixItemCost} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={fixItemCost} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
         <aside style={S.side}>
@@ -6205,7 +6240,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   return (
     <div style={{paddingBottom:72}}>
       <AutofillDecoy/>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={fixItemCost} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={fixItemCost} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
       <div style={S.page}>
@@ -6368,7 +6403,10 @@ function WarehouseCabinet({ user, onLogout }) {
       });
     });
     if (entries.length === 0) { alert('Введите хотя бы одно значение веса'); return; }
-    if (!window.confirm(`Сохранить фактический вес по ${entries.length} ${entries.length===1?'позиции':'позициям'}? Суммы заявок пересчитаются.`)) return;
+    // Проверка веса перед сохранением важна вдвойне: после подтверждения
+    // склад сам исправить его уже не сможет (см. canOverride на сервере) —
+    // только менеджер/админ через карточку заявки.
+    if (!window.confirm(`Проверьте вес ещё раз — сохранить нельзя будет изменить.\n\nСохранить фактический вес по ${entries.length} ${entries.length===1?'позиции':'позициям'}? Суммы заявок пересчитаются.`)) return;
     setSavingWeights(true);
     try {
       const res = await apiCall('POST', '/api/orders/weights', { entries });
