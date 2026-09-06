@@ -2410,11 +2410,16 @@ const COMPANY_INFO = {
 function buildWaybillInnerHtml(order) {
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : order.items || [];
   const totalNds = 0;
+  // Единица измерения на самой заявке не хранится (см. POST /api/orders) —
+  // единственный надёжный признак на позиции это is_weight_item (кг у
+  // весового товара), для остального берём "шт" по умолчанию.
+  const unitOf = it => it.is_weight_item ? 'кг' : 'шт';
   const rows = items.map((it, i) => `
     <tr>
       <td style="text-align:center">${i + 1}</td>
       <td>${it.name}</td>
       <td style="text-align:center">${it.code || ''}</td>
+      <td style="text-align:center">${unitOf(it)}</td>
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:right">${Number(it.price).toLocaleString()}</td>
@@ -2428,18 +2433,27 @@ function buildWaybillInnerHtml(order) {
     <div class="headrow">
       <div><div class="label">ОРГАНИЗАЦИЯ — ОТПРАВИТЕЛЬ</div>${COMPANY_INFO.name}</div>
       <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${order.client_name || ''}</div>
+    </div>
+    <div class="headrow row2">
       <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name || ''}</div>
+      <div><div class="label">ТРАНСПОРТНАЯ ОРГАНИЗАЦИЯ</div>&nbsp;</div>
       <div><div class="label">АДРЕС ДОСТАВКИ</div>${order.address || ''}${order.contact_phone ? '<br>Тел: ' + order.contact_phone : ''}</div>
     </div>
     <table>
-      <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Кол-во<br>подлежит<br>отпуску</th><th>Кол-во<br>отпущено</th><th>Цена за ед., ₸</th><th>Сумма, ₸</th><th>Сумма НДС, ₸</th></tr>
+      <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Ед.<br>изм.</th><th>Кол-во<br>подлежит<br>отпуску</th><th>Кол-во<br>отпущено</th><th>Цена за ед., ₸</th><th>Сумма, ₸</th><th>Сумма НДС, ₸</th></tr>
       ${rows}
-      <tr><td colspan="6" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(order.total || 0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds}</td></tr>
+      <tr><td colspan="7" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(order.total || 0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds}</td></tr>
     </table>
-    <div class="totals">Всего отпущено на сумму: <b>${(order.total || 0).toLocaleString()} ₸</b></div>
+    <div class="totals">
+      <p>Всего отпущено количество запасов (прописью): <span class="signline"></span></p>
+      <p>на сумму (прописью): <span class="signline" style="min-width:400px"></span> тенге <b>${(order.total || 0).toLocaleString()} ₸</b></p>
+    </div>
     <div class="sign">
       <p>Отпуск разрешил: <span class="signline">${COMPANY_INFO.releaseAuthorizedBy}</span> должность / подпись</p>
+      <p>Главный бухгалтер: <span class="signline"></span> подпись</p>
       <p>Отпустил (водитель): <span class="signline">${order.driver_name || ''}</span> подпись</p>
+      <p>По доверенности № <span class="signline" style="min-width:100px"></span> выданной <span class="signline" style="min-width:180px"></span> от <span class="signline" style="min-width:100px"></span></p>
+      <p style="margin-top:20px">М.П.</p>
     </div>`;
 }
 
@@ -2457,11 +2471,13 @@ const WAYBILL_STYLE = `
     .printScope th,.printScope td{border:1px solid #333; padding:5px 6px; font-size:11px;}
     .printScope th{background:#f0f0f0; text-align:center;}
     .printScope .headrow{display:flex; border:1px solid #333; margin-top:14px;}
+    .printScope .headrow.row2{border-top:none; margin-top:0;}
     .printScope .headrow > div{flex:1; border-right:1px solid #333; padding:6px;}
     .printScope .headrow > div:last-child{border-right:none;}
     .printScope .headrow .label{font-size:10px; color:#444; margin-bottom:4px;}
     .printScope .toprow{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;}
     .printScope .totals{margin-top:8px; font-size:12px;}
+    .printScope .totals p{margin:6px 0;}
     .printScope .sign{margin-top:24px;}
     .printScope .sign p{margin:14px 0 2px;}
     .printScope .signline{display:inline-block; min-width:220px; border-bottom:1px solid #333; margin:0 6px;}
