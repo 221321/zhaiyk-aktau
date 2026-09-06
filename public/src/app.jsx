@@ -3780,8 +3780,14 @@ function sumItemsProfit(list) {
 // закупочная цена (см. вкладку "Товары") — тогда прибыль занижена, честно
 // показываем это отдельной строкой вместо того, чтобы выдать неполную
 // цифру за точную.
-function ProfitBlock({ revenue, cost, profit, missingLines }) {
+// commission — необязательный: бонус торговых (реальный расход, выплачивается
+// сотруднику, см. totalCommission выше). Когда он передан, показываем ещё и
+// "чистую" прибыль (после вычета бонуса) — то, что владелец реально
+// зарабатывает, а не валовую маржу без учёта, сколько ушло на бонусы.
+function ProfitBlock({ revenue, cost, profit, missingLines, commission }) {
   const margin = revenue > 0 ? (profit / revenue * 100) : 0;
+  const hasCommission = commission != null;
+  const netProfit = hasCommission ? profit - commission : null;
   return (
     <div style={{...S.card, marginTop:10}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
@@ -3798,6 +3804,18 @@ function ProfitBlock({ revenue, cost, profit, missingLines }) {
           <p style={{margin:0,fontSize:17,fontWeight:800,fontFamily:FH,color:profit>=0?C.green:C.red}}>{margin.toFixed(1)}%</p>
         </div>
       </div>
+      {hasCommission&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+          <div>
+            <p style={{margin:"0 0 2px",fontSize:12,color:C.textFaint,fontWeight:700,textTransform:"uppercase"}}>Бонус торговых (расход)</p>
+            <p style={{margin:0,fontSize:17,fontWeight:800,fontFamily:FH,color:C.textMid}}>{commission.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</p>
+          </div>
+          <div>
+            <p style={{margin:"0 0 2px",fontSize:12,color:C.textFaint,fontWeight:700,textTransform:"uppercase"}}>Чистая прибыль</p>
+            <p style={{margin:0,fontSize:17,fontWeight:800,fontFamily:FH,color:netProfit>=0?C.green:C.red}}>{netProfit.toLocaleString(undefined,{maximumFractionDigits:0})} ₸</p>
+          </div>
+        </div>
+      )}
       {missingLines>0&&(
         <p style={{margin:"10px 0 0",fontSize:13.5,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"7px 10px"}}>
           ⚠️ У {missingLines} {missingLines===1?'позиции':'позиций'} нет закупочной цены — прибыль занижена. Заполните на вкладке «Товары».
@@ -4778,7 +4796,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
       || (o.driver_name||'').toLowerCase().includes(q)
       || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, orderDatePreset, orderDateFrom, orderDateTo, q]);
 
-  const { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo } = useMemo(() => {
+  const { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo, totalCommission } = useMemo(() => {
     // Погашение долга нал/QR "перетекает" из долга в наличку/QR того же
     // заказа/продажи — иначе касса за период не сходится с тем, что
     // оператор реально погасил, а долг в сводке зависает на изначальной
@@ -4976,7 +4994,17 @@ function AdminCabinet({ user, onLogout, desktop }) {
       .map(([id,v])=>({ id, name: v.name, cash: v.cash, qr: v.qr, debt: v.debt, orders: v.orders }))
       .sort((a,b)=>b.cash-a.cash);
 
-    return { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo };
+    // Бонус торговых — реальный расход владельца (выплачивается сотруднику),
+    // поэтому вычитаем только repList (настоящие торгпреды). storeList — это
+    // магазины, оформившие заказ сами себе (см. комментарий у repBreakdown
+    // выше): их "бонус" никому не выплачивается, включать его в расход было
+    // бы задвоением — прибыль занизилась бы на сумму, которая на самом деле
+    // осталась у владельца. Кассовые продажи (/api/sales) бонус вообще не
+    // считают (нет комиссии у кассира) — totalCommission корректен и для
+    // combinedProfit ниже, доля кассы в нём просто равна нулю.
+    const totalCommission = repList.reduce((s, r) => s + r.totalBonus, 0);
+
+    return { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo, totalCommission };
   }, [orders, sales, products, dateFrom, dateTo, debtSettlements, returnsList]);
 
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
@@ -5148,7 +5176,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
           </div>
         </div>
         <div style={{maxWidth: desktop?560:"none"}}>
-          <ProfitBlock revenue={stats.revenue} cost={stats.costTotal} profit={stats.profit} missingLines={stats.profitMissingLines}/>
+          <ProfitBlock revenue={stats.revenue} cost={stats.costTotal} profit={stats.profit} missingLines={stats.profitMissingLines} commission={totalCommission}/>
         </div>
         <div style={{maxWidth: desktop?560:"none"}}>
           <div style={{...S.card,marginTop:10}}>
@@ -5334,7 +5362,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
               </div>
             </div>
           </div>
-          <ProfitBlock revenue={posReport.combinedRevenue} cost={posReport.combinedCost} profit={posReport.combinedProfit} missingLines={posReport.combinedProfitMissingLines}/>
+          <ProfitBlock revenue={posReport.combinedRevenue} cost={posReport.combinedCost} profit={posReport.combinedProfit} missingLines={posReport.combinedProfitMissingLines} commission={totalCommission}/>
         </div>
         {user.role!=="operator"&&<div style={{maxWidth: desktop?560:"none"}}>
           <p style={{...S.sectionTitle,fontSize:17,marginTop:20}}>Продажи по кассе ({posReport.count})</p>

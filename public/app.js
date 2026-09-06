@@ -8333,13 +8333,20 @@ function sumItemsProfit(list) {
 // закупочная цена (см. вкладку "Товары") — тогда прибыль занижена, честно
 // показываем это отдельной строкой вместо того, чтобы выдать неполную
 // цифру за точную.
+// commission — необязательный: бонус торговых (реальный расход, выплачивается
+// сотруднику, см. totalCommission выше). Когда он передан, показываем ещё и
+// "чистую" прибыль (после вычета бонуса) — то, что владелец реально
+// зарабатывает, а не валовую маржу без учёта, сколько ушло на бонусы.
 function ProfitBlock({
   revenue,
   cost,
   profit,
-  missingLines
+  missingLines,
+  commission
 }) {
   const margin = revenue > 0 ? profit / revenue * 100 : 0;
+  const hasCommission = commission != null;
+  const netProfit = hasCommission ? profit - commission : null;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.card,
@@ -8403,7 +8410,52 @@ function ProfitBlock({
       fontFamily: FH,
       color: profit >= 0 ? C.green : C.red
     }
-  }, margin.toFixed(1), "%"))), missingLines > 0 && /*#__PURE__*/React.createElement("p", {
+  }, margin.toFixed(1), "%"))), hasCommission && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 8,
+      marginTop: 8,
+      paddingTop: 8,
+      borderTop: `1px solid ${C.border}`
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 2px",
+      fontSize: 12,
+      color: C.textFaint,
+      fontWeight: 700,
+      textTransform: "uppercase"
+    }
+  }, "\u0411\u043E\u043D\u0443\u0441 \u0442\u043E\u0440\u0433\u043E\u0432\u044B\u0445 (\u0440\u0430\u0441\u0445\u043E\u0434)"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 17,
+      fontWeight: 800,
+      fontFamily: FH,
+      color: C.textMid
+    }
+  }, commission.toLocaleString(undefined, {
+    maximumFractionDigits: 0
+  }), " \u20B8")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 2px",
+      fontSize: 12,
+      color: C.textFaint,
+      fontWeight: 700,
+      textTransform: "uppercase"
+    }
+  }, "\u0427\u0438\u0441\u0442\u0430\u044F \u043F\u0440\u0438\u0431\u044B\u043B\u044C"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 17,
+      fontWeight: 800,
+      fontFamily: FH,
+      color: netProfit >= 0 ? C.green : C.red
+    }
+  }, netProfit.toLocaleString(undefined, {
+    maximumFractionDigits: 0
+  }), " \u20B8"))), missingLines > 0 && /*#__PURE__*/React.createElement("p", {
     style: {
       margin: "10px 0 0",
       fontSize: 13.5,
@@ -10155,7 +10207,8 @@ function AdminCabinet({
     driverCashList,
     repCashList,
     posReport,
-    returnsInfo
+    returnsInfo,
+    totalCommission
   } = useMemo(() => {
     // Погашение долга нал/QR "перетекает" из долга в наличку/QR того же
     // заказа/продажи — иначе касса за период не сходится с тем, что
@@ -10382,6 +10435,16 @@ function AdminCabinet({
       debt: v.debt,
       orders: v.orders
     })).sort((a, b) => b.cash - a.cash);
+
+    // Бонус торговых — реальный расход владельца (выплачивается сотруднику),
+    // поэтому вычитаем только repList (настоящие торгпреды). storeList — это
+    // магазины, оформившие заказ сами себе (см. комментарий у repBreakdown
+    // выше): их "бонус" никому не выплачивается, включать его в расход было
+    // бы задвоением — прибыль занизилась бы на сумму, которая на самом деле
+    // осталась у владельца. Кассовые продажи (/api/sales) бонус вообще не
+    // считают (нет комиссии у кассира) — totalCommission корректен и для
+    // combinedProfit ниже, доля кассы в нём просто равна нулю.
+    const totalCommission = repList.reduce((s, r) => s + r.totalBonus, 0);
     return {
       stats,
       repList,
@@ -10389,7 +10452,8 @@ function AdminCabinet({
       driverCashList,
       repCashList,
       posReport,
-      returnsInfo
+      returnsInfo,
+      totalCommission
     };
   }, [orders, sales, products, dateFrom, dateTo, debtSettlements, returnsList]);
   const FILTERS = [["all", "Все"], ["new", "Ожидает"], ["in_transit", "В работе"], ["delivered", "Доставлено"], ["cancelled", "Отказ"], ["returned", "Возврат"], ["revoked", "Отозвана"]];
@@ -10886,7 +10950,8 @@ function AdminCabinet({
     revenue: stats.revenue,
     cost: stats.costTotal,
     profit: stats.profit,
-    missingLines: stats.profitMissingLines
+    missingLines: stats.profitMissingLines,
+    commission: totalCommission
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       maxWidth: desktop ? 560 : "none"
@@ -11453,7 +11518,8 @@ function AdminCabinet({
     revenue: posReport.combinedRevenue,
     cost: posReport.combinedCost,
     profit: posReport.combinedProfit,
-    missingLines: posReport.combinedProfitMissingLines
+    missingLines: posReport.combinedProfitMissingLines,
+    commission: totalCommission
   })), user.role !== "operator" && /*#__PURE__*/React.createElement("div", {
     style: {
       maxWidth: desktop ? 560 : "none"
