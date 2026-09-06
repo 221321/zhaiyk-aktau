@@ -1441,7 +1441,12 @@ app.delete('/api/categories/:name', authMiddleware, (req, res) => {
 });
 
 // ===== CLIENTS (Контрагенты из 1С) =====
-db.defaults({ clients: [], clientAddresses: [], clientContacts: [] }).write();
+// clientTags — overlay поверх 1С-контрагентов (тот же приём, что уже есть у
+// адресов/контактов клиента выше): группа "Договорники" — это ярлык на
+// сайте, в 1С такого поля нет и заводить его там не нужно. Сейчас только
+// один флаг, но структура (массив записей по коду) легко расширяется до
+// нескольких групп, если понадобятся другие категории клиентов.
+db.defaults({ clients: [], clientAddresses: [], clientContacts: [], clientTags: [] }).write();
 
 // Полный список контрагентов — с адресами и контактами каждого, поэтому
 // не публичный: раньше отдавался вообще без авторизации (включая аккаунтам
@@ -1458,10 +1463,13 @@ app.get('/api/clients', authMiddleware, (req, res) => {
   const clients = db.get('clients').value();
   const addrs = db.get('clientAddresses').value();
   const contacts = db.get('clientContacts').value();
+  const tags = db.get('clientTags').value();
   const addrMap = {};
   addrs.forEach(a => { addrMap[a.code] = a; });
   const contactMap = {};
   contacts.forEach(c => { contactMap[c.code] = c; });
+  const tagMap = {};
+  tags.forEach(t => { tagMap[t.code] = t; });
 
   const result = clients.map(c => {
     const rec = addrMap[c.code];
@@ -1472,10 +1480,29 @@ app.get('/api/clients', authMiddleware, (req, res) => {
       address: hasAddress ? rec.address : (c.address || ''),
       has_address: hasAddress,
       contact_name: contact ? contact.name : '',
-      contact_phone: contact ? contact.phone : ''
+      contact_phone: contact ? contact.phone : '',
+      is_dogovornik: !!(tagMap[c.code] && tagMap[c.code].is_dogovornik)
     };
   });
   res.json(result);
+});
+
+// Пометка "Договорник" — ярлык поверх контрагента (см. clientTags выше),
+// нужен менеджеру для отбора заявок по группе клиентов в "Заявках"
+// (см. фронт: dogovornikCodes/dogovornikOnly в AdminCabinet).
+app.put('/api/clients/:code/dogovornik', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const code = req.params.code;
+  const isDogovornik = !!req.body.is_dogovornik;
+  const existing = db.get('clientTags').find({ code }).value();
+  if (existing) {
+    db.get('clientTags').find({ code }).assign({ is_dogovornik: isDogovornik }).write();
+  } else {
+    db.get('clientTags').push({ code, is_dogovornik: isDogovornik }).write();
+  }
+  res.json({ success: true, code, is_dogovornik: isDogovornik });
 });
 
 // ===== "МОЙ КАБИНЕТ" (self-service для role=store) =====

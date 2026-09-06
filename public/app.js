@@ -1812,6 +1812,147 @@ function DebtsPanel({
   }));
 }
 
+// Управление группой "Договорники" — ярлык поверх контрагента из 1С (см.
+// clientTags/PUT /api/clients/:code/dogovornik на сервере), нужен для
+// отбора заявок по этой группе клиентов в "Заявках" (dogovornikOnly в
+// AdminCabinet). Простой список с поиском и переключателем прямо по клику
+// на строку — отдельного экрана "Клиенты" в приложении пока нет, заводить
+// его целиком ради одной пометки было бы избыточно.
+function DogovornikModal({
+  clients,
+  onClose,
+  onSaved
+}) {
+  const [search, setSearch] = useState("");
+  const [savingCode, setSavingCode] = useState(null);
+  const q = search.trim().toLowerCase();
+  const filtered = clients.filter(c => !q || (c.name || '').toLowerCase().includes(q) || (c.code || '').includes(q)).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
+  const toggle = async c => {
+    if (savingCode) return;
+    setSavingCode(c.code);
+    try {
+      await apiCall('PUT', `/api/clients/${c.code}/dogovornik`, {
+        is_dogovornik: !c.is_dogovornik
+      });
+      await onSaved();
+    } catch (e) {
+      alert(e.message);
+    }
+    setSavingCode(null);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(28,25,23,0.45)",
+      zIndex: 200,
+      overflowY: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.white,
+      margin: "16px",
+      borderRadius: 16,
+      padding: 20,
+      maxWidth: 480,
+      marginLeft: "auto",
+      marginRight: "auto",
+      border: `1px solid ${C.border}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.row,
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 19,
+      fontWeight: 800,
+      fontFamily: FH,
+      color: C.navy
+    }
+  }, "\u0414\u043E\u0433\u043E\u0432\u043E\u0440\u043D\u0438\u043A\u0438"), /*#__PURE__*/React.createElement("button", {
+    style: S.btnSecondary,
+    onClick: onClose
+  }, "\u2715")), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 12px",
+      fontSize: 14,
+      color: C.textSub
+    }
+  }, "\u041E\u0442\u043C\u0435\u0442\u044C\u0442\u0435 \u043A\u043B\u0438\u0435\u043D\u0442\u043E\u0432-\u0434\u043E\u0433\u043E\u0432\u043E\u0440\u043D\u0438\u043A\u043E\u0432 \u2014 \u043F\u043E \u044D\u0442\u043E\u0439 \u0433\u0440\u0443\u043F\u043F\u0435 \u043C\u043E\u0436\u043D\u043E \u0431\u0443\u0434\u0435\u0442 \u043E\u0442\u043E\u0431\u0440\u0430\u0442\u044C \u0437\u0430\u044F\u0432\u043A\u0438."), /*#__PURE__*/React.createElement("input", {
+    type: "search",
+    style: {
+      ...S.input,
+      marginBottom: 12
+    },
+    placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044E \u0438\u043B\u0438 \u043A\u043E\u0434\u0443...",
+    value: search,
+    onChange: e => setSearch(e.target.value),
+    autoComplete: "off"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxHeight: 420,
+      overflowY: "auto"
+    }
+  }, filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      padding: "20px 0",
+      color: C.textFaint
+    }
+  }, "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E") : filtered.map(c => /*#__PURE__*/React.createElement("div", {
+    key: c.code,
+    onClick: () => toggle(c),
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "9px 4px",
+      borderBottom: `1px solid ${C.border}`,
+      cursor: savingCode ? "default" : "pointer",
+      opacity: savingCode === c.code ? 0.5 : 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
+      border: `2px solid ${c.is_dogovornik ? C.navy : C.border}`,
+      background: c.is_dogovornik ? C.navy : C.white,
+      flexShrink: 0,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center"
+    }
+  }, c.is_dogovornik && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.white,
+      fontSize: 15,
+      fontWeight: 700
+    }
+  }, "\u2713")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15,
+      fontWeight: 600,
+      color: C.text,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, c.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: C.textFaint
+    }
+  }, "\u041A\u043E\u0434: ", c.code)))))));
+}
+
 // Возврат — отдельная от статуса заявки сущность (см. POST /api/returns):
 // либо конкретные позиции/количество из уже ДОСТАВЛЕННОЙ заявки (магазин
 // вернул 1 из 5 коробок), либо совсем без заявки — товар без привязки
@@ -9872,6 +10013,8 @@ function AdminCabinet({
   const [filter, setFilter] = useState("all");
   const [driverFilter, setDriverFilter] = useState("");
   const [salesFilter, setSalesFilter] = useState("");
+  const [dogovornikOnly, setDogovornikOnly] = useState(false);
+  const [showDogovornikModal, setShowDogovornikModal] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -10612,8 +10755,14 @@ function AdminCabinet({
       name
     })).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
   }, [orders]);
+
+  // Коды клиентов-договорников (см. PUT /api/clients/:code/dogovornik) — для
+  // отбора заявок по этой группе ниже. Заявка сама по себе такую пометку не
+  // хранит (это свойство контрагента, а не разовой заявки), поэтому сверяем
+  // по client_code с уже загруженным списком клиентов.
+  const dogovornikCodes = useMemo(() => new Set(clients.filter(c => c.is_dogovornik).map(c => c.code)), [clients]);
   const q = orderSearch.trim().toLowerCase();
-  const filtered = useMemo(() => orders.filter(o => filter === "all" || o.status === filter).filter(o => !driverFilter || String(o.driver_id) === driverFilter).filter(o => !salesFilter || String(o.sales_id) === salesFilter).filter(o => orderDatePreset === "all" || o.date >= orderDateFrom && o.date <= orderDateTo).filter(o => !q || String(o.id).includes(q) || (o.client_name || '').toLowerCase().includes(q) || (o.sales_name || '').toLowerCase().includes(q) || (o.driver_name || '').toLowerCase().includes(q) || (o.address || '').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, orderDatePreset, orderDateFrom, orderDateTo, q]);
+  const filtered = useMemo(() => orders.filter(o => filter === "all" || o.status === filter).filter(o => !driverFilter || String(o.driver_id) === driverFilter).filter(o => !salesFilter || String(o.sales_id) === salesFilter).filter(o => !dogovornikOnly || dogovornikCodes.has(o.client_code)).filter(o => orderDatePreset === "all" || o.date >= orderDateFrom && o.date <= orderDateTo).filter(o => !q || String(o.id).includes(q) || (o.client_name || '').toLowerCase().includes(q) || (o.sales_name || '').toLowerCase().includes(q) || (o.driver_name || '').toLowerCase().includes(q) || (o.address || '').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, orderDatePreset, orderDateFrom, orderDateTo, q]);
   const {
     stats,
     repList,
@@ -11140,6 +11289,39 @@ function AdminCabinet({
       color: salesFilter === String(s.id) ? C.white : C.textMid
     }
   }, s.name)));
+  const dogovornikFilterChip = /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginBottom: 16,
+      flexWrap: "wrap",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setDogovornikOnly(v => !v),
+    style: {
+      padding: "6px 13px",
+      borderRadius: 99,
+      border: `1px solid ${dogovornikOnly ? C.navy : C.border}`,
+      cursor: "pointer",
+      fontSize: 14,
+      fontWeight: 600,
+      background: dogovornikOnly ? C.navy : C.white,
+      color: dogovornikOnly ? C.white : C.textMid
+    }
+  }, dogovornikOnly ? "✓ " : "", "\uD83C\uDFF7 \u0414\u043E\u0433\u043E\u0432\u043E\u0440\u043D\u0438\u043A\u0438"), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowDogovornikModal(true),
+    style: {
+      padding: "6px 13px",
+      borderRadius: 99,
+      border: `1px solid ${C.border}`,
+      cursor: "pointer",
+      fontSize: 14,
+      fontWeight: 600,
+      background: C.white,
+      color: C.textMid
+    }
+  }, "\u2699\uFE0F \u041D\u0430\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0443"));
   const searchInput = /*#__PURE__*/React.createElement("input", {
     type: "search",
     style: {
@@ -11256,7 +11438,7 @@ function AdminCabinet({
   }, "\u0417\u0430\u044F\u0432\u043E\u043A \u043D\u0435\u0442"))))));
   const content = /*#__PURE__*/React.createElement(React.Fragment, null, tab === "all" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
-  }, "\u0412\u0441\u0435 \u0437\u0430\u044F\u0432\u043A\u0438"), searchInput, orderDateFilterUI, filterChips, driverFilterChips, salesFilterChips, !loading && filtered.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "\u0412\u0441\u0435 \u0437\u0430\u044F\u0432\u043A\u0438"), searchInput, orderDateFilterUI, filterChips, driverFilterChips, salesFilterChips, dogovornikFilterChip, !loading && filtered.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: () => printWaybillsBatch(filtered),
     style: {
       ...S.btnOutline,
@@ -13307,6 +13489,10 @@ function AdminCabinet({
       user: user,
       onClose: () => setShowReturnModal(false),
       onCreated: loadReturns
+    }), showDogovornikModal && /*#__PURE__*/React.createElement(DogovornikModal, {
+      clients: clients,
+      onClose: () => setShowDogovornikModal(false),
+      onSaved: loadClients
     }), /*#__PURE__*/React.createElement("aside", {
       style: S.side
     }, /*#__PURE__*/React.createElement("div", {
@@ -13385,6 +13571,10 @@ function AdminCabinet({
     user: user,
     onClose: () => setShowReturnModal(false),
     onCreated: loadReturns
+  }), showDogovornikModal && /*#__PURE__*/React.createElement(DogovornikModal, {
+    clients: clients,
+    onClose: () => setShowDogovornikModal(false),
+    onSaved: loadClients
   }), /*#__PURE__*/React.createElement("div", {
     style: S.page
   }, content), /*#__PURE__*/React.createElement("div", {
