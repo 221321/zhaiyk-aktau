@@ -1144,7 +1144,11 @@ function buildWaybillInnerHtml(order) {
   return `
     <div class="topright">Приложение 26<br>к приказу Министра финансов<br>Республики Казахстан<br>от 20 декабря 2012 года № 562</div>
     <div class="toprow"><span>Организация (индивидуальный предприниматель) <b>${COMPANY_INFO.name}</b></span><span>ИИН/БИН <b>${COMPANY_INFO.bin}</b></span></div>
-    <h1>НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ<br><span style="font-weight:400;font-size:12px">Форма З-2 · № ${order.id} от ${order.date}</span></h1>
+    <table class="docnumtable">
+      <tr><th>Номер документа</th><th>Дата составления</th></tr>
+      <tr><td>${order.id}</td><td>${order.date}</td></tr>
+    </table>
+    <h1>НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ<br><span style="font-weight:400;font-size:12px">Форма З-2</span></h1>
     <div class="headrow">
       <div><div class="label">ОРГАНИЗАЦИЯ — ОТПРАВИТЕЛЬ</div>${COMPANY_INFO.name}</div>
       <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${order.client_name||''}</div>
@@ -1183,6 +1187,8 @@ const WAYBILL_STYLE = `
     .printScope table{width:100%; border-collapse:collapse; margin:10px 0;}
     .printScope th,.printScope td{border:1px solid #333; padding:5px 6px; font-size:11px;}
     .printScope th{background:#f0f0f0; text-align:center;}
+    .printScope table.docnumtable{width:auto; margin:0 0 8px auto;}
+    .printScope table.docnumtable td{text-align:center;}
     .printScope .headrow{display:flex; border:1px solid #333; margin-top:14px;}
     .printScope .headrow.row2{border-top:none; margin-top:0;}
     .printScope .headrow > div{flex:1; border-right:1px solid #333; padding:6px;}
