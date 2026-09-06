@@ -1483,6 +1483,12 @@ function buildLoadingListHtml(orders, driverName, productByCode) {
   const rows = Object.values(totals).sort((a,b)=>a.name.localeCompare(b.name)).map((it,i)=>{
     const unit = it.isWeight ? 'кг' : 'шт';
     const weighed = it.isWeight && it.allWeighed;
+    // Штучный товар не взвешивается вовсе (для него нет ни весового пула, ни
+    // подтверждения — см. isWeight выше), поэтому для него нет отдельного
+    // "факта" ждать: отметка склада для него просто "отгружено по счёту" —
+    // раньше эта ячейка оставалась пустой и для него тоже, хотя ждать там
+    // взвешивания бессмысленно, отмечать было нечем.
+    const mark = weighed ? '✓ взвешено' : (!it.isWeight ? '✓ отгружено' : '');
     return `
     <tr>
       <td style="text-align:center">${i+1}</td>
@@ -1491,7 +1497,7 @@ function buildLoadingListHtml(orders, driverName, productByCode) {
       <td style="text-align:center">${unit}</td>
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:center">${weighed?it.qty:''}</td>
-      <td style="text-align:center">${weighed?'✓ взвешено':''}</td>
+      <td style="text-align:center">${mark}</td>
     </tr>`;
   }).join('');
   const now = new Date();
