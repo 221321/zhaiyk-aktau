@@ -6279,17 +6279,24 @@ function WarehouseCabinet({ user, onLogout }) {
                         {weightItems.map(it=>(
                           <div key={it.code} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:6}}>
                             <span style={{flex:1,minWidth:0,fontSize:14,color:C.textMid,overflowWrap:"anywhere"}}>
-                              {it.name} <span style={{color:C.textFaint}}>(было {it.qty})</span>
+                              {it.name} {!it.weight_confirmed&&<span style={{color:C.textFaint}}>(было {it.qty})</span>}
                               {it.weight_confirmed&&it.weighed_by_name&&<span style={{display:"block",fontSize:12,color:C.textFaint}}>Взвесил: {it.weighed_by_name}{it.weighed_at?', '+new Date(it.weighed_at).toLocaleString('ru-RU'):''}</span>}
                             </span>
-                            <input
-                              type="number"
-                              placeholder="кг"
-                              style={{...S.input,width:80,flexShrink:0,padding:"6px 8px",fontSize:14}}
-                              value={weightForm[`${o.id}_${it.code}`]||''}
-                              onChange={e=>setWeightForm(f=>({...f,[`${o.id}_${it.code}`]:e.target.value}))}
-                              onFocus={e=>e.target.select()}
-                            />
+                            {it.weight_confirmed ? (
+                              // Вес зафиксирован сервером один раз и правке больше не
+                              // подлежит (см. POST /api/orders/weights) — вместо поля
+                              // ввода показываем итог как факт, а не как черновик.
+                              <span style={{width:80,flexShrink:0,padding:"6px 8px",fontSize:14,fontWeight:700,color:C.green,textAlign:"right"}}>✓ {it.qty} кг</span>
+                            ) : (
+                              <input
+                                type="number"
+                                placeholder="кг"
+                                style={{...S.input,width:80,flexShrink:0,padding:"6px 8px",fontSize:14}}
+                                value={weightForm[`${o.id}_${it.code}`]||''}
+                                onChange={e=>setWeightForm(f=>({...f,[`${o.id}_${it.code}`]:e.target.value}))}
+                                onFocus={e=>e.target.select()}
+                              />
+                            )}
                           </div>
                         ))}
                       </div>
