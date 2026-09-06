@@ -6077,6 +6077,25 @@ function WarehouseCabinet({ user, onLogout }) {
   useEffect(() => { loadOrders(); }, []);
   useRefetchOnVisible(loadProducts, loadOrders);
 
+  // Сколько налички сейчас физически на руках у каждого водителя — та же
+  // логика, что и computeDriverPendingCash на сервере (доставлено, оплата
+  // налом, ещё не вошло ни в одну сдачу). Строго для информации: принимает
+  // склад по-прежнему только оформленную сдачу (см. pendingHandovers ниже),
+  // здесь нет действия "принять" — иначе можно было бы подтвердить сумму,
+  // которую водитель ещё не заявил как сданную.
+  const driverCashOnHand = useMemo(() => {
+    const byDriver = {};
+    orders.forEach(o => {
+      if (o.status === 'delivered' && (Number(o.payment_cash) || 0) > 0 && !o.cash_handover_id && o.driver_id) {
+        if (!byDriver[o.driver_id]) byDriver[o.driver_id] = { driverId: o.driver_id, name: o.driver_name || '—', amount: 0, count: 0 };
+        byDriver[o.driver_id].amount += Number(o.payment_cash) || 0;
+        byDriver[o.driver_id].count += 1;
+      }
+    });
+    return Object.values(byDriver).sort((a,b)=>b.amount-a.amount);
+  }, [orders]);
+  const driverCashOnHandTotal = driverCashOnHand.reduce((s,d)=>s+d.amount,0);
+
   const stockStats = products.reduce((acc,p)=>{
     acc.total++;
     // Та же проверка, что решает "в наличии"/"нет" у каждой карточки ниже
@@ -6312,7 +6331,25 @@ function WarehouseCabinet({ user, onLogout }) {
           <WeighLogPanel/>
         </>}
         {tab==="cash"&&<>
-          <p style={S.sectionTitle}>Приём налички от водителей</p>
+          <p style={S.sectionTitle}>Наличка на руках у водителей</p>
+          <p style={{margin:"0 0 10px",fontSize:13,color:C.textFaint}}>Для информации — ещё не сдано складу, принять можно только после того, как водитель оформит сдачу ниже.</p>
+          {loadingOrders?<div style={S.loadingWrap}>Загрузка...</div>
+            : driverCashOnHand.length===0
+              ? <div style={{...S.card,marginBottom:16,textAlign:"center",color:C.textFaint}}>Ни у кого нет неучтённой налички</div>
+              : <div style={{...S.card,marginBottom:16}}>
+                  <div style={{...S.row,marginBottom:driverCashOnHand.length>0?10:0,paddingBottom:10,borderBottom:`1px solid ${C.border}`}}>
+                    <span style={{fontSize:14,fontWeight:700,color:C.textSub}}>Итого на руках</span>
+                    <span style={{fontSize:19,fontWeight:800,fontFamily:FH,color:"#15803D"}}>{driverCashOnHandTotal.toLocaleString()} ₸</span>
+                  </div>
+                  {driverCashOnHand.map(d=>(
+                    <div key={d.driverId} style={{...S.row,marginBottom:6}}>
+                      <span style={{fontSize:15,color:C.text}}>{d.name} <span style={{color:C.textFaint,fontSize:13}}>({d.count} {d.count===1?'заявка':'заявок'})</span></span>
+                      <span style={{fontSize:15,fontWeight:700,fontFamily:FH}}>{d.amount.toLocaleString()} ₸</span>
+                    </div>
+                  ))}
+                </div>
+          }
+          <p style={{...S.sectionTitle,marginTop:20}}>Приём налички от водителей</p>
           {loadingHandovers?<div style={S.loadingWrap}>Загрузка...</div>:<>
             {pendingHandovers.length===0
               ? <div style={{textAlign:"center",padding:"40px 0",color:C.textFaint}}>Ожидающих сдач нет</div>
