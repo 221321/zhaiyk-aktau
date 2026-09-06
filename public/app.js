@@ -11297,8 +11297,26 @@ function AdminCabinet({
       flexWrap: "wrap",
       alignItems: "center"
     }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setDogovornikOnly(v => !v),
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      color: C.textFaint,
+      fontWeight: 600
+    }
+  }, "\u0414\u043E\u0433\u043E\u0432\u043E\u0440\u043D\u0438\u043A\u0438:"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setDogovornikOnly(false),
+    style: {
+      padding: "6px 13px",
+      borderRadius: 99,
+      border: `1px solid ${!dogovornikOnly ? C.navy : C.border}`,
+      cursor: "pointer",
+      fontSize: 14,
+      fontWeight: 600,
+      background: !dogovornikOnly ? C.navy : C.white,
+      color: !dogovornikOnly ? C.white : C.textMid
+    }
+  }, "\u0412\u0441\u0435"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setDogovornikOnly(true),
     style: {
       padding: "6px 13px",
       borderRadius: 99,
@@ -11309,7 +11327,7 @@ function AdminCabinet({
       background: dogovornikOnly ? C.navy : C.white,
       color: dogovornikOnly ? C.white : C.textMid
     }
-  }, dogovornikOnly ? "✓ " : "", "\uD83C\uDFF7 \u0414\u043E\u0433\u043E\u0432\u043E\u0440\u043D\u0438\u043A\u0438"), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
+  }, "\uD83C\uDFF7 \u0422\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u0433\u043E\u0432\u043E\u0440\u043D\u0438\u043A\u0438"), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowDogovornikModal(true),
     style: {
       padding: "6px 13px",

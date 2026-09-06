@@ -5427,7 +5427,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
 
   const dogovornikFilterChip = (
     <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
-      <button onClick={()=>setDogovornikOnly(v=>!v)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${dogovornikOnly?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:dogovornikOnly?C.navy:C.white,color:dogovornikOnly?C.white:C.textMid}}>{dogovornikOnly?"✓ ":""}🏷 Договорники</button>
+      <span style={{fontSize:14,color:C.textFaint,fontWeight:600}}>Договорники:</span>
+      <button onClick={()=>setDogovornikOnly(false)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${!dogovornikOnly?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:!dogovornikOnly?C.navy:C.white,color:!dogovornikOnly?C.white:C.textMid}}>Все</button>
+      <button onClick={()=>setDogovornikOnly(true)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${dogovornikOnly?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:dogovornikOnly?C.navy:C.white,color:dogovornikOnly?C.white:C.textMid}}>🏷 Только договорники</button>
       {!readOnlyOp&&<button onClick={()=>setShowDogovornikModal(true)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:C.white,color:C.textMid}}>⚙️ Настроить группу</button>}
     </div>
   );
