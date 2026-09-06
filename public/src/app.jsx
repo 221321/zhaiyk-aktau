@@ -3994,7 +3994,7 @@ function ProfitBlock({ revenue, cost, profit, missingLines, missingItems, commis
       )}
       {missingLines>0&&(
         <p style={{margin:"10px 0 0",fontSize:13.5,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"7px 10px"}}>
-          ⚠️ У {missingLines} {missingLines===1?'позиции':'позиций'} нет закупочной цены — прибыль занижена. Заполните на вкладке «Товары»{missingItems&&missingItems.length>0&&<>: <b>{missingItems.map(it=>it.name).join(', ')}</b></>}.
+          ⚠️ У {missingLines} {missingLines===1?'позиции':'позиций'} нет закупочной цены — прибыль занижена. Заполните на вкладке «Товары»{missingItems&&missingItems.length>0&&<>: <b>{missingItems.map(it=>it.code?`${it.name} (код ${it.code})`:it.name).join(', ')}</b></>}.
         </p>
       )}
     </div>
