@@ -890,10 +890,10 @@ app.delete('/api/orders/:id', authMiddleware, (req, res) => {
 db.get('users').forEach(u => { if (u.active === undefined) u.active = true; }).write();
 
 app.get('/api/users', authMiddleware, (req, res) => {
-  // operator — просмотровая роль: список сотрудников видит (тот же раздел,
-  // что у admin/manager), менять ничего не может (см. отдельные проверки
-  // на POST/PUT ниже — там operator по-прежнему не допущен).
-  if (!['admin', 'manager', 'operator'].includes(req.user.role)) {
+  // operator к разделу "Сотрудники" не допущен вовсе (см. TABS в AdminCabinet
+  // — у operator только "Заявки" и "Касса"), список сотрудников ему тоже
+  // не нужен.
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const users = db.get('users').map(u => ({ id: u.id, login: u.login, name: u.name, role: u.role, region: u.region, client_code: u.client_code || null, active: u.active !== false, employee_code: u.employee_code || null, session_active: !!(u.session_sid && u.last_seen_at && (Date.now() - new Date(u.last_seen_at).getTime()) < SESSION_IDLE_MS), last_seen_at: u.last_seen_at || null })).value();

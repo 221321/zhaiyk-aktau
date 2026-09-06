@@ -10884,12 +10884,12 @@ function AdminCabinet({
     };
   }, [orders, sales, products, dateFrom, dateTo, debtSettlements, returnsList]);
   const FILTERS = [["all", "Все"], ["new", "Ожидает"], ["in_transit", "В работе"], ["delivered", "Доставлено"], ["cancelled", "Отказ"], ["returned", "Возврат"], ["revoked", "Отозвана"]];
-  // Оператор видит те же разделы, что и менеджер — только без прав на
-  // изменение (см. readOnlyOp ниже): раздел есть, редактирования в нём нет,
-  // кроме сумм по должникам (POST /api/debts/settle) и WhatsApp — тем
-  // ничего на сервере не требуется вовсе.
+  // Оператор — только два раздела (Заявки, Касса), и без прав на изменение
+  // в них (см. readOnlyOp ниже): видит, но не правит, кроме сумм по
+  // должникам (POST /api/debts/settle) и WhatsApp — тем ничего на сервере
+  // не требуется вовсе.
   const readOnlyOp = user.role === "operator";
-  const TABS = [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["employees", "👤", "Сотрудники"]];
+  const TABS = readOnlyOp ? [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["employees", "👤", "Сотрудники"]];
   const TAB_TITLES = {
     all: "Заявки",
     report: "Отчёт",
@@ -13392,7 +13392,7 @@ function AdminCabinet({
     style: S.page
   }, content), /*#__PURE__*/React.createElement("div", {
     style: S.nav
-  }, [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["employees", "👤", "Сотр."]].map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
+  }, (readOnlyOp ? [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["employees", "👤", "Сотр."]]).map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
     key: k,
     style: S.navBtn(tab === k),
     onClick: () => setTab(k)
