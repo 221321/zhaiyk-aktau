@@ -1591,7 +1591,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
             <button style={S.btnDanger} onClick={()=>{if(window.confirm('Отозвать заявку № '+order.id+'? Действие нельзя отменить.'))onUpdateStatus(order.id,"revoked",null);}}>🗑 Отозвать заявку</button>
           </div>
         )}
-        {(currentUser.role==="admin"||currentUser.role==="manager"||currentUser.role==="operator") && order.status==="new" && (
+        {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="new" && (
           <div style={{marginTop:20}}>
             <label style={{...S.label,marginBottom:6}}>Назначить водителя</label>
             <select style={{...S.select,marginBottom:10}} value={selectedDriverId} onChange={e=>setSelectedDriverId(e.target.value)}>
@@ -1606,7 +1606,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
             {(!drivers||drivers.length===0)&&<p style={{margin:"8px 0 0",fontSize:14,color:C.red}}>Нет активных водителей в системе</p>}
           </div>
         )}
-        {(currentUser.role==="admin"||currentUser.role==="manager"||currentUser.role==="operator") && order.status==="in_transit" && (
+        {(currentUser.role==="admin"||currentUser.role==="manager") && order.status==="in_transit" && (
           <div style={{marginTop:20,display:"flex",flexDirection:"column",gap:8}}>
             <button style={{...S.btnOutline,borderColor:"#6B7280",color:"#6B7280"}} onClick={()=>{if(window.confirm('Вернуть заявку в очередь? Другой водитель сможет её забрать.'))onUpdateStatus(order.id,"new",null);}}>🔄 Вернуть в очередь</button>
             <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED"}} onClick={()=>{if(window.confirm('Оформить возврат по заявке № '+order.id+'? Действие нельзя отменить.'))onUpdateStatus(order.id,"returned",null);}}>↩️ Оформить возврат</button>
@@ -2950,7 +2950,11 @@ function DriverCabinet({ user, onLogout }) {
 // из 150+ позиций. React.memo + стабильные (useCallback) колбэки в
 // AdminCabinet означают, что перерисовывается только та карточка, в которой
 // реально поменялось значение.
-const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, alias, price1, price2, price3, commission, cost, pricedByWeight, avgBoxWeight, onChange, onEditRequest, onSave }) {
+const ProductAliasCard = memo(function ProductAliasCard({ p, locked: lockedProp, readOnly, saving, alias, price1, price2, price3, commission, cost, pricedByWeight, avgBoxWeight, onChange, onEditRequest, onSave }) {
+  // readOnly (роль operator — только просмотр) держит карточку заблокированной
+  // независимо от locked/editingCodes выше по стеку — кнопка "Редакт." для
+  // такой роли не рендерится вовсе, разлочить нечем.
+  const locked = lockedProp || readOnly;
   return (
     <div id={`product-card-${p.code}`} style={{...S.card, padding:10, marginBottom:6}}>
       <div style={{display:"flex",gap:10,marginBottom:6}}>
@@ -3043,14 +3047,14 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked, saving, ali
           />
           <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:14,fontWeight:700,color:locked?C.textFaint:"#92400E",pointerEvents:"none"}}>₸</span>
         </div>
-        <button
+        {!readOnly&&<button
           style={{...S.btnPrimary, padding:"7px 14px", fontSize:14, marginTop:0, boxShadow:"none", opacity: saving?0.5:1, width:"auto", whiteSpace:"nowrap"}}
           disabled={saving}
           onClick={()=>{
             if (locked) { onEditRequest(p.code); }
             else { onSave(p); }
           }}
-        >{locked ? "Редакт." : "Сохр."}</button>
+        >{locked ? "Редакт." : "Сохр."}</button>}
       </div>
     </div>
   );
@@ -5267,11 +5271,12 @@ function AdminCabinet({ user, onLogout, desktop }) {
   }, [orders, sales, products, dateFrom, dateTo, debtSettlements, returnsList]);
 
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
-  // Оператор — урезанная версия менеджера: только заявки/отчёт/касса, без
-  // товаров/каталога/НКТ/сотрудников (и бэкенд эти эндпоинты ему не отдаёт).
-  const TABS = user.role==="operator"
-    ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"]]
-    : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотрудники"]];
+  // Оператор видит те же разделы, что и менеджер — только без прав на
+  // изменение (см. readOnlyOp ниже): раздел есть, редактирования в нём нет,
+  // кроме сумм по должникам (POST /api/debts/settle) и WhatsApp — тем
+  // ничего на сервере не требуется вовсе.
+  const readOnlyOp = user.role==="operator";
+  const TABS = [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотрудники"]];
   const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",employees:"Сотрудники"};
 
   const dateRangeInputs = (
@@ -5445,7 +5450,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
           <div style={{...S.card,marginTop:10}}>
             <div style={{...S.row,marginBottom:10}}>
               <p style={{margin:0,fontSize:15,fontWeight:700,color:C.navy}}>Возвраты за период</p>
-              <button onClick={()=>setShowReturnModal(true)} style={{padding:"6px 12px",borderRadius:8,border:`1.5px solid #7C3AED`,background:C.white,color:"#7C3AED",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>↩️ Оформить возврат</button>
+              {!readOnlyOp&&<button onClick={()=>setShowReturnModal(true)} style={{padding:"6px 12px",borderRadius:8,border:`1.5px solid #7C3AED`,background:C.white,color:"#7C3AED",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>↩️ Оформить возврат</button>}
             </div>
             {returnsInfo.count===0
               ? <p style={{margin:0,fontSize:15,color:C.textSub}}>Возвратов и отказов не было.</p>
@@ -5649,15 +5654,15 @@ function AdminCabinet({ user, onLogout, desktop }) {
                       <p style={{margin:"0 0 6px",fontSize:13,color:s.payment_debt>0?C.textFaint:C.red}}>
                         {s.payment_debt>0 ? "Чек не пробит (продажа с долгом — пробить можно после погашения)" : "⚠️ Чек не пробит"}
                       </p>
-                      <button
+                      {!readOnlyOp&&<button
                         style={{...S.btnSecondary,padding:"6px 14px",fontSize:14,width:"auto",opacity:fiscalizingSaleId===s.id?0.6:1}}
                         disabled={fiscalizingSaleId===s.id}
                         onClick={()=>retryFiscal(s)}
-                      >{fiscalizingSaleId===s.id?"Пробиваю...":"🔁 Пробить чек"}</button>
+                      >{fiscalizingSaleId===s.id?"Пробиваю...":"🔁 Пробить чек"}</button>}
                       {fiscalErrorBySale[s.id]&&<p style={{margin:"6px 0 0",fontSize:13,color:C.red}}>{fiscalErrorBySale[s.id]}</p>}
                     </div>
                   )}
-                <button style={{...S.btnDanger,marginTop:10,padding:"8px",fontSize:14}} onClick={()=>voidSale(s)}>Отменить продажу</button>
+                {!readOnlyOp&&<button style={{...S.btnDanger,marginTop:10,padding:"8px",fontSize:14}} onClick={()=>voidSale(s)}>Отменить продажу</button>}
               </div>
           ))}
         </div>}
@@ -5729,6 +5734,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   key={p.code}
                   p={p}
                   locked={locked}
+                  readOnly={readOnlyOp}
                   saving={savingCode===p.code}
                   alias={getField(p,'alias')}
                   price1={getField(p,'price1')}
@@ -6109,7 +6115,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
                       return (
                       <div key={formKey} style={{...S.card,padding:10,marginBottom:6}}>
                         <div style={{fontSize:13,color:C.textFaint,marginBottom:2}}>Код 1С: {emp.code}</div>
-                        <div style={{fontSize:15,fontWeight:600,marginBottom:8,color:C.textMid}}>{emp.name}</div>
+                        <div style={{fontSize:15,fontWeight:600,marginBottom:readOnlyOp?0:8,color:C.textMid}}>{emp.name}</div>
+                        {!readOnlyOp&&<>
                         <select style={{...S.select,padding:"7px 8px",fontSize:14,marginBottom:6}} value={(empForm[formKey]||{}).role||''} onChange={e=>updateEmpForm(formKey,'role',e.target.value)}>
                           <option value="">— Роль —</option>
                           {ROLE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
@@ -6119,6 +6126,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                           <input style={{...S.input,padding:"7px 8px",fontSize:14}} placeholder="Пароль" value={(empForm[formKey]||{}).password||''} onChange={e=>updateEmpForm(formKey,'password',e.target.value)}/>
                           <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:14,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap",opacity:savingEmp===formKey?0.5:1}} disabled={savingEmp===formKey} onClick={()=>createEmpAccount(emp,formKey)}>Создать</button>
                         </div>
+                        </>}
                       </div>
                       );
                     })
@@ -6135,12 +6143,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
                           <p style={S.cardSub}>{u.login} · {ROLE_OPTIONS.find(([v])=>v===u.role)?.[1]||u.role}</p>
                           {u.session_active&&<p style={{...S.cardSub,color:C.green,fontWeight:600}}>● Сессия активна{u.last_seen_at?` (посл. активность ${new Date(u.last_seen_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})})`:''}</p>}
                         </div>
-                        <button
+                        {!readOnlyOp&&<button
                           style={{...S.btnSecondary,opacity:togglingUser===u.id?0.5:1}}
                           disabled={togglingUser===u.id}
                           onClick={()=>toggleUser(u)}
-                        >{u.active?"Отключить":"Включить"}</button>
+                        >{u.active?"Отключить":"Включить"}</button>}
                       </div>
+                      {!readOnlyOp&&<>
                       {u.session_active&&
                         <button
                           style={{...S.btnSecondary,marginTop:6,opacity:resettingSession===u.id?0.5:1}}
@@ -6176,6 +6185,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                           onClick={()=>changePassword(u)}
                         >{changingPwd===u.id?"...":"Сменить пароль"}</button>
                       </div>
+                      </>}
                     </div>
                   ))
               })}
@@ -6188,12 +6198,12 @@ function AdminCabinet({ user, onLogout, desktop }) {
                       return (
                       <div key={formKey} style={{...S.card,padding:10,marginBottom:6}}>
                         <div style={{fontSize:13,color:C.textFaint,marginBottom:2}}>Код 1С: {cl.code}</div>
-                        <div style={{fontSize:15,fontWeight:600,marginBottom:8,color:C.textMid}}>{cl.name}</div>
-                        <div style={{display:"flex",gap:6}}>
+                        <div style={{fontSize:15,fontWeight:600,marginBottom:readOnlyOp?0:8,color:C.textMid}}>{cl.name}</div>
+                        {!readOnlyOp&&<div style={{display:"flex",gap:6}}>
                           <input style={{...S.input,padding:"7px 8px",fontSize:14}} placeholder="Логин" value={(empForm[formKey]||{}).login||''} onChange={e=>updateEmpForm(formKey,'login',e.target.value)}/>
                           <input style={{...S.input,padding:"7px 8px",fontSize:14}} placeholder="Пароль" value={(empForm[formKey]||{}).password||''} onChange={e=>updateEmpForm(formKey,'password',e.target.value)}/>
                           <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:14,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap",opacity:savingEmp===formKey?0.5:1}} disabled={savingEmp===formKey} onClick={()=>createStoreAccount(cl,formKey)}>Создать</button>
-                        </div>
+                        </div>}
                       </div>
                       );
                     })
@@ -6211,7 +6221,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return (
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
         <AutofillDecoy/>
-        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={fixItemCost} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
         <aside style={S.side}>
@@ -6240,17 +6250,14 @@ function AdminCabinet({ user, onLogout, desktop }) {
   return (
     <div style={{paddingBottom:72}}>
       <AutofillDecoy/>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={fixItemCost} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
       <div style={S.page}>
         {content}
       </div>
       <div style={S.nav}>
-        {(user.role==="operator"
-          ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"]]
-          : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотр."]]
-        ).map(([k,ic,lb])=>(
+        {[["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотр."]].map(([k,ic,lb])=>(
           <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
           </button>

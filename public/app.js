@@ -3278,7 +3278,7 @@ function OrderDetail({
     onClick: () => {
       if (window.confirm('Отозвать заявку № ' + order.id + '? Действие нельзя отменить.')) onUpdateStatus(order.id, "revoked", null);
     }
-  }, "\uD83D\uDDD1 \u041E\u0442\u043E\u0437\u0432\u0430\u0442\u044C \u0437\u0430\u044F\u0432\u043A\u0443")), (currentUser.role === "admin" || currentUser.role === "manager" || currentUser.role === "operator") && order.status === "new" && /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDDD1 \u041E\u0442\u043E\u0437\u0432\u0430\u0442\u044C \u0437\u0430\u044F\u0432\u043A\u0443")), (currentUser.role === "admin" || currentUser.role === "manager") && order.status === "new" && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 20
     }
@@ -3317,7 +3317,7 @@ function OrderDetail({
       fontSize: 14,
       color: C.red
     }
-  }, "\u041D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0432\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439 \u0432 \u0441\u0438\u0441\u0442\u0435\u043C\u0435")), (currentUser.role === "admin" || currentUser.role === "manager" || currentUser.role === "operator") && order.status === "in_transit" && /*#__PURE__*/React.createElement("div", {
+  }, "\u041D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0432\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439 \u0432 \u0441\u0438\u0441\u0442\u0435\u043C\u0435")), (currentUser.role === "admin" || currentUser.role === "manager") && order.status === "in_transit" && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 20,
       display: "flex",
@@ -6368,7 +6368,8 @@ function DriverCabinet({
 // реально поменялось значение.
 const ProductAliasCard = memo(function ProductAliasCard({
   p,
-  locked,
+  locked: lockedProp,
+  readOnly,
   saving,
   alias,
   price1,
@@ -6382,6 +6383,10 @@ const ProductAliasCard = memo(function ProductAliasCard({
   onEditRequest,
   onSave
 }) {
+  // readOnly (роль operator — только просмотр) держит карточку заблокированной
+  // независимо от locked/editingCodes выше по стеку — кнопка "Редакт." для
+  // такой роли не рендерится вовсе, разлочить нечем.
+  const locked = lockedProp || readOnly;
   return /*#__PURE__*/React.createElement("div", {
     id: `product-card-${p.code}`,
     style: {
@@ -6615,7 +6620,7 @@ const ProductAliasCard = memo(function ProductAliasCard({
       color: locked ? C.textFaint : "#92400E",
       pointerEvents: "none"
     }
-  }, "\u20B8")), /*#__PURE__*/React.createElement("button", {
+  }, "\u20B8")), !readOnly && /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnPrimary,
       padding: "7px 14px",
@@ -10879,9 +10884,12 @@ function AdminCabinet({
     };
   }, [orders, sales, products, dateFrom, dateTo, debtSettlements, returnsList]);
   const FILTERS = [["all", "Все"], ["new", "Ожидает"], ["in_transit", "В работе"], ["delivered", "Доставлено"], ["cancelled", "Отказ"], ["returned", "Возврат"], ["revoked", "Отозвана"]];
-  // Оператор — урезанная версия менеджера: только заявки/отчёт/касса, без
-  // товаров/каталога/НКТ/сотрудников (и бэкенд эти эндпоинты ему не отдаёт).
-  const TABS = user.role === "operator" ? [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["employees", "👤", "Сотрудники"]];
+  // Оператор видит те же разделы, что и менеджер — только без прав на
+  // изменение (см. readOnlyOp ниже): раздел есть, редактирования в нём нет,
+  // кроме сумм по должникам (POST /api/debts/settle) и WhatsApp — тем
+  // ничего на сервере не требуется вовсе.
+  const readOnlyOp = user.role === "operator";
+  const TABS = [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["employees", "👤", "Сотрудники"]];
   const TAB_TITLES = {
     all: "Заявки",
     report: "Отчёт",
@@ -11408,7 +11416,7 @@ function AdminCabinet({
       fontWeight: 700,
       color: C.navy
     }
-  }, "\u0412\u043E\u0437\u0432\u0440\u0430\u0442\u044B \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434"), /*#__PURE__*/React.createElement("button", {
+  }, "\u0412\u043E\u0437\u0432\u0440\u0430\u0442\u044B \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434"), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowReturnModal(true),
     style: {
       padding: "6px 12px",
@@ -12008,7 +12016,7 @@ function AdminCabinet({
       fontSize: 13,
       color: s.payment_debt > 0 ? C.textFaint : C.red
     }
-  }, s.payment_debt > 0 ? "Чек не пробит (продажа с долгом — пробить можно после погашения)" : "⚠️ Чек не пробит"), /*#__PURE__*/React.createElement("button", {
+  }, s.payment_debt > 0 ? "Чек не пробит (продажа с долгом — пробить можно после погашения)" : "⚠️ Чек не пробит"), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnSecondary,
       padding: "6px 14px",
@@ -12024,7 +12032,7 @@ function AdminCabinet({
       fontSize: 13,
       color: C.red
     }
-  }, fiscalErrorBySale[s.id])), /*#__PURE__*/React.createElement("button", {
+  }, fiscalErrorBySale[s.id])), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnDanger,
       marginTop: 10,
@@ -12198,6 +12206,7 @@ function AdminCabinet({
         key: p.code,
         p: p,
         locked: locked,
+        readOnly: readOnlyOp,
         saving: savingCode === p.code,
         alias: getField(p, 'alias'),
         price1: getField(p, 'price1'),
@@ -13009,10 +13018,10 @@ function AdminCabinet({
           style: {
             fontSize: 15,
             fontWeight: 600,
-            marginBottom: 8,
+            marginBottom: readOnlyOp ? 0 : 8,
             color: C.textMid
           }
-        }, emp.name), /*#__PURE__*/React.createElement("select", {
+        }, emp.name), !readOnlyOp && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("select", {
           style: {
             ...S.select,
             padding: "7px 8px",
@@ -13062,7 +13071,7 @@ function AdminCabinet({
           },
           disabled: savingEmp === formKey,
           onClick: () => createEmpAccount(emp, formKey)
-        }, "\u0421\u043E\u0437\u0434\u0430\u0442\u044C")));
+        }, "\u0421\u043E\u0437\u0434\u0430\u0442\u044C"))));
       })
     }), renderEmpSection({
       id: "accounts",
@@ -13105,14 +13114,14 @@ function AdminCabinet({
       }, "\u25CF \u0421\u0435\u0441\u0441\u0438\u044F \u0430\u043A\u0442\u0438\u0432\u043D\u0430", u.last_seen_at ? ` (посл. активность ${new Date(u.last_seen_at).toLocaleTimeString('ru-RU', {
         hour: '2-digit',
         minute: '2-digit'
-      })})` : '')), /*#__PURE__*/React.createElement("button", {
+      })})` : '')), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
         style: {
           ...S.btnSecondary,
           opacity: togglingUser === u.id ? 0.5 : 1
         },
         disabled: togglingUser === u.id,
         onClick: () => toggleUser(u)
-      }, u.active ? "Отключить" : "Включить")), u.session_active && /*#__PURE__*/React.createElement("button", {
+      }, u.active ? "Отключить" : "Включить")), !readOnlyOp && /*#__PURE__*/React.createElement(React.Fragment, null, u.session_active && /*#__PURE__*/React.createElement("button", {
         style: {
           ...S.btnSecondary,
           marginTop: 6,
@@ -13186,7 +13195,7 @@ function AdminCabinet({
         },
         disabled: changingPwd === u.id || !(passwordEdits[u.id] || '').trim(),
         onClick: () => changePassword(u)
-      }, changingPwd === u.id ? "..." : "Сменить пароль"))))
+      }, changingPwd === u.id ? "..." : "Сменить пароль")))))
     }), renderEmpSection({
       id: "noStoreAccount",
       title: "Магазины без кабинета",
@@ -13218,10 +13227,10 @@ function AdminCabinet({
           style: {
             fontSize: 15,
             fontWeight: 600,
-            marginBottom: 8,
+            marginBottom: readOnlyOp ? 0 : 8,
             color: C.textMid
           }
-        }, cl.name), /*#__PURE__*/React.createElement("div", {
+        }, cl.name), !readOnlyOp && /*#__PURE__*/React.createElement("div", {
           style: {
             display: "flex",
             gap: 6
@@ -13285,7 +13294,7 @@ function AdminCabinet({
       onClose: () => setSelectedOrder(null),
       onUpdateStatus: handleUpdate,
       onDeleteOrder: handleDelete,
-      onFixItemCost: fixItemCost,
+      onFixItemCost: user.role !== "operator" ? fixItemCost : undefined,
       onFixItemWeight: user.role !== "operator" ? fixItemWeight : undefined,
       currentUser: user,
       drivers: users.filter(u => u.role === "driver" && u.active !== false)
@@ -13363,7 +13372,7 @@ function AdminCabinet({
     onClose: () => setSelectedOrder(null),
     onUpdateStatus: handleUpdate,
     onDeleteOrder: handleDelete,
-    onFixItemCost: fixItemCost,
+    onFixItemCost: user.role !== "operator" ? fixItemCost : undefined,
     onFixItemWeight: user.role !== "operator" ? fixItemWeight : undefined,
     currentUser: user,
     drivers: users.filter(u => u.role === "driver" && u.active !== false)
@@ -13383,7 +13392,7 @@ function AdminCabinet({
     style: S.page
   }, content), /*#__PURE__*/React.createElement("div", {
     style: S.nav
-  }, (user.role === "operator" ? [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["employees", "👤", "Сотр."]]).map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
+  }, [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["employees", "👤", "Сотр."]].map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
     key: k,
     style: S.navBtn(tab === k),
     onClick: () => setTab(k)
