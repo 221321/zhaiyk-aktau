@@ -5522,14 +5522,19 @@ function DriverCabinet({
   // назначили конкретному человеку (обычно так и оформляют выдачу с
   // самовывоза — по факту через того же водителя/сотрудника на кассе) и
   // статус стал in_transit, заявка должна вести себя как обычно и остаться
-  // видна в queueActive/myActive — иначе подтвердить её "Доставлено"
+  // видна в queueActive — иначе подтвердить её "Доставлено"
   // (единственный путь для этого — DriverPaymentBlock у назначенного
   // водителя, см. ниже) стало бы физически некому: у admin/manager в
   // OrderDetail для in_transit нет своей кнопки завершения.
-  const queueAll = orders.filter(o => o.status === "new" && o.source !== "store" && o.time_slot !== PICKUP_SLOT || o.status === "in_transit");
+  //
+  // "В работе" (in_transit) — заявка уже закреплена за конкретным водителем,
+  // поэтому в отличие от "Ожидает" (ещё ничья, видна всем) здесь каждый
+  // водитель должен видеть только свои: queueActive/queueAll фильтруют
+  // in_transit по driver_id===user.id.
   const queueNew = orders.filter(o => o.status === "new" && o.source !== "store" && o.time_slot !== PICKUP_SLOT);
-  const queueActive = orders.filter(o => o.status === "in_transit");
-  const myActive = orders.filter(o => o.status === "in_transit" && o.driver_id === user.id);
+  const queueActive = orders.filter(o => o.status === "in_transit" && o.driver_id === user.id);
+  const queueAll = [...queueNew, ...queueActive];
+  const myActive = queueActive;
   const myDoneAll = orders.filter(o => o.driver_id === user.id && o.date >= driverDateFrom && o.date <= driverDateTo && ["delivered", "cancelled", "returned"].includes(o.status));
   const myDelivered = myDoneAll.filter(o => o.status === "delivered");
   const myCancelled = myDoneAll.filter(o => o.status === "cancelled");
