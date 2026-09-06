@@ -3314,6 +3314,7 @@ function StockMovementsReport({ onClose }) {
   const [from, setFrom] = useState(todayStr);
   const [to, setTo] = useState(todayStr);
   const [search, setSearch] = useState('');
+  const [salesFilter, setSalesFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [rows, setRows] = useState([]);
@@ -3329,10 +3330,15 @@ function StockMovementsReport({ onClose }) {
   }, [from, to]);
   useEffect(() => { load(); }, [load]);
 
-  // Список водителей и статусов — из самих строк за период, а не фиксированный
-  // список: тогда в фильтре не будет пунктов, по которым всё равно пусто.
+  // Список торговых/водителей/статусов — из самих строк за период, а не
+  // фиксированный список: тогда в фильтре не будет пунктов, по которым всё
+  // равно пусто.
+  const salesOptions = useMemo(() => Array.from(new Set(rows.map(r=>r.sales_name).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'ru')), [rows]);
   const driverOptions = useMemo(() => Array.from(new Set(rows.map(r=>r.driver_name).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'ru')), [rows]);
   const statusOptions = useMemo(() => Array.from(new Set(rows.map(r=>r.status).filter(Boolean))), [rows]);
+  useEffect(() => {
+    if (salesFilter && !salesOptions.includes(salesFilter)) setSalesFilter('');
+  }, [salesOptions, salesFilter]);
   useEffect(() => {
     if (driverFilter && !driverOptions.includes(driverFilter)) setDriverFilter('');
   }, [driverOptions, driverFilter]);
@@ -3343,6 +3349,7 @@ function StockMovementsReport({ onClose }) {
   const q = search.trim().toLowerCase();
   const filtered = rows
     .filter(r => !q || (r.name||'').toLowerCase().includes(q) || (r.code||'').includes(q))
+    .filter(r => !salesFilter || r.sales_name===salesFilter)
     .filter(r => !driverFilter || r.driver_name===driverFilter)
     .filter(r => !statusFilter || r.status===statusFilter);
 
@@ -3391,6 +3398,13 @@ function StockMovementsReport({ onClose }) {
           <div style={{flex:1,minWidth:180}}>
             <label style={S.label}>Товар (название/код)</label>
             <input style={S.input} placeholder="Поиск..." value={search} onChange={e=>setSearch(e.target.value)}/>
+          </div>
+          <div>
+            <label style={S.label}>Торговый</label>
+            <select style={{...S.select,width:"auto",minWidth:180}} value={salesFilter} onChange={e=>setSalesFilter(e.target.value)}>
+              <option value="">Все торговые</option>
+              {salesOptions.map(name=><option key={name} value={name}>{name}</option>)}
+            </select>
           </div>
           <div>
             <label style={S.label}>Водитель</label>
