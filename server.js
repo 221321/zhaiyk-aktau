@@ -81,6 +81,11 @@ console.log('✅ База данных готова');
 // просто закрыл вкладку, не выйдя явно (POST /api/logout освобождает место
 // сразу), место освобождается само после этого времени простоя.
 const SESSION_IDLE_MS = 15 * 60 * 1000;
+// Служебные (не человеческие) логины 1С-интеграции: она логинится заново при
+// каждом запуске (кнопка/расписание) и никогда не вызывает /api/logout, так что
+// защита «одна сессия на аккаунт» ошибочно считала бы это входом с другого
+// устройства и блокировала бы собственные повторные запуски интеграции.
+const SESSION_LOCK_EXEMPT_LOGINS = ['1c_sync'];
 // Не пишем last_seen_at на КАЖДЫЙ запрос (lowdb FileSync — это полная
 // синхронная перезапись db.json на каждый .write(), при активном
 // использовании это была бы отдельная запись всего файла на каждый клик) —
@@ -199,7 +204,7 @@ app.post('/api/login', (req, res) => {
   // дольше SESSION_IDLE_MS — отказываем; иначе (владелец либо явно вышел через
   // POST /api/logout, либо просто ~15 минут не открывал приложение) считаем
   // место свободным и перехватываем его этим входом.
-  if (user.session_sid && user.last_seen_at && (Date.now() - new Date(user.last_seen_at).getTime()) < SESSION_IDLE_MS) {
+  if (!SESSION_LOCK_EXEMPT_LOGINS.includes(user.login) && user.session_sid && user.last_seen_at && (Date.now() - new Date(user.last_seen_at).getTime()) < SESSION_IDLE_MS) {
     return res.status(409).json({ error: 'Уже выполнен вход в этот аккаунт на другом устройстве. Попробуйте через несколько минут или попросите выйти там.' });
   }
   const sid = crypto.randomUUID();
