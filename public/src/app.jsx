@@ -1718,7 +1718,7 @@ function SalesCabinet({ user, token, onLogout }) {
   const selectProduct = (uid,prod) => {
     if (stockIsOut(prod)) return;
     updateLine(uid,{
-      productId:prod.id,code:prod.code,name:prod.name,
+      productId:prod.id,code:prod.code,name:prod.name,unit:prod.unit,
       price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",
       search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock,
       stockWeightKg:prod.stock_weight_kg,
@@ -1978,17 +1978,16 @@ function SalesCabinet({ user, token, onLogout }) {
               {selectedClientDebt>0&&<div style={{marginTop:8,padding:"10px 12px",background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:8,fontSize:14,color:C.red,fontWeight:600}}>⚠️ У контрагента непогашенный долг более 7 дней: {selectedClientDebt.toLocaleString()} ₸</div>}
             </div>
             <div style={S.formGroup}>
-              <label style={S.label}>Контактное лицо</label>
-              <div style={{display:"flex",gap:6,marginBottom:8}}>
-                <input style={{...S.input,flex:1}} placeholder="Имя" value={contactName} onChange={e=>setContactName(e.target.value)}/>
+              <label style={S.label}>Телефон контактного лица</label>
+              <div style={{display:"flex",gap:6}}>
+                <div style={{position:"relative",flex:1}}>
+                  <input style={{...S.input,paddingRight:contactPhone?38:14}} placeholder="Телефон" value={contactPhone} onChange={e=>setContactPhone(e.target.value)}/>
+                  {contactPhone&&(
+                    <button type="button" onClick={()=>setContactPhone("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:20,color:C.textFaint,padding:4,lineHeight:1}}>×</button>
+                  )}
+                </div>
                 {CONTACT_PICKER_SUPPORTED&&(
                   <button type="button" title="Выбрать из контактов" onClick={()=>pickPhoneContact(({name,tel})=>{if(name)setContactName(name);if(tel)setContactPhone(tel);})} style={{flexShrink:0,width:48,border:`1.5px solid ${C.border}`,borderRadius:10,background:C.white,fontSize:19,cursor:"pointer"}}>📇</button>
-                )}
-              </div>
-              <div style={{position:"relative"}}>
-                <input style={{...S.input,paddingRight:contactPhone?38:14}} placeholder="Телефон" value={contactPhone} onChange={e=>setContactPhone(e.target.value)}/>
-                {contactPhone&&(
-                  <button type="button" onClick={()=>setContactPhone("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:20,color:C.textFaint,padding:4,lineHeight:1}}>×</button>
                 )}
               </div>
             </div>
@@ -2061,7 +2060,7 @@ function SalesCabinet({ user, token, onLogout }) {
                   </div>
                   {line.pricedByWeight
                     ? (line.stockWeightKg!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {formatWeightStock(line.stockWeightKg,line.avgBoxWeight)}</div>)
-                    : (line.stock!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stock}</div>)}
+                    : (line.stock!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stock} {line.unit}</div>)}
                   {line.pricedByWeight&&(
                     <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>
                       <span style={{fontSize:13,color:C.textSub,whiteSpace:"nowrap"}}>⚖️ Вес короба, кг (примерно)</span>
