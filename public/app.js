@@ -872,7 +872,13 @@ function OrderCard({
       ...S.cardSub,
       marginTop: 2
     }
-  }, "\uD83D\uDC64 ", order.sales_name)), /*#__PURE__*/React.createElement(StatusBadge, {
+  }, "\uD83D\uDC64 ", order.sales_name), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...S.cardSub,
+      marginTop: 2,
+      color: C.textFaint
+    }
+  }, "\u0421\u043E\u0437\u0434\u0430\u043D\u0430 ", fmtDT(order.created_at) || order.date, order.driver_name && order.in_transit_at ? ` · в работе с ${fmtDT(order.in_transit_at)}` : '')), /*#__PURE__*/React.createElement(StatusBadge, {
     status: order.status
   })), /*#__PURE__*/React.createElement("p", {
     style: {
@@ -1418,6 +1424,21 @@ function DriverPaymentBlock({
     disabled: statusBusy,
     onClick: () => changeStatus("returned", null, `Оформить возврат по заявке № ${order.id}? Действие нельзя отменить.`)
   }, "\u21A9\uFE0F \u041E\u0444\u043E\u0440\u043C\u0438\u0442\u044C \u0432\u043E\u0437\u0432\u0440\u0430\u0442"));
+}
+
+// Компактный формат даты+времени для created_at/in_transit_at (ISO-строка) —
+// "06.09 14:32", без года (эти метки нужны для операционной сверки в
+// пределах текущего сезона, не как архивная дата).
+function fmtDT(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 function daysWord(n) {
   const mod100 = n % 100;
@@ -2754,7 +2775,7 @@ function OrderDetail({
     onClick: () => confirmPrintIfPending(() => shareWaybillPdf(order))
   }, "\uD83D\uDCF2 \u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C PDF")), /*#__PURE__*/React.createElement("hr", {
     style: S.divider
-  }), [["Клиент", order.client_name || order.clientName], ["Адрес", order.address], ["Торговый", order.sales_name || order.salesName], ["Дата", order.date], ["Доставка", order.time_slot || order.timeSlot], ...(order.driver_name ? [["Водитель", order.driver_name]] : []), ...(order.contact_name ? [["Контакт", order.contact_name]] : []), ...(order.contact_phone ? [["Телефон", order.contact_phone]] : []), ...(order.comment ? [["Комментарий", order.comment]] : [])].map(([k, v]) => /*#__PURE__*/React.createElement("div", {
+  }), [["Клиент", order.client_name || order.clientName], ["Адрес", order.address], ["Торговый", order.sales_name || order.salesName], ["Дата", order.date], ["Доставка", order.time_slot || order.timeSlot], ...(order.created_at ? [["Создана", fmtDT(order.created_at)]] : []), ...(order.driver_name ? [["Водитель", order.driver_name]] : []), ...(order.driver_name && order.in_transit_at ? [["В работе с", fmtDT(order.in_transit_at)]] : []), ...(order.contact_name ? [["Контакт", order.contact_name]] : []), ...(order.contact_phone ? [["Телефон", order.contact_phone]] : []), ...(order.comment ? [["Комментарий", order.comment]] : [])].map(([k, v]) => /*#__PURE__*/React.createElement("div", {
     key: k,
     style: {
       ...S.row,
@@ -5741,7 +5762,13 @@ function DriverCabinet({
       ...S.cardSub,
       marginTop: 2
     }
-  }, "\uD83D\uDD50 ", o.time_slot, " \xB7 ", o.sales_name)), /*#__PURE__*/React.createElement(StatusBadge, {
+  }, "\uD83D\uDD50 ", o.time_slot, " \xB7 ", o.sales_name), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...S.cardSub,
+      marginTop: 2,
+      color: C.textFaint
+    }
+  }, "\u0421\u043E\u0437\u0434\u0430\u043D\u0430 ", fmtDT(o.created_at) || o.date, o.in_transit_at ? ` · в работе с ${fmtDT(o.in_transit_at)}` : '')), /*#__PURE__*/React.createElement(StatusBadge, {
     status: o.status
   })), /*#__PURE__*/React.createElement("p", {
     style: {
@@ -10780,7 +10807,13 @@ function AdminCabinet({
         fontSize: 14,
         color: C.textSub
       }
-    }, o.address, o.time_slot ? ' · ' + o.time_slot : '')), /*#__PURE__*/React.createElement("td", {
+    }, o.address, o.time_slot ? ' · ' + o.time_slot : ''), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: C.textFaint,
+        marginTop: 2
+      }
+    }, "\u0421\u043E\u0437\u0434\u0430\u043D\u0430 ", fmtDT(o.created_at) || o.date)), /*#__PURE__*/React.createElement("td", {
       style: S.td
     }, o.sales_name), /*#__PURE__*/React.createElement("td", {
       style: S.td
@@ -10795,7 +10828,13 @@ function AdminCabinet({
       style: {
         marginLeft: 6
       }
-    }, "\uD83D\uDCF7")), /*#__PURE__*/React.createElement("td", {
+    }, "\uD83D\uDCF7"), o.driver_name && o.in_transit_at && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: C.textFaint,
+        marginTop: 2
+      }
+    }, "\u0432 \u0440\u0430\u0431\u043E\u0442\u0435 \u0441 ", fmtDT(o.in_transit_at))), /*#__PURE__*/React.createElement("td", {
       style: {
         ...S.td,
         fontFamily: FH,
