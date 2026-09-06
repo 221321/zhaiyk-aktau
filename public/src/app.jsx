@@ -568,9 +568,15 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
             </div>
           )}
           <input type="file" accept="image/*" capture="environment" id={`qrPhotoInput_${order.id}`} style={{display:"none"}} onChange={onQrPhotoSelected}/>
-          <button type="button" disabled={qrPhotoUploading} onClick={()=>document.getElementById(`qrPhotoInput_${order.id}`).click()} style={{...S.btnOutline,opacity:qrPhotoUploading?0.5:1,cursor:qrPhotoUploading?"not-allowed":"pointer"}}>
-            {qrPhotoUploading?"Загрузка...":(qrPhotoUrl?"📲 Переснять фото":"📲 Сфотографировать чек")}
-          </button>
+          <input type="file" accept="image/*" id={`qrPhotoGalleryInput_${order.id}`} style={{display:"none"}} onChange={onQrPhotoSelected}/>
+          <div style={{display:"flex",gap:8}}>
+            <button type="button" disabled={qrPhotoUploading} onClick={()=>document.getElementById(`qrPhotoInput_${order.id}`).click()} style={{...S.btnOutline,flex:1,opacity:qrPhotoUploading?0.5:1,cursor:qrPhotoUploading?"not-allowed":"pointer"}}>
+              {qrPhotoUploading?"Загрузка...":(qrPhotoUrl?"📲 Переснять фото":"📲 Сфотографировать чек")}
+            </button>
+            <button type="button" disabled={qrPhotoUploading} onClick={()=>document.getElementById(`qrPhotoGalleryInput_${order.id}`).click()} style={{...S.btnOutline,flex:1,opacity:qrPhotoUploading?0.5:1,cursor:qrPhotoUploading?"not-allowed":"pointer"}}>
+              🖼️ Из галереи
+            </button>
+          </div>
           {qrPhotoError&&<p style={{margin:"6px 0 0",fontSize:14,color:C.red}}>{qrPhotoError}</p>}
         </div>
       )}

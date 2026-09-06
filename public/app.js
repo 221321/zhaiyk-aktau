@@ -1432,16 +1432,40 @@ function DriverPaymentBlock({
       display: "none"
     },
     onChange: onQrPhotoSelected
-  }), /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "image/*",
+    id: `qrPhotoGalleryInput_${order.id}`,
+    style: {
+      display: "none"
+    },
+    onChange: onQrPhotoSelected
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
     type: "button",
     disabled: qrPhotoUploading,
     onClick: () => document.getElementById(`qrPhotoInput_${order.id}`).click(),
     style: {
       ...S.btnOutline,
+      flex: 1,
       opacity: qrPhotoUploading ? 0.5 : 1,
       cursor: qrPhotoUploading ? "not-allowed" : "pointer"
     }
-  }, qrPhotoUploading ? "Загрузка..." : qrPhotoUrl ? "📲 Переснять фото" : "📲 Сфотографировать чек"), qrPhotoError && /*#__PURE__*/React.createElement("p", {
+  }, qrPhotoUploading ? "Загрузка..." : qrPhotoUrl ? "📲 Переснять фото" : "📲 Сфотографировать чек"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    disabled: qrPhotoUploading,
+    onClick: () => document.getElementById(`qrPhotoGalleryInput_${order.id}`).click(),
+    style: {
+      ...S.btnOutline,
+      flex: 1,
+      opacity: qrPhotoUploading ? 0.5 : 1,
+      cursor: qrPhotoUploading ? "not-allowed" : "pointer"
+    }
+  }, "\uD83D\uDDBC\uFE0F \u0418\u0437 \u0433\u0430\u043B\u0435\u0440\u0435\u0438")), qrPhotoError && /*#__PURE__*/React.createElement("p", {
     style: {
       margin: "6px 0 0",
       fontSize: 14,
