@@ -9272,6 +9272,661 @@ function PosSaleModal({
   }, submitting ? "Оформление..." : "✅ Оформить продажу"))));
 }
 
+// Создание заявки менеджером/админом — та же форма, что у торгового
+// (SalesCabinet, tab==="new"), но модалкой поверх "Заявок" (по аналогии с
+// PosSaleModal выше), т.к. у менеджера в кабинете нет отдельного экрана
+// под заявку. products/clients приходят как есть из /api/products и
+// /api/clients (см. AdminCabinet) — сама раскладка карточки товара под
+// форму (priceOptions/pricedByWeight и т.п.) повторяет loadProducts из
+// SalesCabinet, чтобы работали те же built. Заявка после создания
+// получает sales_id/sales_name текущего пользователя (см. POST
+// /api/orders на сервере) — заявка от менеджера так и подписывается его
+// именем, это нормально: менеджеру и так доступны все заявки целиком.
+function NewOrderModal({
+  products,
+  clients,
+  onClose,
+  onCreated
+}) {
+  const mappedProducts = useMemo(() => products.filter(p => p.has_alias).map((p, i) => ({
+    id: i + 1,
+    name: p.display_name || p.name,
+    price: p.price || 0,
+    priceOptions: [p.price1, p.price2, p.price3].filter(v => v !== null && v !== undefined),
+    commission: p.commission || 0,
+    unit: p.unit || 'кг',
+    group: p.group || '',
+    code: p.code,
+    stock: p.stock,
+    pricedByWeight: !!p.priced_by_weight,
+    avgWeightPerBox: p.avg_box_weight != null ? p.avg_box_weight : p.stock_weight_kg != null && p.stock > 0 ? p.stock_weight_kg / p.stock : null,
+    priced_by_weight: !!p.priced_by_weight,
+    stock_weight_kg: p.stock_weight_kg != null ? p.stock_weight_kg : null,
+    avg_box_weight: p.avg_box_weight != null ? p.avg_box_weight : null
+  })), [products]);
+  const [clientId, setClientId] = useState("");
+  const [clientSearchText, setClientSearchText] = useState("");
+  const [showClientDrop, setShowClientDrop] = useState(false);
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [timeSlot, setTimeSlot] = useState("");
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const newLine = () => ({
+    uid: Math.random(),
+    productId: null,
+    name: "",
+    qty: "",
+    price: "",
+    search: "",
+    showDrop: false,
+    pricedByWeight: false,
+    weightPerBox: ""
+  });
+  const [lines, setLines] = useState([newLine()]);
+  const [debts, setDebts] = useState([]);
+  useEffect(() => {
+    apiCall('GET', '/api/debts').then(setDebts).catch(() => {});
+  }, []);
+  const selectedClientDebt = clientId ? debts.filter(d => d.client_name === clients.find(c => c.code === clientId)?.name && d.overdue).reduce((s, d) => s + d.remaining, 0) : 0;
+  const updateLine = (uid, patch) => setLines(ls => ls.map(l => l.uid === uid ? {
+    ...l,
+    ...patch
+  } : l));
+  const removeLine = uid => setLines(ls => ls.length > 1 ? ls.filter(l => l.uid !== uid) : ls);
+  const addLine = () => setLines(ls => [...ls, newLine()]);
+  const selectProduct = (uid, prod) => {
+    if (stockIsOut(prod)) return;
+    updateLine(uid, {
+      productId: prod.id,
+      code: prod.code,
+      name: prod.name,
+      unit: prod.unit,
+      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : "",
+      search: prod.name,
+      showDrop: false,
+      qty: "",
+      priceOptions: prod.priceOptions || [],
+      commission: prod.commission || 0,
+      stock: prod.stock,
+      stockWeightKg: prod.stock_weight_kg,
+      avgBoxWeight: prod.avg_box_weight,
+      pricedByWeight: !!prod.pricedByWeight,
+      weightPerBox: prod.avgWeightPerBox != null ? String(Math.round(prod.avgWeightPerBox * 100) / 100) : ""
+    });
+  };
+  const estWeightOf = l => l.pricedByWeight ? (Number(l.qty) || 0) * (Number(l.weightPerBox) || 0) : Number(l.qty) || 0;
+  const filledLines = lines.filter(l => l.name && l.productId && Number(l.qty) > 0 && Number(l.price) > 0 && (!l.pricedByWeight || Number(l.weightPerBox) > 0));
+  const total = filledLines.reduce((s, l) => s + estWeightOf(l) * Number(l.price), 0);
+  const handleSubmit = async () => {
+    if (submitting) return;
+    if (!clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim()) return;
+    const client = clients.find(c => c.code === clientId);
+    const items = filledLines.map(l => l.pricedByWeight ? {
+      id: l.productId,
+      code: l.code,
+      name: l.name,
+      qty: estWeightOf(l),
+      boxes: Number(l.qty),
+      price: Number(l.price),
+      commission: l.commission || 0
+    } : {
+      id: l.productId,
+      code: l.code,
+      name: l.name,
+      qty: Number(l.qty),
+      price: Number(l.price),
+      commission: l.commission || 0
+    });
+    setSubmitting(true);
+    try {
+      await apiCall('POST', '/api/orders', {
+        clientName: client.name,
+        clientCode: client.code,
+        address: client.address || '',
+        timeSlot,
+        items,
+        total,
+        paymentCash: 0,
+        paymentQr: 0,
+        paymentDebt: 0,
+        comment,
+        contactName,
+        contactPhone
+      });
+      onCreated();
+    } catch (e) {
+      alert(e.message);
+    }
+    setSubmitting(false);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(28,25,23,0.45)",
+      zIndex: 200,
+      overflowY: "auto"
+    },
+    onClick: e => {
+      if (e.target === e.currentTarget) onClose();
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.surface,
+      margin: "16px auto",
+      borderRadius: 16,
+      padding: 20,
+      maxWidth: 560,
+      minHeight: "calc(100vh - 32px)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.row,
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 20,
+      fontWeight: 800,
+      fontFamily: FH,
+      color: C.navy
+    }
+  }, "\uD83D\uDCDD \u041D\u043E\u0432\u0430\u044F \u0437\u0430\u044F\u0432\u043A\u0430"), /*#__PURE__*/React.createElement("button", {
+    style: S.btnSecondary,
+    onClick: onClose
+  }, "\u2715 \u0417\u0430\u043A\u0440\u044B\u0442\u044C")), /*#__PURE__*/React.createElement("div", {
+    style: S.card
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442 ", clients.length > 0 && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.green,
+      fontWeight: 400,
+      fontSize: 13
+    }
+  }, "(", clients.length, " \u0438\u0437 1\u0421)")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      paddingRight: clientSearchText ? 38 : 14
+    },
+    placeholder: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435...",
+    value: clientSearchText,
+    onChange: e => {
+      setClientSearchText(e.target.value);
+      setClientId("");
+      setShowClientDrop(true);
+    },
+    onFocus: () => setShowClientDrop(true),
+    onBlur: () => setTimeout(() => setShowClientDrop(false), 180)
+  }), clientSearchText && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onMouseDown: e => e.preventDefault(),
+    onClick: () => {
+      setClientSearchText("");
+      setClientId("");
+      setContactName("");
+      setContactPhone("");
+    },
+    style: {
+      position: "absolute",
+      right: 10,
+      top: "50%",
+      transform: "translateY(-50%)",
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      fontSize: 20,
+      color: C.textFaint,
+      padding: 4,
+      lineHeight: 1
+    }
+  }, "\xD7"), showClientDrop && (() => {
+    const matched = clientSearchText.length > 0 ? clients.filter(c => c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients.slice(0, 50);
+    return matched.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        right: 0,
+        background: C.white,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+        zIndex: 50,
+        maxHeight: 220,
+        overflowY: "auto"
+      }
+    }, matched.map(c => /*#__PURE__*/React.createElement("div", {
+      key: c.code,
+      onMouseDown: () => {
+        setClientId(c.code);
+        setClientSearchText(c.name);
+        setShowClientDrop(false);
+        setContactName(c.contact_name || '');
+        setContactPhone(c.contact_phone || '');
+      },
+      style: {
+        padding: "9px 12px",
+        cursor: "pointer",
+        borderBottom: `1px solid ${C.border}`,
+        fontSize: 15
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 600
+      }
+    }, c.name), c.address && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: C.textFaint
+      }
+    }, "\uD83D\uDCCD ", c.address))));
+  })()), clientId && clients.find(c => c.code === clientId)?.address && /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "6px 0 0",
+      fontSize: 14,
+      color: C.textSub
+    }
+  }, "\uD83D\uDCCD ", clients.find(c => c.code === clientId)?.address), selectedClientDebt > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      padding: "10px 12px",
+      background: "#FEF2F2",
+      border: "1px solid #FECACA",
+      borderRadius: 8,
+      fontSize: 14,
+      color: C.red,
+      fontWeight: 600
+    }
+  }, "\u26A0\uFE0F \u0423 \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u0430 \u043D\u0435\u043F\u043E\u0433\u0430\u0448\u0435\u043D\u043D\u044B\u0439 \u0434\u043E\u043B\u0433 \u0431\u043E\u043B\u0435\u0435 7 \u0434\u043D\u0435\u0439: ", selectedClientDebt.toLocaleString(), " \u20B8")), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0422\u0435\u043B\u0435\u0444\u043E\u043D \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u043D\u043E\u0433\u043E \u043B\u0438\u0446\u0430"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative",
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      paddingRight: contactPhone ? 38 : 14
+    },
+    placeholder: "\u0422\u0435\u043B\u0435\u0444\u043E\u043D",
+    value: contactPhone,
+    onChange: e => setContactPhone(e.target.value)
+  }), contactPhone && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setContactPhone(""),
+    style: {
+      position: "absolute",
+      right: 10,
+      top: "50%",
+      transform: "translateY(-50%)",
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      fontSize: 20,
+      color: C.textFaint,
+      padding: 4,
+      lineHeight: 1
+    }
+  }, "\xD7")), CONTACT_PICKER_SUPPORTED && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    title: "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u043E\u0432",
+    onClick: () => pickPhoneContact(({
+      name,
+      tel
+    }) => {
+      if (name) setContactName(name);
+      if (tel) setContactPhone(tel);
+    }),
+    style: {
+      flexShrink: 0,
+      width: 48,
+      border: `1.5px solid ${C.border}`,
+      borderRadius: 10,
+      background: C.white,
+      fontSize: 19,
+      cursor: "pointer"
+    }
+  }, "\uD83D\uDCC7"))), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0412\u0440\u0435\u043C\u044F \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0438"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, [...TIME_SLOTS, PICKUP_SLOT].map(slot => /*#__PURE__*/React.createElement("button", {
+    key: slot,
+    onClick: () => setTimeSlot(slot),
+    style: {
+      padding: "12px",
+      borderRadius: 10,
+      border: `1.5px solid ${timeSlot === slot ? C.navy : C.border}`,
+      background: timeSlot === slot ? C.navy : C.white,
+      color: timeSlot === slot ? C.white : C.textMid,
+      fontSize: 16,
+      fontWeight: 500,
+      cursor: "pointer",
+      textAlign: "left"
+    }
+  }, slot))))), /*#__PURE__*/React.createElement("div", {
+    style: S.card
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.row,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u041D\u043E\u043C\u0435\u043D\u043A\u043B\u0430\u0442\u0443\u0440\u0430 ", mappedProducts.length > 0 && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.green,
+      fontWeight: 400,
+      fontSize: 13
+    }
+  }, "(", mappedProducts.length, " \u043F\u043E\u0437. \u0438\u0437 1\u0421)")), /*#__PURE__*/React.createElement("button", {
+    onClick: addLine,
+    style: {
+      background: C.navy,
+      color: C.white,
+      border: "none",
+      borderRadius: 8,
+      padding: "4px 12px",
+      fontSize: 14,
+      fontWeight: 600,
+      cursor: "pointer"
+    }
+  }, "+ \u0422\u043E\u0432\u0430\u0440")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 64px 80px 28px",
+      gap: 6,
+      marginBottom: 6
+    }
+  }, ["Наименование", "Кол-во", "Цена ₸", ""].map((h, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      fontSize: 12,
+      fontWeight: 600,
+      color: C.textFaint,
+      textTransform: "uppercase"
+    }
+  }, h))), lines.map(line => {
+    const inStock = mappedProducts.filter(p => !stockIsOut(p));
+    const matched = line.search.length > 0 ? inStock.filter(p => p.name.toLowerCase().includes(line.search.toLowerCase())) : inStock.slice(0, 50);
+    const lineWeight = estWeightOf(line);
+    const lineTotal = lineWeight > 0 && Number(line.price) > 0 ? lineWeight * Number(line.price) : null;
+    return /*#__PURE__*/React.createElement("div", {
+      key: line.uid,
+      style: {
+        marginBottom: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 64px 80px 28px",
+        gap: 6,
+        alignItems: "center"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "relative"
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      style: {
+        ...S.input,
+        padding: "8px 10px",
+        fontSize: 15,
+        ...(line.name && !line.productId ? {
+          borderColor: C.red
+        } : {})
+      },
+      placeholder: "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0442\u043E\u0432\u0430\u0440...",
+      value: line.search,
+      onChange: e => updateLine(line.uid, {
+        search: e.target.value,
+        name: e.target.value,
+        productId: null,
+        price: "",
+        showDrop: true
+      }),
+      onFocus: () => updateLine(line.uid, {
+        showDrop: true
+      }),
+      onBlur: () => setTimeout(() => updateLine(line.uid, {
+        showDrop: false
+      }), 180)
+    }), line.name && !line.productId && !line.showDrop && /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "4px 0 0",
+        fontSize: 12,
+        color: C.red
+      }
+    }, "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u043E\u0432\u0430\u0440 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430 \u2014 \u0432\u043F\u0438\u0441\u0430\u0442\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E \u043D\u0435\u043B\u044C\u0437\u044F"), line.showDrop && matched.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        right: 0,
+        background: C.white,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+        zIndex: 50,
+        maxHeight: 180,
+        overflowY: "auto"
+      }
+    }, matched.map(p => {
+      const outOfStock = stockIsOut(p);
+      const stockLbl = stockLabel(p);
+      return /*#__PURE__*/React.createElement("div", {
+        key: p.id,
+        onMouseDown: () => selectProduct(line.uid, p),
+        style: {
+          padding: "9px 12px",
+          cursor: outOfStock ? "not-allowed" : "pointer",
+          borderBottom: `1px solid ${C.border}`,
+          fontSize: 15,
+          opacity: outOfStock ? 0.5 : 1,
+          background: outOfStock ? C.surface : C.white
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontWeight: 600
+        }
+      }, p.name), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 13,
+          color: outOfStock ? C.red : C.textFaint
+        }
+      }, p.price > 0 ? p.price.toLocaleString() + ' ₸ / ' : '', p.unit, p.group ? ' · ' + p.group : '', stockLbl != null ? outOfStock ? ' · Нет в наличии' : ' · Остаток: ' + stockLbl : ''));
+    }))), /*#__PURE__*/React.createElement("input", {
+      style: {
+        ...S.input,
+        padding: "8px 6px",
+        fontSize: 15,
+        textAlign: "center"
+      },
+      placeholder: line.pricedByWeight ? "кор" : "кол",
+      value: line.qty,
+      type: "number",
+      min: "1",
+      max: !line.pricedByWeight && line.stock != null ? line.stock : undefined,
+      onChange: e => {
+        let v = e.target.value;
+        if (!line.pricedByWeight && line.stock != null && Number(v) > line.stock) v = String(line.stock);
+        updateLine(line.uid, {
+          qty: v
+        });
+      },
+      onFocus: e => e.target.select()
+    }), /*#__PURE__*/React.createElement("input", {
+      style: {
+        ...S.input,
+        padding: "8px 6px",
+        fontSize: 15,
+        textAlign: "right",
+        background: line.priceOptions && line.priceOptions.length > 0 ? C.surface : C.white,
+        color: line.priceOptions && line.priceOptions.length > 0 ? C.textSub : C.text
+      },
+      placeholder: "\u0446\u0435\u043D\u0430",
+      value: line.price,
+      type: "number",
+      disabled: line.priceOptions && line.priceOptions.length > 0,
+      onChange: e => updateLine(line.uid, {
+        price: e.target.value
+      }),
+      onFocus: e => e.target.select()
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: () => removeLine(line.uid),
+      style: {
+        width: 28,
+        height: 34,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        background: C.surface,
+        cursor: "pointer",
+        fontSize: 16,
+        color: C.textFaint
+      }
+    }, "\xD7")), line.pricedByWeight ? line.stockWeightKg != null && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: C.textFaint,
+        marginTop: 2
+      }
+    }, "\u041D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435: ", formatWeightStock(line.stockWeightKg, line.avgBoxWeight)) : line.stock != null && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: C.textFaint,
+        marginTop: 2
+      }
+    }, "\u041D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435: ", line.stock, " ", line.unit), line.pricedByWeight && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginTop: 6
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        color: C.textSub,
+        whiteSpace: "nowrap"
+      }
+    }, "\u2696\uFE0F \u0412\u0435\u0441 \u043A\u043E\u0440\u043E\u0431\u0430, \u043A\u0433 (\u043F\u0440\u0438\u043C\u0435\u0440\u043D\u043E)"), /*#__PURE__*/React.createElement("input", {
+      style: {
+        ...S.input,
+        width: 80,
+        padding: "6px 8px",
+        fontSize: 14,
+        textAlign: "center"
+      },
+      placeholder: "\u043A\u0433",
+      value: line.weightPerBox,
+      type: "number",
+      onChange: e => updateLine(line.uid, {
+        weightPerBox: e.target.value
+      }),
+      onFocus: e => e.target.select()
+    }), lineWeight > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        color: C.textFaint
+      }
+    }, "\u2248 ", lineWeight.toLocaleString(), " \u043A\u0433")), lineTotal && /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "right",
+        fontSize: 13,
+        color: C.textSub,
+        marginTop: 2,
+        paddingRight: 34
+      }
+    }, "= ", /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: C.navy
+      }
+    }, lineTotal.toLocaleString(), " \u20B8")), line.priceOptions && line.priceOptions.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 6,
+        marginTop: 6,
+        flexWrap: "wrap"
+      }
+    }, line.priceOptions.map((pr, i) => /*#__PURE__*/React.createElement("button", {
+      key: i,
+      onClick: () => updateLine(line.uid, {
+        price: pr
+      }),
+      style: {
+        padding: "5px 12px",
+        borderRadius: 8,
+        border: `1px solid ${Number(line.price) === pr ? C.navy : C.border}`,
+        background: Number(line.price) === pr ? C.navy : C.white,
+        color: Number(line.price) === pr ? C.white : C.textMid,
+        fontSize: 14,
+        fontWeight: 600,
+        cursor: "pointer"
+      }
+    }, pr.toLocaleString(), " \u20B8"))));
+  }), filledLines.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("hr", {
+    style: {
+      ...S.divider,
+      marginTop: 8
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: S.row
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 15,
+      color: C.textSub
+    }
+  }, "\u0418\u0442\u043E\u0433\u043E"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 19,
+      fontWeight: 800,
+      fontFamily: FH,
+      color: C.navy
+    }
+  }, total.toLocaleString(), " \u20B8")))), /*#__PURE__*/React.createElement("div", {
+    style: S.card
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u041A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0439"), /*#__PURE__*/React.createElement("textarea", {
+    style: S.textarea,
+    value: comment,
+    onChange: e => setComment(e.target.value),
+    placeholder: "\u041E\u0441\u043E\u0431\u044B\u0435 \u043F\u043E\u0436\u0435\u043B\u0430\u043D\u0438\u044F..."
+  })), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnPrimary,
+      opacity: submitting || !clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim() ? 0.45 : 1
+    },
+    onClick: handleSubmit,
+    disabled: submitting || !clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim()
+  }, submitting ? "Отправка..." : "Отправить заявку"))));
+}
+
 // Считает выручку/себестоимость/прибыль по списку заявок или продаж (у
 // обеих items — либо массив, либо JSON-строка). cost — снимок закупочной
 // цены на момент продажи (см. getCostMap на сервере), а не текущая цена
@@ -10919,6 +11574,7 @@ function AdminCabinet({
   // в один отчёт с заявками ниже (salesReport).
   const [sales, setSales] = useState([]);
   const [showPosModal, setShowPosModal] = useState(false);
+  const [showNewOrderModal, setShowNewOrderModal] = useState(false);
   const loadSales = useCallback(async () => {
     try {
       const data = await apiCall('GET', '/api/sales');
@@ -11933,7 +12589,16 @@ function AdminCabinet({
   }, "\u0417\u0430\u044F\u0432\u043E\u043A \u043D\u0435\u0442"))))));
   const content = /*#__PURE__*/React.createElement(React.Fragment, null, tab === "all" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
-  }, "\u0412\u0441\u0435 \u0437\u0430\u044F\u0432\u043A\u0438"), searchInput, orderDateFilterUI, filterChips, driverFilterChips, salesFilterChips, dogovornikFilterChip, !loading && filtered.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "\u0412\u0441\u0435 \u0437\u0430\u044F\u0432\u043A\u0438"), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowNewOrderModal(true),
+    style: {
+      ...S.btnPrimary,
+      width: "auto",
+      marginBottom: 16,
+      padding: "9px 16px",
+      fontSize: 14
+    }
+  }, "\uD83D\uDCDD \u041D\u043E\u0432\u0430\u044F \u0437\u0430\u044F\u0432\u043A\u0430"), searchInput, orderDateFilterUI, filterChips, driverFilterChips, salesFilterChips, dogovornikFilterChip, !loading && filtered.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: () => printWaybillsBatch(filtered),
     style: {
       ...S.btnOutline,
@@ -14049,6 +14714,14 @@ function AdminCabinet({
       onCompleted: () => {
         setShowPosModal(false);
         loadSales();
+      }
+    }), showNewOrderModal && /*#__PURE__*/React.createElement(NewOrderModal, {
+      products: products,
+      clients: clients,
+      onClose: () => setShowNewOrderModal(false),
+      onCreated: () => {
+        setShowNewOrderModal(false);
+        loadOrders();
       }
     }), showReturnModal && /*#__PURE__*/React.createElement(ReturnFormModal, {
       user: user,
