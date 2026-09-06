@@ -648,7 +648,7 @@ function stockIsOut(p) {
   return p.stock != null && p.stock <= 0;
 }
 
-function DebtsPanel({ readOnly }) {
+function DebtsPanel({ readOnly, role }) {
   const [debts, setDebts] = useState([]);
   const [loadingDebts, setLoadingDebts] = useState(true);
   const [settleAmounts, setSettleAmounts] = useState({});
@@ -663,6 +663,36 @@ function DebtsPanel({ readOnly }) {
     setLoadingDebts(false);
   }, []);
   useEffect(()=>{ loadDebts(); }, []);
+
+  // История погашений с возможностью исправить ошибочно введённую сумму —
+  // только там, где панель встроена в кабинет с ролями (role передан:
+  // admin/manager/operator), а не в её readOnly-показах торговому/водителю.
+  // Исправлять сумму может только администратор (см. PUT
+  // /api/debt-settlements/:id на сервере) — оператору задним числом менять
+  // цифры нельзя, чтобы долг нельзя было тихо списать самому себе.
+  const [settlements, setSettlements] = useState([]);
+  const [loadingSettlements, setLoadingSettlements] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [correctingId, setCorrectingId] = useState(null);
+  const [correctAmount, setCorrectAmount] = useState("");
+  const [savingCorrection, setSavingCorrection] = useState(false);
+  const loadSettlements = useCallback(async () => {
+    try { setSettlements(await apiCall('GET','/api/debt-settlements')); } catch(e) {}
+    setLoadingSettlements(false);
+  }, []);
+  useEffect(()=>{ if (role) loadSettlements(); }, []);
+  const saveCorrection = async (s) => {
+    const amount = Number(correctAmount);
+    if (!amount || amount<=0) return;
+    if (!window.confirm(`Исправить сумму погашения «${s.client_name}» с ${s.amount.toLocaleString()} на ${amount.toLocaleString()} ₸?`)) return;
+    setSavingCorrection(true);
+    try {
+      await apiCall('PUT', `/api/debt-settlements/${s.id}`, { amount });
+      await Promise.all([loadSettlements(), loadDebts()]);
+      setCorrectingId(null); setCorrectAmount("");
+    } catch(e) { alert(e.message); }
+    setSavingCorrection(false);
+  };
 
   // /api/debts отдаёт по одной строке на каждую накладную/продажу с долгом —
   // если один и тот же должник числится в двух заявках, ниже будет две
@@ -790,6 +820,44 @@ function DebtsPanel({ readOnly }) {
           );
         })
       }
+      {role && (
+        <div style={{...S.card, padding:0, marginTop:16, overflow:"hidden"}}>
+          <div onClick={()=>setHistoryOpen(o=>!o)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 14px",cursor:"pointer",background:C.surface}}>
+            <span style={{fontSize:15,fontWeight:700,color:C.navy}}>🧾 История погашений долгов</span>
+            <span style={{fontSize:14,color:C.textFaint}}>{historyOpen?"▲ Свернуть":"▼ Показать"}</span>
+          </div>
+          {historyOpen && (
+            <div style={{padding:10,maxHeight:420,overflowY:"auto",borderTop:`1px solid ${C.border}`}}>
+              {loadingSettlements?<div style={S.loadingWrap}>Загрузка...</div>
+                :settlements.length===0?<div style={{textAlign:"center",padding:"20px 0",color:C.textFaint}}>Погашений пока нет</div>
+                :settlements.slice().reverse().map(s=>(
+                  <div key={s.id} style={{padding:"8px 0",borderBottom:`1px solid ${C.border}`,fontSize:14}}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+                      <span style={{color:C.text,fontWeight:600,overflowWrap:"anywhere"}}>{s.client_name}</span>
+                      <span style={{color:C.navy,fontWeight:700,whiteSpace:"nowrap"}}>{s.amount.toLocaleString()} ₸</span>
+                    </div>
+                    <div style={{color:C.textFaint,fontSize:13,marginTop:2}}>
+                      {s.order_id?`Заявка №${s.order_id}`:`Касса №${s.sale_id}`} · {s.method==='cash'?'наличные':'безнал'} · {s.date} · {s.settled_by}
+                      {s.corrected_by_name&&` · исправлено: ${s.corrected_by_name}, было ${s.original_amount.toLocaleString()} ₸`}
+                    </div>
+                    {role==="admin" && (
+                      correctingId===s.id ? (
+                        <div style={{display:"flex",gap:6,marginTop:6}}>
+                          <input type="number" autoFocus style={{...S.input,padding:"6px 8px",fontSize:14}} placeholder="Правильная сумма, ₸" value={correctAmount} onChange={e=>setCorrectAmount(e.target.value)} onFocus={e=>e.target.select()}/>
+                          <button disabled={savingCorrection||!correctAmount} style={{...S.btnPrimary,width:"auto",marginTop:0,padding:"6px 14px",fontSize:14,opacity:(savingCorrection||!correctAmount)?0.5:1}} onClick={()=>saveCorrection(s)}>{savingCorrection?"...":"Сохранить"}</button>
+                          <button disabled={savingCorrection} style={{...S.btnSecondary,width:"auto",marginTop:0,padding:"6px 14px",fontSize:14}} onClick={()=>{setCorrectingId(null);setCorrectAmount("");}}>Отмена</button>
+                        </div>
+                      ) : (
+                        <p style={{margin:"4px 0 0",fontSize:13,color:C.navy,fontWeight:600,cursor:"pointer",textDecoration:"underline"}} onClick={()=>{setCorrectingId(s.id);setCorrectAmount(String(s.amount));}}>исправить сумму</p>
+                      )
+                    )}
+                  </div>
+                ))
+              }
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -4967,6 +5035,18 @@ function AdminCabinet({ user, onLogout, desktop }) {
   useEffect(() => { loadCashHandovers(); }, []);
   useRefetchOnVisible(loadCashHandovers);
 
+  // Закрыть недостачу/излишек по уже подтверждённой сдаче (например, водитель
+  // донёс недостающую сумму отдельно) — только администратор, см.
+  // PUT /api/cash-handovers/:id/resolve-difference на сервере.
+  const resolveDifference = async (h) => {
+    const comment = window.prompt(`Закрыть ${h.difference<0?'недостачу':'излишек'} ${Math.abs(h.difference).toLocaleString()} ₸ у водителя «${h.driver_name}»?\n\nКомментарий (необязательно):`, '');
+    if (comment === null) return;
+    try {
+      await apiCall('PUT', `/api/cash-handovers/${h.id}/resolve-difference`, { comment });
+      loadCashHandovers();
+    } catch(e) { alert(e.message); }
+  };
+
   const [fiscalizingSaleId, setFiscalizingSaleId] = useState(null);
   const [fiscalErrorBySale, setFiscalErrorBySale] = useState({});
   const retryFiscal = useCallback(async (sale) => {
@@ -5668,6 +5748,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
                     <p style={{margin:"2px 0 0",fontSize:12,color:C.textFaint}}>
                       Ожидалось {h.expected_amount.toLocaleString()} ₸{h.status==="confirmed"?` · принято ${h.actual_amount.toLocaleString()} ₸`:''}{h.comment?` · ${h.comment}`:''}
                     </p>
+                    {h.status==="confirmed"&&h.difference!==0&&(
+                      h.difference_resolved ? (
+                        <p style={{margin:"4px 0 0",fontSize:12,color:C.green}}>✓ Разница закрыта{h.difference_resolved_by_name?` · ${h.difference_resolved_by_name}`:''}{h.difference_resolved_at?', '+fmtDT(h.difference_resolved_at):''}{h.difference_resolved_comment?` · ${h.difference_resolved_comment}`:''}</p>
+                      ) : user.role==="admin" && (
+                        <button style={{...S.btnOutline,width:"auto",marginTop:6,padding:"5px 12px",fontSize:13}} onClick={()=>resolveDifference(h)}>Закрыть разницу</button>
+                      )
+                    )}
                   </div>
                 ))}
               </>;
@@ -5823,7 +5910,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
           ))}
         </div>}
         <div ref={debtorsSectionRef} style={{maxWidth: desktop?560:"none",marginTop:20}}>
-          <DebtsPanel/>
+          <DebtsPanel role={user.role}/>
         </div>
         <div ref={cashHandoverSectionRef} style={{maxWidth: desktop?560:"none"}}>
           {(() => {
