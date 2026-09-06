@@ -1446,8 +1446,11 @@ async function shareWaybillPdf(order) {
   }
 }
 
-function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUser, drivers }) {
+function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, currentUser, drivers }) {
   const [selectedDriverId, setSelectedDriverId] = useState("");
+  const [fixingCostIndex, setFixingCostIndex] = useState(null);
+  const [costInput, setCostInput] = useState("");
+  const [savingCost, setSavingCost] = useState(false);
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment||'{}') : (order.payment||{cash:order.payment_cash||0,qr:order.payment_qr||0,debt:order.payment_debt||0});
   // Весовые позиции, вес которых ещё не подтверждён складом (см.
@@ -1492,9 +1495,29 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
         <hr style={S.divider}/>
         <p style={{margin:"0 0 10px",fontSize:14,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>Состав</p>
         {items.map((item,i)=>(
-          <div key={i} style={{...S.row,marginBottom:8,fontSize:15}}>
-            <span style={{color:C.textMid}}>{item.name}</span>
-            <span style={{color:C.textSub}}>{item.qty} × {item.price} ₸ = <strong style={{color:C.text}}>{(item.qty*item.price).toLocaleString()} ₸</strong></span>
+          <div key={i} style={{marginBottom:8}}>
+            <div style={{...S.row,fontSize:15}}>
+              <span style={{color:C.textMid}}>{item.name}</span>
+              <span style={{color:C.textSub}}>{item.qty} × {item.price} ₸ = <strong style={{color:C.text}}>{(item.qty*item.price).toLocaleString()} ₸</strong></span>
+            </div>
+            {onFixItemCost && item.cost==null && (
+              fixingCostIndex===i ? (
+                <div style={{display:"flex",gap:6,marginTop:6}}>
+                  <input type="number" autoFocus style={{...S.input,padding:"6px 8px",fontSize:14}} placeholder="Закупочная цена за ед., ₸" value={costInput} onChange={e=>setCostInput(e.target.value)} onFocus={e=>e.target.select()}/>
+                  <button disabled={savingCost||!costInput} style={{...S.btnPrimary,width:"auto",marginTop:0,padding:"6px 14px",fontSize:14,opacity:(savingCost||!costInput)?0.5:1}} onClick={async()=>{
+                    setSavingCost(true);
+                    try { await onFixItemCost(order.id, i, Number(costInput)); setFixingCostIndex(null); setCostInput(""); }
+                    catch(e) { alert(e.message); }
+                    setSavingCost(false);
+                  }}>{savingCost?"...":"Сохранить"}</button>
+                  <button disabled={savingCost} style={{...S.btnSecondary,width:"auto",marginTop:0,padding:"6px 14px",fontSize:14}} onClick={()=>{setFixingCostIndex(null);setCostInput("");}}>Отмена</button>
+                </div>
+              ) : (
+                <p style={{margin:"4px 0 0",fontSize:13,color:"#92400E"}}>
+                  ⚠️ Нет закупочной цены (товар не выбран из каталога) — <span style={{color:C.navy,fontWeight:600,cursor:"pointer",textDecoration:"underline"}} onClick={()=>{setFixingCostIndex(i);setCostInput("");}}>указать вручную</span>
+                </p>
+              )
+            )}
           </div>
         ))}
         <hr style={S.divider}/>
@@ -4934,6 +4957,15 @@ function AdminCabinet({ user, onLogout, desktop }) {
     } catch(e) { alert(e.message); }
   };
 
+  // Ручная правка закупочной цены позиции без кода товара (см. комментарий
+  // у PUT /api/orders/:orderId/items/:itemIndex/cost на сервере) — не
+  // закрывает модалку заявки, чтобы сразу было видно результат.
+  const fixItemCost = async (orderId, itemIndex, cost) => {
+    const updated = await apiCall('PUT', `/api/orders/${orderId}/items/${itemIndex}/cost`, { cost });
+    setSelectedOrder(updated);
+    loadOrders();
+  };
+
   const [expandedSales, setExpandedSales] = useState({});
   const [cashboxGroupBy, setCashboxGroupBy] = useState("driver");
   // Клик по кругляшкам НАЛ/QR/ДОЛГ в сводке "Касса за период" прокручивает
@@ -6144,7 +6176,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return (
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
         <AutofillDecoy/>
-        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={fixItemCost} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
         <aside style={S.side}>
@@ -6173,7 +6205,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   return (
     <div style={{paddingBottom:72}}>
       <AutofillDecoy/>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={fixItemCost} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
       <div style={S.page}>
