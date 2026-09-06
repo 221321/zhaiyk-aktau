@@ -13298,19 +13298,7 @@ function AdminCabinet({
     }, "\u041D\u0435\u0442 \u0441\u0430\u043C\u043E\u0441\u0442\u043E\u044F\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0437\u0430\u043A\u0430\u0437\u043E\u0432 \u043E\u0442 \u043C\u0430\u0433\u0430\u0437\u0438\u043D\u043E\u0432 \u0437\u0430 \u044D\u0442\u043E\u0442 \u043F\u0435\u0440\u0438\u043E\u0434") : storeList.map(renderSalesEntity)));
   })()), tab === "cashbox" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
-  }, "\u041A\u0430\u0441\u0441\u0430"), user.role !== "operator" && /*#__PURE__*/React.createElement("div", {
-    style: {
-      maxWidth: desktop ? 560 : "none"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    style: {
-      ...S.bigCreate,
-      marginBottom: 16
-    },
-    onClick: () => setShowPosModal(true)
-  }, /*#__PURE__*/React.createElement("span", {
-    style: S.bigCreatePlus
-  }, "+"), " \u041D\u043E\u0432\u0430\u044F \u043F\u0440\u043E\u0434\u0430\u0436\u0430")), dateRangeInputs, /*#__PURE__*/React.createElement("div", {
+  }, "\u041A\u0430\u0441\u0441\u0430"), dateRangeInputs, /*#__PURE__*/React.createElement("div", {
     style: {
       maxWidth: desktop ? 560 : "none"
     }

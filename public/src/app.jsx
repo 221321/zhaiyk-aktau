@@ -6245,9 +6245,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
       </>}
       {tab==="cashbox"&&<>
         {!desktop&&<p style={S.sectionTitle}>Касса</p>}
-        {user.role!=="operator"&&<div style={{maxWidth: desktop?560:"none"}}>
-          <button style={{...S.bigCreate,marginBottom:16}} onClick={()=>setShowPosModal(true)}><span style={S.bigCreatePlus}>+</span> Новая продажа</button>
-        </div>}
         {dateRangeInputs}
         <div style={{maxWidth: desktop?560:"none"}}>
           <p style={{...S.sectionTitle,fontSize:17}}>Касса за период (заявки + продажи)</p>
