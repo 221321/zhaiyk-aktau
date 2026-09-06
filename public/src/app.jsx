@@ -1238,6 +1238,10 @@ const COMPANY_INFO = {
   bik: 'CASPKZKA',
   account: 'KZ33722S000046085888',
   releaseAuthorizedBy: 'Байсмаков С.К.',
+  // Контактный номер под "Ответственный за поставку" в накладной — чтобы
+  // клиенту было куда позвонить по доставке, независимо от того, кто
+  // именно из водителей её вёз.
+  responsiblePhone: '+7-775-593-95-75',
 };
 
 // Сумма прописью для накладной (см. buildWaybillInnerHtml) — стандартная
@@ -1336,7 +1340,7 @@ function buildWaybillInnerHtml(order) {
       <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${order.client_name||''}</div>
     </div>
     <div class="headrow row2">
-      <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name||''}</div>
+      <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name||''}${order.driver_name?'<br>':''}${COMPANY_INFO.responsiblePhone}</div>
       <div class="miniqr"><img src="/kaspi-qr.png" alt="Kaspi QR"/><p>Kaspi QR — оплата</p></div>
       <div><div class="label">АДРЕС ДОСТАВКИ</div>${order.address||''}${order.contact_phone?('<br>Тел: '+order.contact_phone):''}</div>
     </div>
@@ -1733,6 +1737,11 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
     if (pendingWeightItems.length>0 && !window.confirm(`Вес по ${pendingWeightItems.length===1?'позиции':'позициям'} (${pendingWeightItems.map(it=>it.name).join(', ')}) ещё не подтверждён складом — сумма может быть неточной. Всё равно напечатать?`)) return;
     fn();
   };
+  // Самовывоз клиент забирает прямо со склада, без водителя — зав. склад
+  // сам "берёт в работу" и сам же закрывает такую заявку при выдаче товара
+  // (см. canChange на сервере), тем же способом, что и водитель у обычной
+  // доставки: те же три блока ниже, просто с добавленным условием роли.
+  const canWarehousePickup = currentUser.role==="warehouse" && order.time_slot===PICKUP_SLOT;
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
       <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
@@ -1842,10 +1851,10 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
             </a>
           </div>
         )}
-        {currentUser.role==="driver" && order.status==="in_transit" && order.driver_id===currentUser.id && (
+        {(currentUser.role==="driver"||currentUser.role==="warehouse") && order.status==="in_transit" && order.driver_id===currentUser.id && (
           <DriverPaymentBlock order={order} onUpdateStatus={onUpdateStatus}/>
         )}
-        {currentUser.role==="driver" && order.status==="in_transit" && order.driver_id===currentUser.id && (
+        {(currentUser.role==="driver"||currentUser.role==="warehouse") && order.status==="in_transit" && order.driver_id===currentUser.id && (
           <div style={{marginTop:8}}>
             <button style={{...S.btnOutline,borderColor:"#6B7280",color:"#6B7280"}} onClick={()=>{if(window.confirm('Вернуть заявку в очередь? Другой водитель сможет её забрать.'))onUpdateStatus(order.id,"new",null);}}>🔄 Вернуть в очередь</button>
           </div>
@@ -1853,6 +1862,11 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
         {currentUser.role==="driver" && order.status==="new" && (
           <div style={{marginTop:20}}>
             <button style={S.btnPrimary} onClick={()=>onUpdateStatus(order.id,"in_transit",null)}>🚚 Взять в доставку</button>
+          </div>
+        )}
+        {canWarehousePickup && order.status==="new" && (
+          <div style={{marginTop:20}}>
+            <button style={S.btnPrimary} onClick={()=>onUpdateStatus(order.id,"in_transit",null)}>📦 Выдать со склада</button>
           </div>
         )}
         {(currentUser.role==="sales"||currentUser.role==="store"||(currentUser.role==="senior_sales"&&order.sales_id===currentUser.id)) && order.status==="new" && (
@@ -4288,6 +4302,244 @@ function PosSaleModal({ products, clients, onClose, onCompleted }) {
   );
 }
 
+// Создание заявки менеджером/админом — та же форма, что у торгового
+// (SalesCabinet, tab==="new"), но модалкой поверх "Заявок" (по аналогии с
+// PosSaleModal выше), т.к. у менеджера в кабинете нет отдельного экрана
+// под заявку. products/clients приходят как есть из /api/products и
+// /api/clients (см. AdminCabinet) — сама раскладка карточки товара под
+// форму (priceOptions/pricedByWeight и т.п.) повторяет loadProducts из
+// SalesCabinet, чтобы работали те же built. Заявка после создания
+// получает sales_id/sales_name текущего пользователя (см. POST
+// /api/orders на сервере) — заявка от менеджера так и подписывается его
+// именем, это нормально: менеджеру и так доступны все заявки целиком.
+function NewOrderModal({ products, clients, onClose, onCreated }) {
+  const mappedProducts = useMemo(() => products.filter(p => p.has_alias).map((p, i) => ({
+    id: i + 1,
+    name: p.display_name || p.name,
+    price: p.price || 0,
+    priceOptions: [p.price1, p.price2, p.price3].filter(v => v !== null && v !== undefined),
+    commission: p.commission || 0,
+    unit: p.unit || 'кг',
+    group: p.group || '',
+    code: p.code,
+    stock: p.stock,
+    pricedByWeight: !!p.priced_by_weight,
+    avgWeightPerBox: p.avg_box_weight != null ? p.avg_box_weight
+      : ((p.stock_weight_kg != null && p.stock > 0) ? (p.stock_weight_kg / p.stock) : null),
+    priced_by_weight: !!p.priced_by_weight,
+    stock_weight_kg: p.stock_weight_kg != null ? p.stock_weight_kg : null,
+    avg_box_weight: p.avg_box_weight != null ? p.avg_box_weight : null
+  })), [products]);
+
+  const [clientId, setClientId] = useState("");
+  const [clientSearchText, setClientSearchText] = useState("");
+  const [showClientDrop, setShowClientDrop] = useState(false);
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [timeSlot, setTimeSlot] = useState("");
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const newLine = () => ({uid:Math.random(),productId:null,name:"",qty:"",price:"",search:"",showDrop:false,pricedByWeight:false,weightPerBox:""});
+  const [lines, setLines] = useState([newLine()]);
+
+  const [debts, setDebts] = useState([]);
+  useEffect(() => { apiCall('GET','/api/debts').then(setDebts).catch(()=>{}); }, []);
+  const selectedClientDebt = clientId ? debts.filter(d=>d.client_name===clients.find(c=>c.code===clientId)?.name && d.overdue).reduce((s,d)=>s+d.remaining,0) : 0;
+
+  const updateLine = (uid,patch) => setLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
+  const removeLine = (uid) => setLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
+  const addLine = () => setLines(ls=>[...ls,newLine()]);
+  const selectProduct = (uid,prod) => {
+    if (stockIsOut(prod)) return;
+    updateLine(uid,{
+      productId:prod.id,code:prod.code,name:prod.name,unit:prod.unit,
+      price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",
+      search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock,
+      stockWeightKg:prod.stock_weight_kg,
+      avgBoxWeight:prod.avg_box_weight,
+      pricedByWeight:!!prod.pricedByWeight,
+      weightPerBox: prod.avgWeightPerBox!=null ? String(Math.round(prod.avgWeightPerBox*100)/100) : ""
+    });
+  };
+  const estWeightOf = (l) => l.pricedByWeight ? (Number(l.qty)||0)*(Number(l.weightPerBox)||0) : (Number(l.qty)||0);
+  const filledLines = lines.filter(l=>l.name&&l.productId&&Number(l.qty)>0&&Number(l.price)>0&&(!l.pricedByWeight||Number(l.weightPerBox)>0));
+  const total = filledLines.reduce((s,l)=>s+estWeightOf(l)*Number(l.price),0);
+
+  const handleSubmit = async () => {
+    if (submitting) return;
+    if (!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()) return;
+    const client = clients.find(c=>c.code===clientId);
+    const items = filledLines.map(l=>l.pricedByWeight
+      ? {id:l.productId,code:l.code,name:l.name,qty:estWeightOf(l),boxes:Number(l.qty),price:Number(l.price),commission:l.commission||0}
+      : {id:l.productId,code:l.code,name:l.name,qty:Number(l.qty),price:Number(l.price),commission:l.commission||0}
+    );
+    setSubmitting(true);
+    try {
+      await apiCall('POST','/api/orders',{clientName:client.name,clientCode:client.code,address:client.address||'',timeSlot,items,total,paymentCash:0,paymentQr:0,paymentDebt:0,comment,contactName,contactPhone});
+      onCreated();
+    } catch(e) { alert(e.message); }
+    setSubmitting(false);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}} onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div style={{background:C.surface,margin:"16px auto",borderRadius:16,padding:20,maxWidth:560,minHeight:"calc(100vh - 32px)"}}>
+        <div style={{...S.row,marginBottom:16}}>
+          <p style={{margin:0,fontSize:20,fontWeight:800,fontFamily:FH,color:C.navy}}>📝 Новая заявка</p>
+          <button style={S.btnSecondary} onClick={onClose}>✕ Закрыть</button>
+        </div>
+        <div style={S.card}>
+          <div style={S.formGroup}>
+            <label style={S.label}>Контрагент {clients.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:13}}>({clients.length} из 1С)</span>}</label>
+            <div style={{position:"relative"}}>
+              <input
+                style={{...S.input,paddingRight:clientSearchText?38:14}}
+                placeholder="Начните вводить название..."
+                value={clientSearchText}
+                onChange={e=>{setClientSearchText(e.target.value); setClientId(""); setShowClientDrop(true);}}
+                onFocus={()=>setShowClientDrop(true)}
+                onBlur={()=>setTimeout(()=>setShowClientDrop(false),180)}
+              />
+              {clientSearchText&&(
+                <button
+                  type="button"
+                  onMouseDown={e=>e.preventDefault()}
+                  onClick={()=>{setClientSearchText("");setClientId("");setContactName("");setContactPhone("");}}
+                  style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:20,color:C.textFaint,padding:4,lineHeight:1}}
+                >×</button>
+              )}
+              {showClientDrop&&(()=>{
+                const matched=clientSearchText.length>0?clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())):clients.slice(0,50);
+                return matched.length>0&&(
+                  <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:220,overflowY:"auto"}}>
+                    {matched.map(c=>(
+                      <div key={c.code} onMouseDown={()=>{setClientId(c.code);setClientSearchText(c.name);setShowClientDrop(false);setContactName(c.contact_name||'');setContactPhone(c.contact_phone||'');}} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:15}}>
+                        <div style={{fontWeight:600}}>{c.name}</div>
+                        {c.address&&<div style={{fontSize:13,color:C.textFaint}}>📍 {c.address}</div>}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+            {clientId&&clients.find(c=>c.code===clientId)?.address&&<p style={{margin:"6px 0 0",fontSize:14,color:C.textSub}}>📍 {clients.find(c=>c.code===clientId)?.address}</p>}
+            {selectedClientDebt>0&&<div style={{marginTop:8,padding:"10px 12px",background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:8,fontSize:14,color:C.red,fontWeight:600}}>⚠️ У контрагента непогашенный долг более 7 дней: {selectedClientDebt.toLocaleString()} ₸</div>}
+          </div>
+          <div style={S.formGroup}>
+            <label style={S.label}>Телефон контактного лица</label>
+            <div style={{display:"flex",gap:6}}>
+              <div style={{position:"relative",flex:1}}>
+                <input style={{...S.input,paddingRight:contactPhone?38:14}} placeholder="Телефон" value={contactPhone} onChange={e=>setContactPhone(e.target.value)}/>
+                {contactPhone&&(
+                  <button type="button" onClick={()=>setContactPhone("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:20,color:C.textFaint,padding:4,lineHeight:1}}>×</button>
+                )}
+              </div>
+              {CONTACT_PICKER_SUPPORTED&&(
+                <button type="button" title="Выбрать из контактов" onClick={()=>pickPhoneContact(({name,tel})=>{if(name)setContactName(name);if(tel)setContactPhone(tel);})} style={{flexShrink:0,width:48,border:`1.5px solid ${C.border}`,borderRadius:10,background:C.white,fontSize:19,cursor:"pointer"}}>📇</button>
+              )}
+            </div>
+          </div>
+          <div style={S.formGroup}>
+            <label style={S.label}>Время доставки</label>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {[...TIME_SLOTS,PICKUP_SLOT].map(slot=>(
+                <button key={slot} onClick={()=>setTimeSlot(slot)} style={{padding:"12px",borderRadius:10,border:`1.5px solid ${timeSlot===slot?C.navy:C.border}`,background:timeSlot===slot?C.navy:C.white,color:timeSlot===slot?C.white:C.textMid,fontSize:16,fontWeight:500,cursor:"pointer",textAlign:"left"}}>{slot}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div style={S.card}>
+          <div style={{...S.row,marginBottom:12}}>
+            <label style={S.label}>
+              Номенклатура {mappedProducts.length>0&&<span style={{color:C.green,fontWeight:400,fontSize:13}}>({mappedProducts.length} поз. из 1С)</span>}
+            </label>
+            <button onClick={addLine} style={{background:C.navy,color:C.white,border:"none",borderRadius:8,padding:"4px 12px",fontSize:14,fontWeight:600,cursor:"pointer"}}>+ Товар</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,marginBottom:6}}>
+            {["Наименование","Кол-во","Цена ₸",""].map((h,i)=><div key={i} style={{fontSize:12,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
+          </div>
+          {lines.map(line=>{
+            const inStock=mappedProducts.filter(p=>!stockIsOut(p));
+            const matched=line.search.length>0?inStock.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):inStock.slice(0,50);
+            const lineWeight=estWeightOf(line);
+            const lineTotal=lineWeight>0&&Number(line.price)>0?lineWeight*Number(line.price):null;
+            return(
+              <div key={line.uid} style={{marginBottom:8}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,alignItems:"center"}}>
+                  <div style={{position:"relative"}}>
+                    <input style={{...S.input,padding:"8px 10px",fontSize:15,...(line.name&&!line.productId?{borderColor:C.red}:{})}} placeholder="Введите товар..." value={line.search}
+                      onChange={e=>updateLine(line.uid,{search:e.target.value,name:e.target.value,productId:null,price:"",showDrop:true})}
+                      onFocus={()=>updateLine(line.uid,{showDrop:true})}
+                      onBlur={()=>setTimeout(()=>updateLine(line.uid,{showDrop:false}),180)}
+                    />
+                    {line.name&&!line.productId&&!line.showDrop&&<p style={{margin:"4px 0 0",fontSize:12,color:C.red}}>Выберите товар из списка — вписать вручную нельзя</p>}
+                    {line.showDrop&&matched.length>0&&(
+                      <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:180,overflowY:"auto"}}>
+                        {matched.map(p=>{
+                          const outOfStock = stockIsOut(p);
+                          const stockLbl = stockLabel(p);
+                          return (
+                          <div key={p.id} onMouseDown={()=>selectProduct(line.uid,p)} style={{padding:"9px 12px",cursor:outOfStock?"not-allowed":"pointer",borderBottom:`1px solid ${C.border}`,fontSize:15,opacity:outOfStock?0.5:1,background:outOfStock?C.surface:C.white}}>
+                            <div style={{fontWeight:600}}>{p.name}</div>
+                            <div style={{fontSize:13,color:outOfStock?C.red:C.textFaint}}>{p.price>0?p.price.toLocaleString()+' ₸ / ':''}{p.unit}{p.group?' · '+p.group:''}{stockLbl!=null?(outOfStock?' · Нет в наличии':' · Остаток: '+stockLbl):''}</div>
+                          </div>
+                        )})}
+                      </div>
+                    )}
+                  </div>
+                  <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"center"}} placeholder={line.pricedByWeight?"кор":"кол"} value={line.qty} type="number" min="1" max={(!line.pricedByWeight&&line.stock!=null)?line.stock:undefined}
+                    onChange={e=>{
+                      let v = e.target.value;
+                      if (!line.pricedByWeight && line.stock!=null && Number(v) > line.stock) v = String(line.stock);
+                      updateLine(line.uid,{qty:v});
+                    }}
+                    onFocus={e=>e.target.select()}
+                  />
+                  <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"right",background:(line.priceOptions&&line.priceOptions.length>0)?C.surface:C.white,color:(line.priceOptions&&line.priceOptions.length>0)?C.textSub:C.text}} placeholder="цена" value={line.price} type="number"
+                    disabled={line.priceOptions&&line.priceOptions.length>0}
+                    onChange={e=>updateLine(line.uid,{price:e.target.value})}
+                    onFocus={e=>e.target.select()}
+                  />
+                  <button onClick={()=>removeLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:16,color:C.textFaint}}>×</button>
+                </div>
+                {line.pricedByWeight
+                  ? (line.stockWeightKg!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {formatWeightStock(line.stockWeightKg,line.avgBoxWeight)}</div>)
+                  : (line.stock!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stock} {line.unit}</div>)}
+                {line.pricedByWeight&&(
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>
+                    <span style={{fontSize:13,color:C.textSub,whiteSpace:"nowrap"}}>⚖️ Вес короба, кг (примерно)</span>
+                    <input style={{...S.input,width:80,padding:"6px 8px",fontSize:14,textAlign:"center"}} placeholder="кг" value={line.weightPerBox} type="number"
+                      onChange={e=>updateLine(line.uid,{weightPerBox:e.target.value})}
+                      onFocus={e=>e.target.select()}
+                    />
+                    {lineWeight>0&&<span style={{fontSize:13,color:C.textFaint}}>≈ {lineWeight.toLocaleString()} кг</span>}
+                  </div>
+                )}
+                {lineTotal&&<div style={{textAlign:"right",fontSize:13,color:C.textSub,marginTop:2,paddingRight:34}}>= <strong style={{color:C.navy}}>{lineTotal.toLocaleString()} ₸</strong></div>}
+                {line.priceOptions&&line.priceOptions.length>0&&(
+                  <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+                    {line.priceOptions.map((pr,i)=>(
+                      <button key={i} onClick={()=>updateLine(line.uid,{price:pr})} style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${Number(line.price)===pr?C.navy:C.border}`,background:Number(line.price)===pr?C.navy:C.white,color:Number(line.price)===pr?C.white:C.textMid,fontSize:14,fontWeight:600,cursor:"pointer"}}>{pr.toLocaleString()} ₸</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {filledLines.length>0&&<><hr style={{...S.divider,marginTop:8}}/><div style={S.row}><span style={{fontSize:15,color:C.textSub}}>Итого</span><span style={{fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>{total.toLocaleString()} ₸</span></div></>}
+        </div>
+        <div style={S.card}>
+          <div style={S.formGroup}>
+            <label style={S.label}>Комментарий</label>
+            <textarea style={S.textarea} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Особые пожелания..."/>
+          </div>
+          <button style={{...S.btnPrimary,opacity:(submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim())?0.45:1}} onClick={handleSubmit} disabled={submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()}>{submitting?"Отправка...":"Отправить заявку"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Считает выручку/себестоимость/прибыль по списку заявок или продаж (у
 // обеих items — либо массив, либо JSON-строка). cost — снимок закупочной
 // цены на момент продажи (см. getCostMap на сервере), а не текущая цена
@@ -4811,6 +5063,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [driverFilter, setDriverFilter] = useState("");
   const [salesFilter, setSalesFilter] = useState("");
   const [dogovornikOnly, setDogovornikOnly] = useState(false);
+  const [pickupOnly, setPickupOnly] = useState(false);
   const [showDogovornikModal, setShowDogovornikModal] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
@@ -5122,6 +5375,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   // в один отчёт с заявками ниже (salesReport).
   const [sales, setSales] = useState([]);
   const [showPosModal, setShowPosModal] = useState(false);
+  const [showNewOrderModal, setShowNewOrderModal] = useState(false);
   const loadSales = useCallback(async () => {
     try {
       const data = await apiCall('GET', '/api/sales');
@@ -5373,13 +5627,14 @@ function AdminCabinet({ user, onLogout, desktop }) {
     .filter(o=>!driverFilter||String(o.driver_id)===driverFilter)
     .filter(o=>!salesFilter||String(o.sales_id)===salesFilter)
     .filter(o=>!dogovornikOnly||dogovornikCodes.has(o.client_code))
+    .filter(o=>!pickupOnly||o.time_slot===PICKUP_SLOT)
     .filter(o=>orderDatePreset==="all"||(o.date>=orderDateFrom&&o.date<=orderDateTo))
     .filter(o=>!q
       || String(o.id).includes(q)
       || (o.client_name||'').toLowerCase().includes(q)
       || (o.sales_name||'').toLowerCase().includes(q)
       || (o.driver_name||'').toLowerCase().includes(q)
-      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, orderDatePreset, orderDateFrom, orderDateTo, q]);
+      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, pickupOnly, orderDatePreset, orderDateFrom, orderDateTo, q]);
 
   const { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo, totalCommission } = useMemo(() => {
     // Погашение долга нал/QR "перетекает" из долга в наличку/QR того же
@@ -5694,6 +5949,14 @@ function AdminCabinet({ user, onLogout, desktop }) {
     </div>
   );
 
+  const pickupFilterChip = (
+    <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+      <span style={{fontSize:14,color:C.textFaint,fontWeight:600}}>Самовывоз:</span>
+      <button onClick={()=>setPickupOnly(false)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${!pickupOnly?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:!pickupOnly?C.navy:C.white,color:!pickupOnly?C.white:C.textMid}}>Все</button>
+      <button onClick={()=>setPickupOnly(true)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${pickupOnly?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:pickupOnly?C.navy:C.white,color:pickupOnly?C.white:C.textMid}}>🏬 Только самовывоз</button>
+    </div>
+  );
+
   const searchInput = (
     <input
       type="search"
@@ -5748,12 +6011,14 @@ function AdminCabinet({ user, onLogout, desktop }) {
     <>
       {tab==="all"&&<>
         {!desktop&&<p style={S.sectionTitle}>Все заявки</p>}
+        {!readOnlyOp&&<button onClick={()=>setShowNewOrderModal(true)} style={{...S.btnPrimary,width:"auto",marginBottom:16,padding:"9px 16px",fontSize:14}}>📝 Новая заявка</button>}
         {searchInput}
         {orderDateFilterUI}
         {filterChips}
         {driverFilterChips}
         {salesFilterChips}
         {dogovornikFilterChip}
+        {pickupFilterChip}
         {!loading&&filtered.length>0&&(
           <button onClick={()=>printWaybillsBatch(filtered)} style={{...S.btnOutline,width:"auto",marginTop:0,marginBottom:16,padding:"9px 16px",fontSize:14}}>🖨 Печать накладных ({filtered.length})</button>
         )}
@@ -5979,9 +6244,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
       </>}
       {tab==="cashbox"&&<>
         {!desktop&&<p style={S.sectionTitle}>Касса</p>}
-        {user.role!=="operator"&&<div style={{maxWidth: desktop?560:"none"}}>
-          <button style={{...S.bigCreate,marginBottom:16}} onClick={()=>setShowPosModal(true)}><span style={S.bigCreatePlus}>+</span> Новая продажа</button>
-        </div>}
         {dateRangeInputs}
         <div style={{maxWidth: desktop?560:"none"}}>
           <p style={{...S.sectionTitle,fontSize:17}}>Касса за период (заявки + продажи)</p>
@@ -6596,6 +6858,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         <AutofillDecoy/>
         {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
+        {showNewOrderModal&&<NewOrderModal products={products} clients={clients} onClose={()=>setShowNewOrderModal(false)} onCreated={()=>{ setShowNewOrderModal(false); loadOrders(); }}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
         {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
         <aside style={S.side}>
@@ -6701,6 +6964,15 @@ function WarehouseCabinet({ user, onLogout }) {
   useEffect(() => { loadOrders(); }, []);
   useRefetchOnVisible(loadProducts, loadOrders);
 
+  // Взять в работу и закрыть заявку самовывоза (см. canWarehousePickup в
+  // OrderDetail) — единственные переходы статуса, доступные зав. складу.
+  const handleUpdate = async (id, status, payment) => {
+    try {
+      await apiCall('PUT', `/api/orders/${id}/status`, { status, payment });
+      setSelectedOrder(null); loadOrders();
+    } catch(e) { alert(e.message); }
+  };
+
   // Сколько налички сейчас физически на руках у каждого водителя — та же
   // логика, что и computeDriverPendingCash на сервере (доставлено, оплата
   // налом, ещё не вошло ни в одну сдачу). Строго для информации: принимает
@@ -6746,16 +7018,20 @@ function WarehouseCabinet({ user, onLogout }) {
       return (a.display_name||a.name||'').localeCompare(b.display_name||b.name||'');
     });
 
-  // Вкладка "Заявки" зав. склада — только просмотр (см. OrderDetail: без
-  // onUpdateStatus/onDeleteOrder/onFixItemCost/onFixItemWeight никакие кнопки
-  // изменения там не показываются ни для одной роли, кроме перечисленных явно).
+  // Вкладка "Заявки" зав. склада — просмотр плюс одно исключение: заявки
+  // самовывоза (см. canWarehousePickup в OrderDetail) зав. склад может сам
+  // взять в работу и закрыть при выдаче товара. На остальные заявки ни
+  // onDeleteOrder/onFixItemCost/onFixItemWeight, ни другие кнопки
+  // изменения не показываются ни для одной роли, кроме перечисленных явно.
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [orderSearch, setOrderSearch] = useState("");
   const [orderFilter, setOrderFilter] = useState("all");
+  const [pickupOnly, setPickupOnly] = useState(false);
   const ORDER_FILTERS = [["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"],["revoked","Отозвана"]];
   const oq = orderSearch.trim().toLowerCase();
   const filteredOrders = orders
     .filter(o=>orderFilter==="all"||o.status===orderFilter)
+    .filter(o=>!pickupOnly || o.time_slot===PICKUP_SLOT)
     .filter(o=>!oq || String(o.id).includes(oq) || (o.client_name||'').toLowerCase().includes(oq) || (o.sales_name||'').toLowerCase().includes(oq));
 
   const [driverFilter, setDriverFilter] = useState("");
@@ -6887,10 +7163,13 @@ function WarehouseCabinet({ user, onLogout }) {
         {tab==="orders"&&<>
           <p style={S.sectionTitle}>Заявки</p>
           <input type="search" style={{...S.input,marginBottom:12}} placeholder="Поиск по номеру, клиенту, торговому…" value={orderSearch} onChange={e=>setOrderSearch(e.target.value)} autoComplete="off"/>
-          <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
             {ORDER_FILTERS.map(([k,lb])=>(
               <button key={k} onClick={()=>setOrderFilter(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${orderFilter===k?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:orderFilter===k?C.navy:C.white,color:orderFilter===k?C.white:C.textMid}}>{lb}</button>
             ))}
+          </div>
+          <div style={{marginBottom:16}}>
+            <button onClick={()=>setPickupOnly(p=>!p)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${pickupOnly?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:pickupOnly?C.navy:C.white,color:pickupOnly?C.white:C.textMid}}>🏬 Только самовывоз</button>
           </div>
           {loadingOrders?<div style={S.loadingWrap}>Загрузка...</div>
             :filteredOrders.length===0
@@ -7056,7 +7335,7 @@ function WarehouseCabinet({ user, onLogout }) {
           </>}
         </>}
       </div>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} currentUser={user}/>}
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
       <div style={S.nav}>
         {[["stock","📦","Остатки"],["orders","📋","Заявки"],["shipping","🚚","Отгрузка"],["cash","💰","Инкассация"]].map(([k,ic,lb])=>(
           <button key={k} style={{...S.navBtn(tab===k),flex:1,position:"relative"}} onClick={()=>setTab(k)}>
