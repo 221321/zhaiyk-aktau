@@ -3057,8 +3057,8 @@ function buildLoadingListHtml(orders, driverName, productByCode) {
       <td>${it.name}</td>
       <td style="text-align:center">${it.code}</td>
       <td style="text-align:center">${unit}</td>
-      <td style="text-align:center">${it.qty}</td>
-      <td style="text-align:center">${weighed ? it.qty : ''}</td>
+      <td style="text-align:center">${it.qty} ${unit}</td>
+      <td style="text-align:center">${weighed ? it.qty + ' ' + unit : ''}</td>
       <td style="text-align:center">${mark}</td>
     </tr>`;
   }).join('');
