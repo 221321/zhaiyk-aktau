@@ -603,6 +603,13 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     patch.driver_id = null;
     patch.driver_name = null;
   }
+  // Момент, когда заявка реально попала в работу конкретному водителю —
+  // отдельно от created_at (момент оформления торговым/магазином). При
+  // "вернуть в очередь" (status==='new') и повторном взятии другим (или тем
+  // же) водителем фиксируем заново — интересует именно текущее взятие.
+  if (status === 'in_transit') {
+    patch.in_transit_at = new Date().toISOString();
+  }
   if (payment) {
     patch.payment_cash = payment.cash || 0;
     patch.payment_qr = payment.qr || 0;

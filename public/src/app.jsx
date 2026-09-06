@@ -320,6 +320,10 @@ function OrderCard({order, onOpen, onEdit}) {
           <p style={S.cardTitle}>№ {order.id} · {order.client_name||order.clientName}</p>
           <p style={S.cardSub}>{order.address} · {order.time_slot||order.timeSlot}</p>
           {order.sales_name&&<p style={{...S.cardSub,marginTop:2}}>👤 {order.sales_name}</p>}
+          <p style={{...S.cardSub,marginTop:2,color:C.textFaint}}>
+            Создана {fmtDT(order.created_at)||order.date}
+            {order.driver_name&&order.in_transit_at?` · в работе с ${fmtDT(order.in_transit_at)}`:''}
+          </p>
         </div>
         <StatusBadge status={order.status}/>
       </div>
@@ -537,6 +541,16 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
       <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:8,opacity:statusBusy?0.5:1,cursor:statusBusy?"not-allowed":"pointer"}} disabled={statusBusy} onClick={()=>changeStatus("returned",null,`Оформить возврат по заявке № ${order.id}? Действие нельзя отменить.`)}>↩️ Оформить возврат</button>
     </div>
   );
+}
+
+// Компактный формат даты+времени для created_at/in_transit_at (ISO-строка) —
+// "06.09 14:32", без года (эти метки нужны для операционной сверки в
+// пределах текущего сезона, не как архивная дата).
+function fmtDT(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 function daysWord(n) {
@@ -1330,7 +1344,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, currentUse
           </div>
         )}
         <hr style={S.divider}/>
-        {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.driver_name?[["Водитель",order.driver_name]]:[]),...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
+        {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.created_at?[["Создана",fmtDT(order.created_at)]]:[]),...(order.driver_name?[["Водитель",order.driver_name]]:[]),...(order.driver_name&&order.in_transit_at?[["В работе с",fmtDT(order.in_transit_at)]]:[]),...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
           <div key={k} style={{...S.row,marginBottom:8,alignItems:"flex-start"}}>
             <span style={{fontSize:14,color:C.textFaint,fontWeight:600,minWidth:90,textTransform:"uppercase"}}>{k}</span>
             <span style={{fontSize:15,color:C.text,textAlign:"right",flex:1}}>{v}</span>
@@ -2651,6 +2665,10 @@ function DriverCabinet({ user, onLogout }) {
                     <p style={S.cardTitle}>№ {o.id} · {o.client_name}</p>
                     <p style={S.cardSub}>{o.address}</p>
                     <p style={{...S.cardSub,marginTop:2}}>🕐 {o.time_slot} · {o.sales_name}</p>
+                    <p style={{...S.cardSub,marginTop:2,color:C.textFaint}}>
+                      Создана {fmtDT(o.created_at)||o.date}
+                      {o.in_transit_at?` · в работе с ${fmtDT(o.in_transit_at)}`:''}
+                    </p>
                   </div>
                   <StatusBadge status={o.status}/>
                 </div>
@@ -5120,9 +5138,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   <td style={S.td}>
                     <div style={{fontWeight:600}}>{o.client_name}</div>
                     <div style={{fontSize:14,color:C.textSub}}>{o.address}{o.time_slot?' · '+o.time_slot:''}</div>
+                    <div style={{fontSize:13,color:C.textFaint,marginTop:2}}>Создана {fmtDT(o.created_at)||o.date}</div>
                   </td>
                   <td style={S.td}>{o.sales_name}</td>
-                  <td style={S.td}>{o.driver_name || <span style={{color:C.textSub,fontStyle:"italic",fontSize:15}}>не назначен</span>}{o.delivery_photo&&<span title="Есть фото накладной" style={{marginLeft:6}}>📷</span>}</td>
+                  <td style={S.td}>
+                    {o.driver_name || <span style={{color:C.textSub,fontStyle:"italic",fontSize:15}}>не назначен</span>}{o.delivery_photo&&<span title="Есть фото накладной" style={{marginLeft:6}}>📷</span>}
+                    {o.driver_name&&o.in_transit_at&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>в работе с {fmtDT(o.in_transit_at)}</div>}
+                  </td>
                   <td style={{...S.td,fontFamily:FH,fontWeight:800,whiteSpace:"nowrap"}}>{(o.total||0).toLocaleString()} ₸</td>
                   <td style={S.td}><PaymentTags payment={payment}/></td>
                   <td style={S.td}><StatusBadge status={o.status}/></td>
