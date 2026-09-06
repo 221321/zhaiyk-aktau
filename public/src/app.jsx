@@ -44,8 +44,12 @@ function waMeLink(phone, text) {
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
 function debtReminderText(d) {
-  const ref = d.order_id ? `накладной № ${d.order_id}` : `чеку № ${d.sale_id}`;
-  return `Здравствуйте, ${d.client_name}! Напоминаем о задолженности по ${ref} от ${d.date} на сумму ${d.remaining.toLocaleString()} ₸. Будем благодарны за оплату в ближайшее время.`;
+  const sum = d.remaining.toLocaleString();
+  const refRu = d.order_id ? `накладной № ${d.order_id}` : `чеку № ${d.sale_id}`;
+  const refKz = d.order_id ? `№ ${d.order_id} жүкқұжаты` : `№ ${d.sale_id} чегі`;
+  const ru = `Здравствуйте, ${d.client_name}! Напоминаем о задолженности по ${refRu} от ${d.date} на сумму ${sum} ₸. Будем благодарны за оплату в ближайшее время.`;
+  const kz = `Құрметті ${d.client_name}! ${refKz} (${d.date}) бойынша ${sum} ₸ сомасындағы қарызыңызды еске саламыз. Жақын арада төлеп берсеңіз, алғыс білдіреміз.`;
+  return `${ru}\n\n${kz}`;
 }
 
 // Тот же принцип, что у wa.me выше (см. комментарий) — отправляет вживую сам
