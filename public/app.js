@@ -3342,7 +3342,12 @@ function SalesCabinet({
   // потом подтверждает склад при отгрузке (POST /api/orders/weights) и
   // сумма заявки пересчитывается по нему.
   const estWeightOf = l => l.pricedByWeight ? (Number(l.qty) || 0) * (Number(l.weightPerBox) || 0) : Number(l.qty) || 0;
-  const filledLines = lines.filter(l => l.name && Number(l.qty) > 0 && Number(l.price) > 0 && (!l.pricedByWeight || Number(l.weightPerBox) > 0));
+  // productId (и code) появляются только через selectProduct — свободный
+  // текст без выбора из списка исторически проходил как позиция без кода,
+  // и такая заявка потом никогда не находится на "Товарах" (искать нечего —
+  // товар ни к чему не привязан) и не может получить закупочную цену.
+  // Поэтому такие строки не считаем заполненными.
+  const filledLines = lines.filter(l => l.name && l.productId && Number(l.qty) > 0 && Number(l.price) > 0 && (!l.pricedByWeight || Number(l.weightPerBox) > 0));
   const total = filledLines.reduce((s, l) => s + estWeightOf(l) * Number(l.price), 0);
   const handleSubmit = async () => {
     if (submitting) return;
@@ -4135,7 +4140,10 @@ function SalesCabinet({
       style: {
         ...S.input,
         padding: "8px 10px",
-        fontSize: 15
+        fontSize: 15,
+        ...(line.name && !line.productId ? {
+          borderColor: C.red
+        } : {})
       },
       placeholder: "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0442\u043E\u0432\u0430\u0440...",
       value: line.search,
@@ -4152,7 +4160,13 @@ function SalesCabinet({
       onBlur: () => setTimeout(() => updateLine(line.uid, {
         showDrop: false
       }), 180)
-    }), line.showDrop && matched.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }), line.name && !line.productId && !line.showDrop && /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "4px 0 0",
+        fontSize: 12,
+        color: C.red
+      }
+    }, "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u043E\u0432\u0430\u0440 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430 \u2014 \u0432\u043F\u0438\u0441\u0430\u0442\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E \u043D\u0435\u043B\u044C\u0437\u044F"), line.showDrop && matched.length > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         position: "absolute",
         top: "100%",

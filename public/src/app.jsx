@@ -1690,7 +1690,12 @@ function SalesCabinet({ user, token, onLogout }) {
   // потом подтверждает склад при отгрузке (POST /api/orders/weights) и
   // сумма заявки пересчитывается по нему.
   const estWeightOf = (l) => l.pricedByWeight ? (Number(l.qty)||0)*(Number(l.weightPerBox)||0) : (Number(l.qty)||0);
-  const filledLines = lines.filter(l=>l.name&&Number(l.qty)>0&&Number(l.price)>0&&(!l.pricedByWeight||Number(l.weightPerBox)>0));
+  // productId (и code) появляются только через selectProduct — свободный
+  // текст без выбора из списка исторически проходил как позиция без кода,
+  // и такая заявка потом никогда не находится на "Товарах" (искать нечего —
+  // товар ни к чему не привязан) и не может получить закупочную цену.
+  // Поэтому такие строки не считаем заполненными.
+  const filledLines = lines.filter(l=>l.name&&l.productId&&Number(l.qty)>0&&Number(l.price)>0&&(!l.pricedByWeight||Number(l.weightPerBox)>0));
   const total = filledLines.reduce((s,l)=>s+estWeightOf(l)*Number(l.price),0);
 
   const handleSubmit = async () => {
@@ -1970,11 +1975,12 @@ function SalesCabinet({ user, token, onLogout }) {
                 <div key={line.uid} style={{marginBottom:8}}>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,alignItems:"center"}}>
                     <div style={{position:"relative"}}>
-                      <input style={{...S.input,padding:"8px 10px",fontSize:15}} placeholder="Введите товар..." value={line.search}
+                      <input style={{...S.input,padding:"8px 10px",fontSize:15,...(line.name&&!line.productId?{borderColor:C.red}:{})}} placeholder="Введите товар..." value={line.search}
                         onChange={e=>updateLine(line.uid,{search:e.target.value,name:e.target.value,productId:null,price:"",showDrop:true})}
                         onFocus={()=>updateLine(line.uid,{showDrop:true})}
                         onBlur={()=>setTimeout(()=>updateLine(line.uid,{showDrop:false}),180)}
                       />
+                      {line.name&&!line.productId&&!line.showDrop&&<p style={{margin:"4px 0 0",fontSize:12,color:C.red}}>Выберите товар из списка — вписать вручную нельзя</p>}
                       {line.showDrop&&matched.length>0&&(
                         <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:180,overflowY:"auto"}}>
                           {matched.map(p=>{
