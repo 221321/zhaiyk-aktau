@@ -1571,6 +1571,9 @@ function DebtsPanel({
   const [settleAmounts, setSettleAmounts] = useState({});
   const [settleMethod, setSettleMethod] = useState({});
   const [savingId, setSavingId] = useState(null);
+  const [clientSettleAmounts, setClientSettleAmounts] = useState({});
+  const [clientSettleMethod, setClientSettleMethod] = useState({});
+  const [savingClientKey, setSavingClientKey] = useState(null);
   const loadDebts = useCallback(async () => {
     try {
       const data = await apiCall('GET', '/api/debts');
@@ -1708,6 +1711,40 @@ function DebtsPanel({
     }
     setSavingId(null);
   };
+
+  // Погашение "по клиенту одной суммой" — вместо того чтобы вручную считать
+  // и разносить оплату по каждой накладной, оператор вводит общую сумму, а
+  // сервер сам раскладывает её от старой накладной к новой (см.
+  // POST /api/debts/settle-client). Кнопка показывается один раз на клиента
+  // (на первой попавшейся в списке карточке) и только если у него больше
+  // одной накладной с долгом — иначе это то же самое, что обычное "Погасить".
+  const settleClient = async d => {
+    const key = groupKey(d);
+    const total = totalsByClient.totals[key] || 0;
+    const amount = Number(clientSettleAmounts[key] ?? total);
+    const method = clientSettleMethod[key] || 'cash';
+    if (!amount || amount <= 0) return;
+    const full = amount >= total;
+    if (!window.confirm(`Погасить ${full ? 'весь' : 'частично'} долг «${d.client_name}» на ${amount.toLocaleString()} ₸ (${method === 'cash' ? 'наличными' : 'безналом'})? Сумма распределится по накладным от старых к новым.`)) return;
+    setSavingClientKey(key);
+    try {
+      const res = await apiCall('POST', '/api/debts/settle-client', {
+        clientCode: d.client_code,
+        amount,
+        method
+      });
+      await loadDebts();
+      setClientSettleAmounts(a => ({
+        ...a,
+        [key]: ''
+      }));
+      if (res.unallocated > 0) alert(`Долг клиента оказался меньше введённой суммы — реально погашено ${(amount - res.unallocated).toLocaleString()} ₸, остаток ${res.unallocated.toLocaleString()} ₸ не с чем зачесть.`);
+    } catch (e) {
+      alert(e.message);
+    }
+    setSavingClientKey(null);
+  };
+  const renderedGroups = new Set();
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u0414\u043E\u043B\u0436\u043D\u0438\u043A\u0438"), /*#__PURE__*/React.createElement("div", {
@@ -1751,6 +1788,10 @@ function DebtsPanel({
     }
   }, "\u0414\u043E\u043B\u0433\u043E\u0432 \u043D\u0435\u0442") : visibleDebts.map(d => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
+    const gKey = groupKey(d);
+    const isFirstOfGroup = !renderedGroups.has(gKey);
+    renderedGroups.add(gKey);
+    const showBulkSettle = !readOnly && isFirstOfGroup && !!d.client_code && totalsByClient.counts[gKey] > 1;
     return /*#__PURE__*/React.createElement("div", {
       key: key,
       style: {
@@ -1787,7 +1828,68 @@ function DebtsPanel({
         fontFamily: FH,
         color: d.overdue ? C.red : "#92400E"
       }
-    }, d.remaining.toLocaleString(), " \u20B8")), (d.delivery_photo || d.contact_phone) && /*#__PURE__*/React.createElement("div", {
+    }, d.remaining.toLocaleString(), " \u20B8")), showBulkSettle && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 10,
+        paddingTop: 10,
+        borderTop: `1px dashed ${C.border}`
+      }
+    }, /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "0 0 6px",
+        fontSize: 13,
+        fontWeight: 700,
+        color: C.navy
+      }
+    }, "\uD83D\uDCB0 \u041F\u043E\u0433\u0430\u0441\u0438\u0442\u044C \u043F\u043E \u043A\u043B\u0438\u0435\u043D\u0442\u0443 \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u043C\u043C\u043E\u0439 \u2014 \u0440\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0438\u0442\u0441\u044F \u043F\u043E ", totalsByClient.counts[gKey], " \u043D\u0430\u043A\u043B\u0430\u0434\u043D\u044B\u043C \u043E\u0442 \u0441\u0442\u0430\u0440\u044B\u0445 \u043A \u043D\u043E\u0432\u044B\u043C"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      style: {
+        ...S.input,
+        padding: "7px 8px",
+        fontSize: 14
+      },
+      placeholder: `До ${totalsByClient.totals[gKey]}`,
+      value: clientSettleAmounts[gKey] || '',
+      onFocus: e => e.target.select(),
+      onChange: e => setClientSettleAmounts(a => ({
+        ...a,
+        [gKey]: e.target.value
+      }))
+    }), /*#__PURE__*/React.createElement("select", {
+      style: {
+        ...S.select,
+        padding: "7px 8px",
+        fontSize: 14,
+        width: 110
+      },
+      value: clientSettleMethod[gKey] || 'cash',
+      onChange: e => setClientSettleMethod(m => ({
+        ...m,
+        [gKey]: e.target.value
+      }))
+    }, /*#__PURE__*/React.createElement("option", {
+      value: "cash"
+    }, "\u041D\u0430\u043B"), /*#__PURE__*/React.createElement("option", {
+      value: "qr"
+    }, "\u0411\u0435\u0437\u043D\u0430\u043B")), /*#__PURE__*/React.createElement("button", {
+      style: {
+        ...S.btnPrimary,
+        padding: "7px 14px",
+        fontSize: 14,
+        width: "auto",
+        whiteSpace: "nowrap",
+        marginTop: 0,
+        boxShadow: "none",
+        opacity: savingClientKey === gKey ? 0.5 : 1
+      },
+      disabled: savingClientKey === gKey,
+      onClick: () => settleClient(d)
+    }, "\u041F\u043E\u0433\u0430\u0441\u0438\u0442\u044C \u043F\u043E \u043A\u043B\u0438\u0435\u043D\u0442\u0443"))), (d.delivery_photo || d.contact_phone) && /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         gap: 14,

@@ -654,6 +654,9 @@ function DebtsPanel({ readOnly, role }) {
   const [settleAmounts, setSettleAmounts] = useState({});
   const [settleMethod, setSettleMethod] = useState({});
   const [savingId, setSavingId] = useState(null);
+  const [clientSettleAmounts, setClientSettleAmounts] = useState({});
+  const [clientSettleMethod, setClientSettleMethod] = useState({});
+  const [savingClientKey, setSavingClientKey] = useState(null);
 
   const loadDebts = useCallback(async () => {
     try {
@@ -766,6 +769,31 @@ function DebtsPanel({ readOnly, role }) {
     setSavingId(null);
   };
 
+  // Погашение "по клиенту одной суммой" — вместо того чтобы вручную считать
+  // и разносить оплату по каждой накладной, оператор вводит общую сумму, а
+  // сервер сам раскладывает её от старой накладной к новой (см.
+  // POST /api/debts/settle-client). Кнопка показывается один раз на клиента
+  // (на первой попавшейся в списке карточке) и только если у него больше
+  // одной накладной с долгом — иначе это то же самое, что обычное "Погасить".
+  const settleClient = async (d) => {
+    const key = groupKey(d);
+    const total = totalsByClient.totals[key] || 0;
+    const amount = Number(clientSettleAmounts[key] ?? total);
+    const method = clientSettleMethod[key] || 'cash';
+    if (!amount || amount<=0) return;
+    const full = amount >= total;
+    if (!window.confirm(`Погасить ${full?'весь':'частично'} долг «${d.client_name}» на ${amount.toLocaleString()} ₸ (${method==='cash'?'наличными':'безналом'})? Сумма распределится по накладным от старых к новым.`)) return;
+    setSavingClientKey(key);
+    try {
+      const res = await apiCall('POST', '/api/debts/settle-client', { clientCode: d.client_code, amount, method });
+      await loadDebts();
+      setClientSettleAmounts(a=>({...a,[key]:''}));
+      if (res.unallocated > 0) alert(`Долг клиента оказался меньше введённой суммы — реально погашено ${(amount-res.unallocated).toLocaleString()} ₸, остаток ${res.unallocated.toLocaleString()} ₸ не с чем зачесть.`);
+    } catch(e) { alert(e.message); }
+    setSavingClientKey(null);
+  };
+  const renderedGroups = new Set();
+
   return (
     <>
       <p style={S.sectionTitle}>Должники</p>
@@ -786,6 +814,10 @@ function DebtsPanel({ readOnly, role }) {
       {loadingDebts?<div style={S.loadingWrap}>Загрузка...</div>:visibleDebts.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>Долгов нет</div>:
         visibleDebts.map(d=>{
           const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
+          const gKey = groupKey(d);
+          const isFirstOfGroup = !renderedGroups.has(gKey);
+          renderedGroups.add(gKey);
+          const showBulkSettle = !readOnly && isFirstOfGroup && !!d.client_code && totalsByClient.counts[gKey]>1;
           return (
           <div key={key} style={{...S.card, borderLeft: d.overdue?`4px solid ${C.red}`:"4px solid #F59E0B", background: d.overdue?"#FEF2F2":C.white}}>
             <div style={S.row}>
@@ -796,6 +828,19 @@ function DebtsPanel({ readOnly, role }) {
               </div>
               <p style={{margin:0,fontWeight:800,fontFamily:FH,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
             </div>
+            {showBulkSettle&&(
+              <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${C.border}`}}>
+                <p style={{margin:"0 0 6px",fontSize:13,fontWeight:700,color:C.navy}}>💰 Погасить по клиенту одной суммой — распределится по {totalsByClient.counts[gKey]} накладным от старых к новым</p>
+                <div style={{display:"flex",gap:6}}>
+                  <input type="number" style={{...S.input,padding:"7px 8px",fontSize:14}} placeholder={`До ${totalsByClient.totals[gKey]}`} value={clientSettleAmounts[gKey]||''} onFocus={e=>e.target.select()} onChange={e=>setClientSettleAmounts(a=>({...a,[gKey]:e.target.value}))}/>
+                  <select style={{...S.select,padding:"7px 8px",fontSize:14,width:110}} value={clientSettleMethod[gKey]||'cash'} onChange={e=>setClientSettleMethod(m=>({...m,[gKey]:e.target.value}))}>
+                    <option value="cash">Нал</option>
+                    <option value="qr">Безнал</option>
+                  </select>
+                  <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:14,width:"auto",whiteSpace:"nowrap",marginTop:0,boxShadow:"none",opacity:savingClientKey===gKey?0.5:1}} disabled={savingClientKey===gKey} onClick={()=>settleClient(d)}>Погасить по клиенту</button>
+                </div>
+              </div>
+            )}
             {(d.delivery_photo||d.contact_phone)&&(
               <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:8}}>
                 {d.delivery_photo&&(
