@@ -2914,6 +2914,32 @@ const WAYBILL_STYLE = `
     .printScope .btnbar button{padding:12px 24px; font-size:15px; font-weight:700; cursor:pointer; border-radius:8px; border:none; color:#fff;}
     @media print { .printScope .btnbar{display:none;} }`;
 
+// Печать по 2 накладные на лист A4 (см. printWaybillsBatch) — та же
+// вёрстка накладной, но со уменьшенными шрифтами/отступами, чтобы обе
+// вошли на одну страницу, и с разрывом страницы после каждой ПАРЫ, а не
+// после каждой накладной. Для заявки с необычно большим числом позиций
+// пара всё равно может не влезть на одну физическую страницу — тогда
+// браузер просто перенесёт остаток на следующую, без потери содержимого.
+const WAYBILL_PAIR_STYLE = WAYBILL_STYLE + `
+    .printScope .waybillSheet{margin-bottom:0;}
+    .printScope .waybillSlot{font-size:9px; padding:10px 14px;}
+    .printScope .waybillSlot .topright{font-size:8px; margin-bottom:6px;}
+    .printScope .waybillSlot h1{font-size:11px; margin:8px 0;}
+    .printScope .waybillSlot table{margin:6px 0;}
+    .printScope .waybillSlot th,.printScope .waybillSlot td{padding:2px 4px; font-size:8px;}
+    .printScope .waybillSlot .headrow{margin-top:8px;}
+    .printScope .waybillSlot .headrow > div{padding:4px;}
+    .printScope .waybillSlot .headrow .label{font-size:7px; margin-bottom:2px;}
+    .printScope .waybillSlot .totals{margin-top:6px; font-size:9px;}
+    .printScope .waybillSlot .totals p{margin:3px 0;}
+    .printScope .waybillSlot .sign{margin-top:10px;}
+    .printScope .waybillSlot .sign p{margin:8px 0 2px;}
+    .printScope .waybillSlot .signline{min-width:140px;}
+    .printScope .waybillSlot .payqr img{width:46px; height:46px;}
+    .printScope .waybillSlot .payqr{font-size:7px;}
+    .printScope .cutline{text-align:center; font-size:10px; color:#888; margin:8px 0; border-top:1px dashed #999; position:relative; top:-1px;}
+    @media print { .printScope .waybillSheet{page-break-after:always;} .printScope .waybillSheet:last-child{page-break-after:auto;} }`;
+
 // Загрузочный лист — экран для склада/водителя, обычно открывается на
 // телефоне (не для печати на бумаге, как накладная, поэтому кнопка
 // "Печать" тут не нужна, а вёрстка должна помещаться на узком экране без
@@ -2994,9 +3020,10 @@ function printWaybill(order) {
 
 // Пачка накладных сразу по нескольким заявкам (например, по всем заявкам
 // одного водителя за день, после отбора по водителю в списке заявок) — та
-// же накладная, что печатается по одной (buildWaybillInnerHtml), просто
-// несколько подряд в одном оверлее с разрывом страницы между ними, чтобы
-// при печати/сохранении в PDF каждая ушла на свою страницу.
+// же накладная, что печатается по одной (buildWaybillInnerHtml), но по 2
+// на лист A4 (уменьшенный шрифт, см. WAYBILL_PAIR_STYLE) — разрыв
+// страницы после каждой ПАРЫ, а не после каждой накладной, чтобы не
+// расходовать бумагу впустую.
 function printWaybillsBatch(orders) {
   if (!orders.length) {
     alert('Нет заявок для печати');
@@ -3008,13 +3035,23 @@ function printWaybillsBatch(orders) {
   });
   if (pendingOrders.length > 0) {
     if (!window.confirm(`По ${pendingOrders.length} ${pendingOrders.length === 1 ? 'заявке' : 'заявкам'} (№${pendingOrders.map(o => o.id).join(', №')}) вес ещё не подтверждён складом — суммы могут быть неточными.\n\nВсё равно напечатать накладные по всем ${orders.length}?`)) return;
-  } else if (!window.confirm(`Напечатать накладные по ${orders.length} ${orders.length === 1 ? 'заявке' : 'заявкам'}?`)) {
+  } else if (!window.confirm(`Напечатать накладные по ${orders.length} ${orders.length === 1 ? 'заявке' : 'заявкам'} (по 2 на лист A4)?`)) {
     return;
   }
-  // margin-bottom — только видимый на экране зазор между накладными в
-  // превью; на печать не влияет (там разрыв страницы делает page-break-after).
-  const html = orders.map((o, i) => `<div style="${i < orders.length - 1 ? 'page-break-after:always;' : ''}margin-bottom:32px;">${buildWaybillInnerHtml(o)}</div>`).join('');
-  openPrintOverlay(html, WAYBILL_STYLE, true);
+  // margin-bottom — только видимый на экране зазор между листами в
+  // превью; на печать не влияет (там разрыв страницы делает page-break-after,
+  // см. .waybillSheet в WAYBILL_PAIR_STYLE).
+  const sheets = [];
+  for (let i = 0; i < orders.length; i += 2) {
+    const a = orders[i],
+      b = orders[i + 1];
+    sheets.push(`
+      <div class="waybillSheet" style="margin-bottom:32px;">
+        <div class="waybillSlot">${buildWaybillInnerHtml(a)}</div>
+        ${b ? `<div class="cutline">✂ линия отреза</div><div class="waybillSlot">${buildWaybillInnerHtml(b)}</div>` : ''}
+      </div>`);
+  }
+  openPrintOverlay(sheets.join(''), WAYBILL_PAIR_STYLE, true);
 }
 function buildLoadingListHtml(orders, driverName, productByCode) {
   const productByCode_ = productByCode || {};
