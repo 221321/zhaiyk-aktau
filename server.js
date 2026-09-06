@@ -263,7 +263,7 @@ app.post('/api/orders/:id/photo', authMiddleware, (req, res) => {
 // то, сколько денег реально получено — отдельное фото купюр закрывает этот
 // разрыв (см. проверку в PUT /api/orders/:id/status при payment.cash > 0).
 app.post('/api/orders/:id/cash-photo', authMiddleware, (req, res) => {
-  if (!['driver', 'admin', 'manager', 'operator'].includes(req.user.role)) {
+  if (!['driver', 'admin', 'manager'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const orderId = parseInt(req.params.id);
@@ -298,7 +298,7 @@ app.post('/api/orders/:id/cash-photo', authMiddleware, (req, res) => {
 // факт оплаты, а не только передачу товара (см. проверку в PUT
 // /api/orders/:id/status при payment.qr > 0).
 app.post('/api/orders/:id/qr-photo', authMiddleware, (req, res) => {
-  if (!['driver', 'admin', 'manager', 'operator'].includes(req.user.role)) {
+  if (!['driver', 'admin', 'manager'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const orderId = parseInt(req.params.id);
@@ -475,7 +475,11 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   // (delivered/cancelled/returned/revoked/in_transit) мог вызвать любой
   // залогиненный пользователь любой роли на чужой заявке напрямую через API:
   // кнопки на фронте скрыты по роли/владельцу, но это не защита сервера.
-  const isManagerRole = ['admin', 'manager', 'operator'].includes(req.user.role);
+  // operator — просмотровая роль (см. решение владельца): видит всё то же,
+  // что admin/manager, но менять заявки не может вообще, кроме сумм долга
+  // (см. отдельно POST /api/debts/settle) и отправки сообщений в WhatsApp
+  // (та не требует доступа к серверу вовсе).
+  const isManagerRole = ['admin', 'manager'].includes(req.user.role);
   const isOwnerDriver = req.user.role === 'driver' && orderBefore.driver_id === req.user.id;
   const isOwnerSales = ['sales', 'store', 'senior_sales'].includes(req.user.role) && orderBefore.sales_id === req.user.id;
   const canChange = {
@@ -575,9 +579,10 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     return res.status(409).json({ error: 'Заявка уже взята другим водителем' });
   }
 
-  // Менеджер/админ/оператор передаёт заявку конкретному водителю — водитель обязателен
+  // Менеджер/админ передаёт заявку конкретному водителю — водитель обязателен
+  // (operator — просмотровая роль, назначать водителя не может).
   let assignedDriver = null;
-  if (status === 'in_transit' && ['admin', 'manager', 'operator'].includes(req.user.role)) {
+  if (status === 'in_transit' && ['admin', 'manager'].includes(req.user.role)) {
     if (!driverId) {
       return res.status(400).json({ error: 'Выберите водителя, которому передать заявку' });
     }
@@ -687,7 +692,7 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
 // ни к чему не привязан. Правим cost прямо на позиции конкретной заявки —
 // это разовая ручная коррекция истории, а не изменение каталога.
 app.put('/api/orders/:orderId/items/:itemIndex/cost', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'operator'].includes(req.user.role)) {
+  if (!['admin', 'manager'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const orderId = parseInt(req.params.orderId);
@@ -885,7 +890,10 @@ app.delete('/api/orders/:id', authMiddleware, (req, res) => {
 db.get('users').forEach(u => { if (u.active === undefined) u.active = true; }).write();
 
 app.get('/api/users', authMiddleware, (req, res) => {
-  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+  // operator — просмотровая роль: список сотрудников видит (тот же раздел,
+  // что у admin/manager), менять ничего не может (см. отдельные проверки
+  // на POST/PUT ниже — там operator по-прежнему не допущен).
+  if (!['admin', 'manager', 'operator'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const users = db.get('users').map(u => ({ id: u.id, login: u.login, name: u.name, role: u.role, region: u.region, client_code: u.client_code || null, active: u.active !== false, employee_code: u.employee_code || null, session_active: !!(u.session_sid && u.last_seen_at && (Date.now() - new Date(u.last_seen_at).getTime()) < SESSION_IDLE_MS), last_seen_at: u.last_seen_at || null })).value();
@@ -2116,8 +2124,9 @@ app.get('/api/returns', authMiddleware, (req, res) => {
 
 app.post('/api/returns', authMiddleware, (req, res) => {
   // Оформить возврат может водитель (обнаружил порчу/забрал у магазина) —
-  // прямая просьба, ради которой это всё затевалось — и admin/manager/operator.
-  if (!['admin', 'manager', 'operator', 'driver'].includes(req.user.role)) {
+  // прямая просьба, ради которой это всё затевалось — и admin/manager.
+  // operator — просмотровая роль, оформлять возвраты не может.
+  if (!['admin', 'manager', 'driver'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const { orderId, clientCode, clientName, salesId, items, reason, date, refundCash, refundQr } = req.body;
@@ -2479,7 +2488,8 @@ app.get('/api/sales', authMiddleware, (req, res) => {
 });
 
 app.post('/api/sales', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'operator', 'cashier'].includes(req.user.role)) {
+  // operator — просмотровая роль, оформлять продажи кассы не может.
+  if (!['admin', 'manager', 'cashier'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const { items, paymentCash, paymentQr, paymentDebt, clientCode } = req.body;
@@ -2557,7 +2567,8 @@ app.post('/api/sales', authMiddleware, (req, res) => {
 });
 
 app.post('/api/sales/:id/void', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'operator', 'cashier'].includes(req.user.role)) {
+  // operator — просмотровая роль, отменять продажи не может.
+  if (!['admin', 'manager', 'cashier'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const id = parseInt(req.params.id);
@@ -2600,7 +2611,9 @@ app.post('/api/sales/:id/void', authMiddleware, (req, res) => {
 // E-Kassa/ОФД) — поэтому чек пробивает браузер кассира напрямую на
 // 127.0.0.1, а сюда только присылает результат (fiscal_id/QR) для учёта.
 app.post('/api/sales/:id/fiscal', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'operator', 'cashier'].includes(req.user.role)) {
+  // operator — просмотровая роль, фискализировать продажи не может (и не
+  // должна создавать их вовсе, см. POST /api/sales).
+  if (!['admin', 'manager', 'cashier'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const id = parseInt(req.params.id);
