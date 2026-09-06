@@ -1454,7 +1454,7 @@ function DriverPaymentBlock({
       cash: cashPaid,
       qr: qrPaid,
       debt: debtAmount
-    })
+    }, `Подтвердить доставку заявки № ${order.id} на ${total.toLocaleString()} ₸? Остаток на складе спишется, оплату потом не изменить.`)
   }, statusBusy ? "Сохранение..." : "✅ Подтвердить доставку"), /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnOutline,
@@ -2820,6 +2820,7 @@ function OrderDetail({
   onUpdateStatus,
   onDeleteOrder,
   onFixItemCost,
+  onFixItemWeight,
   currentUser,
   drivers
 }) {
@@ -2827,6 +2828,9 @@ function OrderDetail({
   const [fixingCostIndex, setFixingCostIndex] = useState(null);
   const [costInput, setCostInput] = useState("");
   const [savingCost, setSavingCost] = useState(false);
+  const [fixingWeightIndex, setFixingWeightIndex] = useState(null);
+  const [weightInput, setWeightInput] = useState("");
+  const [savingWeight, setSavingWeight] = useState(false);
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : order.items || [];
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment || '{}') : order.payment || {
     cash: order.payment_cash || 0,
@@ -3068,7 +3072,77 @@ function OrderDetail({
       setFixingCostIndex(i);
       setCostInput("");
     }
-  }, "\u0443\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E"))))), /*#__PURE__*/React.createElement("hr", {
+  }, "\u0443\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E"))), onFixItemWeight && item.is_weight_item && item.weight_confirmed && (fixingWeightIndex === i ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginTop: 6
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    autoFocus: true,
+    style: {
+      ...S.input,
+      padding: "6px 8px",
+      fontSize: 14
+    },
+    placeholder: "\u041F\u0440\u0430\u0432\u0438\u043B\u044C\u043D\u044B\u0439 \u0432\u0435\u0441, \u043A\u0433",
+    value: weightInput,
+    onChange: e => setWeightInput(e.target.value),
+    onFocus: e => e.target.select()
+  }), /*#__PURE__*/React.createElement("button", {
+    disabled: savingWeight || !weightInput,
+    style: {
+      ...S.btnPrimary,
+      width: "auto",
+      marginTop: 0,
+      padding: "6px 14px",
+      fontSize: 14,
+      opacity: savingWeight || !weightInput ? 0.5 : 1
+    },
+    onClick: async () => {
+      if (!window.confirm(`Исправить вес «${item.name}» на ${weightInput} кг? Сумма заявки и остаток на складе пересчитаются.`)) return;
+      setSavingWeight(true);
+      try {
+        await onFixItemWeight(order.id, item.code, Number(weightInput));
+        setFixingWeightIndex(null);
+        setWeightInput("");
+      } catch (e) {
+        alert(e.message);
+      }
+      setSavingWeight(false);
+    }
+  }, savingWeight ? "..." : "Сохранить"), /*#__PURE__*/React.createElement("button", {
+    disabled: savingWeight,
+    style: {
+      ...S.btnSecondary,
+      width: "auto",
+      marginTop: 0,
+      padding: "6px 14px",
+      fontSize: 14
+    },
+    onClick: () => {
+      setFixingWeightIndex(null);
+      setWeightInput("");
+    }
+  }, "\u041E\u0442\u043C\u0435\u043D\u0430")) : /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "4px 0 0",
+      fontSize: 13,
+      color: C.textFaint
+    }
+  }, "\u0412\u0437\u0432\u0435\u0441\u0438\u043B: ", item.weighed_by_name || '—', item.weighed_at ? ', ' + fmtDT(item.weighed_at) : '', " \u2014 ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.navy,
+      fontWeight: 600,
+      cursor: "pointer",
+      textDecoration: "underline"
+    },
+    onClick: () => {
+      setFixingWeightIndex(i);
+      setWeightInput(String(item.qty));
+    }
+  }, "\u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u043E\u0448\u0438\u0431\u043A\u0443 \u0432\u0435\u0441\u0430"))))), /*#__PURE__*/React.createElement("hr", {
     style: S.divider
   }), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -10474,6 +10548,25 @@ function AdminCabinet({
     setSelectedOrder(updated);
     loadOrders();
   };
+
+  // Исправление уже подтверждённого веса (человеческий фактор при
+  // взвешивании) — доступно только admin/manager, см. проверку
+  // canOverride в POST /api/orders/weights на сервере. Переиспользуем тот
+  // же массовый эндпоинт склада, просто с одной записью.
+  const fixItemWeight = async (orderId, code, weight) => {
+    const res = await apiCall('POST', '/api/orders/weights', {
+      entries: [{
+        orderId,
+        code,
+        weight
+      }]
+    });
+    if (res.errors && res.errors.length) throw new Error(res.errors.join('\n'));
+    const data = await apiCall('GET', '/api/orders');
+    setOrders(data);
+    const updated = data.find(o => o.id === orderId);
+    if (updated) setSelectedOrder(updated);
+  };
   const [expandedSales, setExpandedSales] = useState({});
   const [cashboxGroupBy, setCashboxGroupBy] = useState("driver");
   // Клик по кругляшкам НАЛ/QR/ДОЛГ в сводке "Касса за период" прокручивает
@@ -13193,6 +13286,7 @@ function AdminCabinet({
       onUpdateStatus: handleUpdate,
       onDeleteOrder: handleDelete,
       onFixItemCost: fixItemCost,
+      onFixItemWeight: user.role !== "operator" ? fixItemWeight : undefined,
       currentUser: user,
       drivers: users.filter(u => u.role === "driver" && u.active !== false)
     }), showPosModal && /*#__PURE__*/React.createElement(PosSaleModal, {
@@ -13270,6 +13364,7 @@ function AdminCabinet({
     onUpdateStatus: handleUpdate,
     onDeleteOrder: handleDelete,
     onFixItemCost: fixItemCost,
+    onFixItemWeight: user.role !== "operator" ? fixItemWeight : undefined,
     currentUser: user,
     drivers: users.filter(u => u.role === "driver" && u.active !== false)
   }), showPosModal && /*#__PURE__*/React.createElement(PosSaleModal, {
@@ -13479,7 +13574,10 @@ function WarehouseCabinet({
       alert('Введите хотя бы одно значение веса');
       return;
     }
-    if (!window.confirm(`Сохранить фактический вес по ${entries.length} ${entries.length === 1 ? 'позиции' : 'позициям'}? Суммы заявок пересчитаются.`)) return;
+    // Проверка веса перед сохранением важна вдвойне: после подтверждения
+    // склад сам исправить его уже не сможет (см. canOverride на сервере) —
+    // только менеджер/админ через карточку заявки.
+    if (!window.confirm(`Проверьте вес ещё раз — сохранить нельзя будет изменить.\n\nСохранить фактический вес по ${entries.length} ${entries.length === 1 ? 'позиции' : 'позициям'}? Суммы заявок пересчитаются.`)) return;
     setSavingWeights(true);
     try {
       const res = await apiCall('POST', '/api/orders/weights', {
