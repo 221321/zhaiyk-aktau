@@ -13537,7 +13537,7 @@ function WarehouseCabinet({
           color: C.textMid,
           overflowWrap: "anywhere"
         }
-      }, it.name, " ", /*#__PURE__*/React.createElement("span", {
+      }, it.name, " ", !it.weight_confirmed && /*#__PURE__*/React.createElement("span", {
         style: {
           color: C.textFaint
         }
@@ -13547,7 +13547,22 @@ function WarehouseCabinet({
           fontSize: 12,
           color: C.textFaint
         }
-      }, "\u0412\u0437\u0432\u0435\u0441\u0438\u043B: ", it.weighed_by_name, it.weighed_at ? ', ' + new Date(it.weighed_at).toLocaleString('ru-RU') : '')), /*#__PURE__*/React.createElement("input", {
+      }, "\u0412\u0437\u0432\u0435\u0441\u0438\u043B: ", it.weighed_by_name, it.weighed_at ? ', ' + new Date(it.weighed_at).toLocaleString('ru-RU') : '')), it.weight_confirmed ?
+      /*#__PURE__*/
+      // Вес зафиксирован сервером один раз и правке больше не
+      // подлежит (см. POST /api/orders/weights) — вместо поля
+      // ввода показываем итог как факт, а не как черновик.
+      React.createElement("span", {
+        style: {
+          width: 80,
+          flexShrink: 0,
+          padding: "6px 8px",
+          fontSize: 14,
+          fontWeight: 700,
+          color: C.green,
+          textAlign: "right"
+        }
+      }, "\u2713 ", it.qty, " \u043A\u0433") : /*#__PURE__*/React.createElement("input", {
         type: "number",
         placeholder: "\u043A\u0433",
         style: {
