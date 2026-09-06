@@ -3375,6 +3375,11 @@ function OrderDetail({
     if (pendingWeightItems.length > 0 && !window.confirm(`Вес по ${pendingWeightItems.length === 1 ? 'позиции' : 'позициям'} (${pendingWeightItems.map(it => it.name).join(', ')}) ещё не подтверждён складом — сумма может быть неточной. Всё равно напечатать?`)) return;
     fn();
   };
+  // Самовывоз клиент забирает прямо со склада, без водителя — зав. склад
+  // сам "берёт в работу" и сам же закрывает такую заявку при выдаче товара
+  // (см. canChange на сервере), тем же способом, что и водитель у обычной
+  // доставки: те же три блока ниже, просто с добавленным условием роли.
+  const canWarehousePickup = currentUser.role === "warehouse" && order.time_slot === PICKUP_SLOT;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       position: "fixed",
@@ -3776,10 +3781,10 @@ function OrderDetail({
       borderRadius: 10,
       border: `1px solid ${C.border}`
     }
-  }))), currentUser.role === "driver" && order.status === "in_transit" && order.driver_id === currentUser.id && /*#__PURE__*/React.createElement(DriverPaymentBlock, {
+  }))), (currentUser.role === "driver" || currentUser.role === "warehouse") && order.status === "in_transit" && order.driver_id === currentUser.id && /*#__PURE__*/React.createElement(DriverPaymentBlock, {
     order: order,
     onUpdateStatus: onUpdateStatus
-  }), currentUser.role === "driver" && order.status === "in_transit" && order.driver_id === currentUser.id && /*#__PURE__*/React.createElement("div", {
+  }), (currentUser.role === "driver" || currentUser.role === "warehouse") && order.status === "in_transit" && order.driver_id === currentUser.id && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 8
     }
@@ -3799,7 +3804,14 @@ function OrderDetail({
   }, /*#__PURE__*/React.createElement("button", {
     style: S.btnPrimary,
     onClick: () => onUpdateStatus(order.id, "in_transit", null)
-  }, "\uD83D\uDE9A \u0412\u0437\u044F\u0442\u044C \u0432 \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0443")), (currentUser.role === "sales" || currentUser.role === "store" || currentUser.role === "senior_sales" && order.sales_id === currentUser.id) && order.status === "new" && /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDE9A \u0412\u0437\u044F\u0442\u044C \u0432 \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0443")), canWarehousePickup && order.status === "new" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 20
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    style: S.btnPrimary,
+    onClick: () => onUpdateStatus(order.id, "in_transit", null)
+  }, "\uD83D\uDCE6 \u0412\u044B\u0434\u0430\u0442\u044C \u0441\u043E \u0441\u043A\u043B\u0430\u0434\u0430")), (currentUser.role === "sales" || currentUser.role === "store" || currentUser.role === "senior_sales" && order.sales_id === currentUser.id) && order.status === "new" && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 20
     }
@@ -14222,6 +14234,21 @@ function WarehouseCabinet({
   }, []);
   useRefetchOnVisible(loadProducts, loadOrders);
 
+  // Взять в работу и закрыть заявку самовывоза (см. canWarehousePickup в
+  // OrderDetail) — единственные переходы статуса, доступные зав. складу.
+  const handleUpdate = async (id, status, payment) => {
+    try {
+      await apiCall('PUT', `/api/orders/${id}/status`, {
+        status,
+        payment
+      });
+      setSelectedOrder(null);
+      loadOrders();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
   // Сколько налички сейчас физически на руках у каждого водителя — та же
   // логика, что и computeDriverPendingCash на сервере (доставлено, оплата
   // налом, ещё не вошло ни в одну сдачу). Строго для информации: принимает
@@ -14269,15 +14296,18 @@ function WarehouseCabinet({
     return (a.display_name || a.name || '').localeCompare(b.display_name || b.name || '');
   });
 
-  // Вкладка "Заявки" зав. склада — только просмотр (см. OrderDetail: без
-  // onUpdateStatus/onDeleteOrder/onFixItemCost/onFixItemWeight никакие кнопки
-  // изменения там не показываются ни для одной роли, кроме перечисленных явно).
+  // Вкладка "Заявки" зав. склада — просмотр плюс одно исключение: заявки
+  // самовывоза (см. canWarehousePickup в OrderDetail) зав. склад может сам
+  // взять в работу и закрыть при выдаче товара. На остальные заявки ни
+  // onDeleteOrder/onFixItemCost/onFixItemWeight, ни другие кнопки
+  // изменения не показываются ни для одной роли, кроме перечисленных явно.
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [orderSearch, setOrderSearch] = useState("");
   const [orderFilter, setOrderFilter] = useState("all");
+  const [pickupOnly, setPickupOnly] = useState(false);
   const ORDER_FILTERS = [["all", "Все"], ["new", "Ожидает"], ["in_transit", "В работе"], ["delivered", "Доставлено"], ["cancelled", "Отказ"], ["returned", "Возврат"], ["revoked", "Отозвана"]];
   const oq = orderSearch.trim().toLowerCase();
-  const filteredOrders = orders.filter(o => orderFilter === "all" || o.status === orderFilter).filter(o => !oq || String(o.id).includes(oq) || (o.client_name || '').toLowerCase().includes(oq) || (o.sales_name || '').toLowerCase().includes(oq));
+  const filteredOrders = orders.filter(o => orderFilter === "all" || o.status === orderFilter).filter(o => !pickupOnly || o.time_slot === PICKUP_SLOT).filter(o => !oq || String(o.id).includes(oq) || (o.client_name || '').toLowerCase().includes(oq) || (o.sales_name || '').toLowerCase().includes(oq));
   const [driverFilter, setDriverFilter] = useState("");
   const queueOrders = orders.filter(o => o.status === "new");
   const activeOrders = orders.filter(o => o.status === "in_transit");
@@ -14574,7 +14604,7 @@ function WarehouseCabinet({
     style: {
       display: "flex",
       gap: 6,
-      marginBottom: 16,
+      marginBottom: 10,
       flexWrap: "wrap"
     }
   }, ORDER_FILTERS.map(([k, lb]) => /*#__PURE__*/React.createElement("button", {
@@ -14590,7 +14620,23 @@ function WarehouseCabinet({
       background: orderFilter === k ? C.navy : C.white,
       color: orderFilter === k ? C.white : C.textMid
     }
-  }, lb))), loadingOrders ? /*#__PURE__*/React.createElement("div", {
+  }, lb))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setPickupOnly(p => !p),
+    style: {
+      padding: "6px 13px",
+      borderRadius: 99,
+      border: `1px solid ${pickupOnly ? C.navy : C.border}`,
+      cursor: "pointer",
+      fontSize: 14,
+      fontWeight: 600,
+      background: pickupOnly ? C.navy : C.white,
+      color: pickupOnly ? C.white : C.textMid
+    }
+  }, "\uD83C\uDFEC \u0422\u043E\u043B\u044C\u043A\u043E \u0441\u0430\u043C\u043E\u0432\u044B\u0432\u043E\u0437")), loadingOrders ? /*#__PURE__*/React.createElement("div", {
     style: S.loadingWrap
   }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : filteredOrders.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
@@ -15019,6 +15065,7 @@ function WarehouseCabinet({
   }, h.comment))))))), selectedOrder && /*#__PURE__*/React.createElement(OrderDetail, {
     order: selectedOrder,
     onClose: () => setSelectedOrder(null),
+    onUpdateStatus: handleUpdate,
     currentUser: user
   }), /*#__PURE__*/React.createElement("div", {
     style: S.nav

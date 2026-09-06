@@ -268,13 +268,13 @@ app.post('/api/orders/:id/photo', authMiddleware, (req, res) => {
 // то, сколько денег реально получено — отдельное фото купюр закрывает этот
 // разрыв (см. проверку в PUT /api/orders/:id/status при payment.cash > 0).
 app.post('/api/orders/:id/cash-photo', authMiddleware, (req, res) => {
-  if (!['driver', 'admin', 'manager'].includes(req.user.role)) {
+  if (!['driver', 'warehouse', 'admin', 'manager'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const orderId = parseInt(req.params.id);
   const order = db.get('orders').find({ id: orderId }).value();
   if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
-  if (req.user.role === 'driver' && order.driver_id !== req.user.id) {
+  if (['driver', 'warehouse'].includes(req.user.role) && order.driver_id !== req.user.id) {
     return res.status(403).json({ error: 'Это не ваша заявка' });
   }
 
@@ -303,13 +303,13 @@ app.post('/api/orders/:id/cash-photo', authMiddleware, (req, res) => {
 // факт оплаты, а не только передачу товара (см. проверку в PUT
 // /api/orders/:id/status при payment.qr > 0).
 app.post('/api/orders/:id/qr-photo', authMiddleware, (req, res) => {
-  if (!['driver', 'admin', 'manager'].includes(req.user.role)) {
+  if (!['driver', 'warehouse', 'admin', 'manager'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const orderId = parseInt(req.params.id);
   const order = db.get('orders').find({ id: orderId }).value();
   if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
-  if (req.user.role === 'driver' && order.driver_id !== req.user.id) {
+  if (['driver', 'warehouse'].includes(req.user.role) && order.driver_id !== req.user.id) {
     return res.status(403).json({ error: 'Это не ваша заявка' });
   }
 
@@ -487,12 +487,20 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   const isManagerRole = ['admin', 'manager'].includes(req.user.role);
   const isOwnerDriver = req.user.role === 'driver' && orderBefore.driver_id === req.user.id;
   const isOwnerSales = ['sales', 'store', 'senior_sales'].includes(req.user.role) && orderBefore.sales_id === req.user.id;
+  // Самовывоз (time_slot==="Самовывоз") клиент забирает прямо со склада —
+  // без водителя и доставки. Зав. склад сам "берёт в работу" такую заявку
+  // (аналог того, что для обычной делает водитель) и сам же закрывает её
+  // при выдаче товара — тем же способом оплаты/фото, что и водитель у
+  // обычной доставки (см. canChange.in_transit/delivered ниже и
+  // driver_id-присвоение). На заявки с доставкой это не распространяется.
+  const isPickupOrder = orderBefore.time_slot === 'Самовывоз';
+  const isOwnerWarehouse = req.user.role === 'warehouse' && orderBefore.driver_id === req.user.id;
   const canChange = {
-    in_transit: (req.user.role === 'driver' && orderBefore.status === 'new') || isManagerRole,
-    new: isOwnerDriver || isManagerRole,
-    delivered: isOwnerDriver || isManagerRole,
-    cancelled: isOwnerDriver || isManagerRole,
-    returned: isOwnerDriver || isManagerRole,
+    in_transit: (req.user.role === 'driver' && orderBefore.status === 'new') || isManagerRole || (req.user.role === 'warehouse' && isPickupOrder && orderBefore.status === 'new'),
+    new: isOwnerDriver || isOwnerWarehouse || isManagerRole,
+    delivered: isOwnerDriver || isOwnerWarehouse || isManagerRole,
+    cancelled: isOwnerDriver || isOwnerWarehouse || isManagerRole,
+    returned: isOwnerDriver || isOwnerWarehouse || isManagerRole,
     revoked: isOwnerSales || isManagerRole,
   };
   if (!canChange[status]) {
@@ -601,7 +609,7 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   }
 
   const patch = { status };
-  if (['in_transit', 'delivered', 'cancelled', 'returned'].includes(status) && req.user.role === 'driver') {
+  if (['in_transit', 'delivered', 'cancelled', 'returned'].includes(status) && ['driver', 'warehouse'].includes(req.user.role)) {
     patch.driver_id = req.user.id;
     patch.driver_name = req.user.name;
   }
