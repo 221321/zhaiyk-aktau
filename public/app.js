@@ -2565,7 +2565,7 @@ function WeighLogPanel() {
       fontSize: 13,
       marginTop: 2
     }
-  }, "\u0417\u0430\u044F\u0432\u043A\u0430 \u2116", l.order_id, " \xB7 ", l.weighed_by_name, " \xB7 ", new Date(l.weighed_at).toLocaleString('ru-RU'), l.prev_weight != null && ` · было ${l.prev_weight} кг`)))));
+  }, "\u0417\u0430\u044F\u0432\u043A\u0430 \u2116", l.order_id, " \xB7 ", l.weighed_by_name, " \xB7 ", new Date(l.weighed_at).toLocaleString('ru-RU'), l.prev_weight != null && ` · заявка вес ${l.prev_weight} кг`)))));
 }
 const COMPANY_INFO = {
   name: 'ИП ЖАЙЫК АКТАУ',

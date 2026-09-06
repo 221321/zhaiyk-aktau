@@ -1106,7 +1106,7 @@ function WeighLogPanel() {
                 </div>
                 <div style={{color:C.textFaint,fontSize:13,marginTop:2}}>
                   Заявка №{l.order_id} · {l.weighed_by_name} · {new Date(l.weighed_at).toLocaleString('ru-RU')}
-                  {l.prev_weight!=null&&` · было ${l.prev_weight} кг`}
+                  {l.prev_weight!=null&&` · заявка вес ${l.prev_weight} кг`}
                 </div>
               </div>
             ))
