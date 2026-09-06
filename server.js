@@ -1757,6 +1757,46 @@ app.get('/api/debt-settlements', authMiddleware, (req, res) => {
   res.json(db.get('debtSettlements').value());
 });
 
+// Исправить сумму уже внесённого погашения — например, оператор ошибся
+// при вводе. Только администратор: сам оператор задним числом менять
+// цифры не может, иначе долг можно было бы тихо списать самому себе.
+app.put('/api/debt-settlements/:id', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Исправить сумму погашения может только администратор' });
+  const id = Number(req.params.id);
+  const settlement = db.get('debtSettlements').find({ id }).value();
+  if (!settlement) return res.status(404).json({ error: 'Запись о погашении не найдена' });
+  const newAmount = Number(req.body.amount);
+  if (!(newAmount > 0)) return res.status(400).json({ error: 'Укажите корректную сумму' });
+
+  // Не даём исправить сумму так, чтобы сумма всех погашений по этой же
+  // накладной/продаже превысила исходный долг — иначе остаток ушёл бы в минус.
+  let debtTotal;
+  if (settlement.order_id) {
+    const order = db.get('orders').find({ id: settlement.order_id }).value();
+    if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+    debtTotal = order.payment_debt || 0;
+  } else {
+    const sale = db.get('sales').find({ id: settlement.sale_id }).value();
+    if (!sale) return res.status(404).json({ error: 'Продажа не найдена' });
+    debtTotal = sale.payment_debt || 0;
+  }
+  const otherSettled = db.get('debtSettlements').value()
+    .filter(s => s.id !== id && ((settlement.order_id && s.order_id === settlement.order_id) || (settlement.sale_id && s.sale_id === settlement.sale_id)))
+    .reduce((sum, s) => sum + s.amount, 0);
+  if (newAmount > debtTotal - otherSettled) {
+    return res.status(400).json({ error: `Сумма превышает остаток долга (максимум ${(debtTotal - otherSettled).toLocaleString('ru-RU')} ₸)` });
+  }
+
+  db.get('debtSettlements').find({ id }).assign({
+    amount: newAmount,
+    original_amount: settlement.original_amount != null ? settlement.original_amount : settlement.amount,
+    corrected_by_id: req.user.id,
+    corrected_by_name: req.user.name,
+    corrected_at: new Date().toISOString(),
+  }).write();
+  res.json(db.get('debtSettlements').find({ id }).value());
+});
+
 // ===== STOCK (остатки снова приходят из 1С через /api/stock/sync; продажа/
 // доставка/возврат по-прежнему списывают/приходуют qty напрямую в моменте —
 // см. соответствующие эндпоинты) =====
@@ -2440,6 +2480,30 @@ app.put('/api/cash-handovers/:id/confirm', authMiddleware, (req, res) => {
     confirmed_by_id: req.user.id,
     confirmed_by_name: req.user.name,
     confirmed_at: new Date().toISOString(),
+  }).write();
+  res.json(db.get('cashHandovers').find({ id }).value());
+});
+
+// Закрыть расхождение (недостачу/излишек) по уже подтверждённой сдаче —
+// например, водитель донёс недостающую сумму позже отдельно от самой
+// сдачи. Только администратор: склад лишь принимает и фиксирует сдачу
+// как есть (см. confirm выше), а разбор и списание расхождения — уже
+// решение администратора, а не склада.
+app.put('/api/cash-handovers/:id/resolve-difference', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Закрыть разницу может только администратор' });
+  const id = parseInt(req.params.id);
+  const handover = db.get('cashHandovers').find({ id }).value();
+  if (!handover) return res.status(404).json({ error: 'Сдача не найдена' });
+  if (handover.status !== 'confirmed') return res.status(400).json({ error: 'Сдача ещё не подтверждена складом' });
+  if (!handover.difference) return res.status(400).json({ error: 'По этой сдаче нет расхождения' });
+  if (handover.difference_resolved) return res.status(400).json({ error: 'Разница уже закрыта' });
+
+  db.get('cashHandovers').find({ id }).assign({
+    difference_resolved: true,
+    difference_resolved_comment: (req.body.comment || '').trim(),
+    difference_resolved_by_id: req.user.id,
+    difference_resolved_by_name: req.user.name,
+    difference_resolved_at: new Date().toISOString(),
   }).write();
   res.json(db.get('cashHandovers').find({ id }).value());
 });
