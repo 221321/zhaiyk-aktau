@@ -8508,20 +8508,32 @@ function sumItemsProfit(list) {
   let revenue = 0,
     cost = 0,
     missingCostLines = 0;
+  const missingCostItemsMap = {};
   (list || []).forEach(o => {
     const its = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : o.items || [];
     its.forEach(it => {
       const qty = Number(it.qty) || 0,
         price = Number(it.price) || 0;
       revenue += qty * price;
-      if (it.cost != null) cost += qty * Number(it.cost);else missingCostLines += 1;
+      if (it.cost != null) cost += qty * Number(it.cost);else {
+        missingCostLines += 1;
+        // Дедуп по коду (или имени, если кода нет) — один и тот же товар
+        // без закупочной цены может встретиться в десятках заявок, но
+        // в предупреждении назвать его нужно один раз.
+        const key = it.code || it.name;
+        if (key && !missingCostItemsMap[key]) missingCostItemsMap[key] = {
+          code: it.code || null,
+          name: it.name
+        };
+      }
     });
   });
   return {
     revenue,
     cost,
     profit: revenue - cost,
-    missingCostLines
+    missingCostLines,
+    missingCostItems: Object.values(missingCostItemsMap)
   };
 }
 
@@ -8540,6 +8552,7 @@ function ProfitBlock({
   cost,
   profit,
   missingLines,
+  missingItems,
   commission
 }) {
   const margin = revenue > 0 ? profit / revenue * 100 : 0;
@@ -8663,7 +8676,7 @@ function ProfitBlock({
       borderRadius: 8,
       padding: "7px 10px"
     }
-  }, "\u26A0\uFE0F \u0423 ", missingLines, " ", missingLines === 1 ? 'позиции' : 'позиций', " \u043D\u0435\u0442 \u0437\u0430\u043A\u0443\u043F\u043E\u0447\u043D\u043E\u0439 \u0446\u0435\u043D\u044B \u2014 \u043F\u0440\u0438\u0431\u044B\u043B\u044C \u0437\u0430\u043D\u0438\u0436\u0435\u043D\u0430. \u0417\u0430\u043F\u043E\u043B\u043D\u0438\u0442\u0435 \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0422\u043E\u0432\u0430\u0440\u044B\xBB."));
+  }, "\u26A0\uFE0F \u0423 ", missingLines, " ", missingLines === 1 ? 'позиции' : 'позиций', " \u043D\u0435\u0442 \u0437\u0430\u043A\u0443\u043F\u043E\u0447\u043D\u043E\u0439 \u0446\u0435\u043D\u044B \u2014 \u043F\u0440\u0438\u0431\u044B\u043B\u044C \u0437\u0430\u043D\u0438\u0436\u0435\u043D\u0430. \u0417\u0430\u043F\u043E\u043B\u043D\u0438\u0442\u0435 \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0422\u043E\u0432\u0430\u0440\u044B\xBB", missingItems && missingItems.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, ": ", /*#__PURE__*/React.createElement("b", null, missingItems.map(it => it.name).join(', '))), "."));
 }
 
 // Кабинет кассира — постоянный экран кассы: каталог и текущий чек всегда
@@ -10448,6 +10461,7 @@ function AdminCabinet({
     stats.costTotal = ordersProfit.cost;
     stats.profit = ordersProfit.profit;
     stats.profitMissingLines = ordersProfit.missingCostLines;
+    stats.profitMissingItems = ordersProfit.missingCostItems;
 
     // Продажи по кассе за тот же период — отдельно от заявок на доставку,
     // но объединяем в общую сумму (combinedCash/Qr/Debt) ниже, чтобы
@@ -10469,9 +10483,18 @@ function AdminCabinet({
     posReport.costTotal = salesProfit.cost;
     posReport.profit = salesProfit.profit;
     posReport.profitMissingLines = salesProfit.missingCostLines;
+    posReport.profitMissingItems = salesProfit.missingCostItems;
     posReport.combinedCost = stats.costTotal + salesProfit.cost;
     posReport.combinedProfit = stats.profit + salesProfit.profit;
     posReport.combinedProfitMissingLines = stats.profitMissingLines + salesProfit.missingCostLines;
+    // Дедуп по коду/имени между заявками и кассой — один и тот же товар без
+    // закупочной цены не должен назваться дважды в общем предупреждении.
+    const combinedMissingMap = {};
+    [...ordersProfit.missingCostItems, ...salesProfit.missingCostItems].forEach(it => {
+      const key = it.code || it.name;
+      if (key && !combinedMissingMap[key]) combinedMissingMap[key] = it;
+    });
+    posReport.combinedProfitMissingItems = Object.values(combinedMissingMap);
     const commissionByCode = {};
     products.forEach(p => {
       commissionByCode[p.code] = p.commission || 0;
@@ -11161,6 +11184,7 @@ function AdminCabinet({
     cost: stats.costTotal,
     profit: stats.profit,
     missingLines: stats.profitMissingLines,
+    missingItems: stats.profitMissingItems,
     commission: totalCommission
   })), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -11729,6 +11753,7 @@ function AdminCabinet({
     cost: posReport.combinedCost,
     profit: posReport.combinedProfit,
     missingLines: posReport.combinedProfitMissingLines,
+    missingItems: posReport.combinedProfitMissingItems,
     commission: totalCommission
   })), user.role !== "operator" && /*#__PURE__*/React.createElement("div", {
     style: {
