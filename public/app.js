@@ -3471,6 +3471,7 @@ function SalesCabinet({
       productId: prod.id,
       code: prod.code,
       name: prod.name,
+      unit: prod.unit,
       price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : "",
       search: prod.name,
       showDrop: false,
@@ -4138,42 +4139,15 @@ function SalesCabinet({
     style: S.formGroup
   }, /*#__PURE__*/React.createElement("label", {
     style: S.label
-  }, "\u041A\u043E\u043D\u0442\u0430\u043A\u0442\u043D\u043E\u0435 \u043B\u0438\u0446\u043E"), /*#__PURE__*/React.createElement("div", {
+  }, "\u0422\u0435\u043B\u0435\u0444\u043E\u043D \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u043D\u043E\u0433\u043E \u043B\u0438\u0446\u0430"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 6,
-      marginBottom: 8
+      gap: 6
     }
-  }, /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
-      ...S.input,
+      position: "relative",
       flex: 1
-    },
-    placeholder: "\u0418\u043C\u044F",
-    value: contactName,
-    onChange: e => setContactName(e.target.value)
-  }), CONTACT_PICKER_SUPPORTED && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    title: "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u043E\u0432",
-    onClick: () => pickPhoneContact(({
-      name,
-      tel
-    }) => {
-      if (name) setContactName(name);
-      if (tel) setContactPhone(tel);
-    }),
-    style: {
-      flexShrink: 0,
-      width: 48,
-      border: `1.5px solid ${C.border}`,
-      borderRadius: 10,
-      background: C.white,
-      fontSize: 19,
-      cursor: "pointer"
-    }
-  }, "\uD83D\uDCC7")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "relative"
     }
   }, /*#__PURE__*/React.createElement("input", {
     style: {
@@ -4199,7 +4173,26 @@ function SalesCabinet({
       padding: 4,
       lineHeight: 1
     }
-  }, "\xD7"))), /*#__PURE__*/React.createElement("div", {
+  }, "\xD7")), CONTACT_PICKER_SUPPORTED && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    title: "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u043E\u0432",
+    onClick: () => pickPhoneContact(({
+      name,
+      tel
+    }) => {
+      if (name) setContactName(name);
+      if (tel) setContactPhone(tel);
+    }),
+    style: {
+      flexShrink: 0,
+      width: 48,
+      border: `1.5px solid ${C.border}`,
+      borderRadius: 10,
+      background: C.white,
+      fontSize: 19,
+      cursor: "pointer"
+    }
+  }, "\uD83D\uDCC7"))), /*#__PURE__*/React.createElement("div", {
     style: S.formGroup
   }, /*#__PURE__*/React.createElement("label", {
     style: S.label
@@ -4419,7 +4412,7 @@ function SalesCabinet({
         color: C.textFaint,
         marginTop: 2
       }
-    }, "\u041D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435: ", line.stock), line.pricedByWeight && /*#__PURE__*/React.createElement("div", {
+    }, "\u041D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435: ", line.stock, " ", line.unit), line.pricedByWeight && /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         alignItems: "center",
