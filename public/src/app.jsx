@@ -1341,7 +1341,7 @@ function buildWaybillInnerHtml(order) {
     </div>
     <div class="headrow row2">
       <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name||''}${order.driver_name?'<br>':''}${COMPANY_INFO.responsiblePhone}</div>
-      <div><div class="label">ТРАНСПОРТНАЯ ОРГАНИЗАЦИЯ</div>&nbsp;</div>
+      <div class="miniqr"><img src="/kaspi-qr.png" alt="Kaspi QR"/><p>Kaspi QR — оплата</p></div>
       <div><div class="label">АДРЕС ДОСТАВКИ</div>${order.address||''}${order.contact_phone?('<br>Тел: '+order.contact_phone):''}</div>
     </div>
     <table>
@@ -1349,21 +1349,19 @@ function buildWaybillInnerHtml(order) {
       ${rows}
       <tr><td colspan="7" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(order.total||0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds.toLocaleString()}</td></tr>
     </table>
-    <div class="paysection">
-      <div class="paytext">
-        <div class="totals">
-          <p>Всего отпущено на сумму: <b>${(order.total||0).toLocaleString()} ₸</b></p>
-          <p>Сумма прописью: ${tengeSumToWords(order.total||0)}</p>
-        </div>
-        <div class="sign">
-          <p>Отпуск разрешил: <span class="signline">${COMPANY_INFO.releaseAuthorizedBy}</span> должность / подпись</p>
-          <p>Отпустил (водитель): <span class="signline">${order.driver_name||''}</span> подпись</p>
-          <p style="margin-top:20px">М.П.</p>
-        </div>
+    <div class="totals">
+      <p>Всего отпущено на сумму: <b>${(order.total||0).toLocaleString()} ₸</b></p>
+      <p>Сумма прописью: ${tengeSumToWords(order.total||0)}</p>
+    </div>
+    <div class="signcols">
+      <div class="sign">
+        <p>Отпуск разрешил: <span class="signline">${COMPANY_INFO.releaseAuthorizedBy}</span> должность / подпись</p>
+        <p>Отпустил (водитель): <span class="signline">${order.driver_name||''}</span> подпись</p>
+        <p style="margin-top:20px">М.П.</p>
       </div>
-      <div class="payqr">
-        <img src="/kaspi-qr.png" alt="Kaspi QR"/>
-        <p>Kaspi QR<br>Сканируйте и платите</p>
+      <div class="sign">
+        <p>Запасы получил: <span class="signline">&nbsp;</span> подпись</p>
+        <p>Расшифровка подписи: <span class="signline">${order.contact_name||''}</span></p>
       </div>
     </div>`;
 }
@@ -1389,16 +1387,16 @@ const WAYBILL_STYLE = `
     .printScope .headrow > div:last-child{border-right:none;}
     .printScope .headrow .label{font-size:9px; color:#444; margin-bottom:4px;}
     .printScope .toprow{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;}
-    .printScope .paysection{display:flex; justify-content:space-between; align-items:flex-start; gap:16px;}
-    .printScope .paytext{flex:1; min-width:0;}
+    .printScope .headrow .miniqr{display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;}
+    .printScope .headrow .miniqr img{width:44px; height:44px; display:block; margin:0 0 2px;}
+    .printScope .headrow .miniqr p{margin:0; font-size:8px; color:#444; line-height:1.2;}
     .printScope .totals{margin-top:8px; font-size:11px;}
     .printScope .totals p{margin:6px 0;}
+    .printScope .signcols{display:flex; gap:16px;}
+    .printScope .signcols .sign{flex:1; min-width:0;}
     .printScope .sign{margin-top:24px;}
     .printScope .sign p{margin:14px 0 2px;}
     .printScope .signline{display:inline-block; min-width:220px; border-bottom:1px solid #333; margin:0 6px;}
-    .printScope .payqr{flex-shrink:0; text-align:center; font-size:9px; color:#444;}
-    .printScope .payqr img{width:72px; height:72px; display:block; margin:0 auto 4px;}
-    .printScope .payqr p{margin:0;}
     .printScope .btnbar{text-align:center; margin-bottom:20px; display:flex; gap:10px; justify-content:center;}
     .printScope .btnbar button{padding:12px 24px; font-size:15px; font-weight:700; cursor:pointer; border-radius:8px; border:none; color:#fff;}
     @media print { .printScope .btnbar{display:none;} }`;
@@ -1421,11 +1419,12 @@ const WAYBILL_PAIR_STYLE = WAYBILL_STYLE + `
     .printScope .waybillSlot .headrow .label{font-size:7px; margin-bottom:2px;}
     .printScope .waybillSlot .totals{margin-top:6px; font-size:9px;}
     .printScope .waybillSlot .totals p{margin:3px 0;}
+    .printScope .waybillSlot .signcols{gap:8px;}
     .printScope .waybillSlot .sign{margin-top:10px;}
     .printScope .waybillSlot .sign p{margin:8px 0 2px;}
-    .printScope .waybillSlot .signline{min-width:140px;}
-    .printScope .waybillSlot .payqr img{width:46px; height:46px;}
-    .printScope .waybillSlot .payqr{font-size:7px;}
+    .printScope .waybillSlot .signline{min-width:110px;}
+    .printScope .waybillSlot .headrow .miniqr img{width:28px; height:28px;}
+    .printScope .waybillSlot .headrow .miniqr p{font-size:6px;}
     .printScope .cutline{text-align:center; font-size:10px; color:#888; margin:8px 0; border-top:1px dashed #999; position:relative; top:-1px;}
     @media print { .printScope .waybillSheet{page-break-after:always;} .printScope .waybillSheet:last-child{page-break-after:auto;} }`;
 
