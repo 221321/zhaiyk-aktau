@@ -8683,7 +8683,7 @@ function ProfitBlock({
       borderRadius: 8,
       padding: "7px 10px"
     }
-  }, "\u26A0\uFE0F \u0423 ", missingLines, " ", missingLines === 1 ? 'позиции' : 'позиций', " \u043D\u0435\u0442 \u0437\u0430\u043A\u0443\u043F\u043E\u0447\u043D\u043E\u0439 \u0446\u0435\u043D\u044B \u2014 \u043F\u0440\u0438\u0431\u044B\u043B\u044C \u0437\u0430\u043D\u0438\u0436\u0435\u043D\u0430. \u0417\u0430\u043F\u043E\u043B\u043D\u0438\u0442\u0435 \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0422\u043E\u0432\u0430\u0440\u044B\xBB", missingItems && missingItems.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, ": ", /*#__PURE__*/React.createElement("b", null, missingItems.map(it => it.name).join(', '))), "."));
+  }, "\u26A0\uFE0F \u0423 ", missingLines, " ", missingLines === 1 ? 'позиции' : 'позиций', " \u043D\u0435\u0442 \u0437\u0430\u043A\u0443\u043F\u043E\u0447\u043D\u043E\u0439 \u0446\u0435\u043D\u044B \u2014 \u043F\u0440\u0438\u0431\u044B\u043B\u044C \u0437\u0430\u043D\u0438\u0436\u0435\u043D\u0430. \u0417\u0430\u043F\u043E\u043B\u043D\u0438\u0442\u0435 \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0422\u043E\u0432\u0430\u0440\u044B\xBB", missingItems && missingItems.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, ": ", /*#__PURE__*/React.createElement("b", null, missingItems.map(it => it.code ? `${it.name} (код ${it.code})` : it.name).join(', '))), "."));
 }
 
 // Кабинет кассира — постоянный экран кассы: каталог и текущий чек всегда
