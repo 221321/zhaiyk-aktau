@@ -58,6 +58,49 @@ function debtReminderText(d) {
   const ref = d.order_id ? `накладной № ${d.order_id}` : `чеку № ${d.sale_id}`;
   return `Здравствуйте, ${d.client_name}! Напоминаем о задолженности по ${ref} от ${d.date} на сумму ${d.remaining.toLocaleString()} ₸. Будем благодарны за оплату в ближайшее время.`;
 }
+
+// Тот же принцип, что у wa.me выше (см. комментарий) — отправляет вживую сам
+// человек, автоматизации нет. wa.me умеет предзаполнить только текст, фото
+// приложить диплинком нельзя — где доступен Web Share API с файлами (по сути
+// только мобильные браузеры), открываем системное "Поделиться" сразу с
+// накладной и текстом-подписью, человек сам выбирает в нём WhatsApp и
+// отправляет. На компьютере (или если share недоступен) откатываемся к
+// прежнему поведению — текст в wa.me плюс накладная отдельной вкладкой,
+// чтобы прикрепить вручную.
+async function shareDebtReminder(d) {
+  const text = debtReminderText(d);
+  const link = waMeLink(d.contact_phone, text);
+  const openFallback = () => {
+    if (link) window.open(link, '_blank', 'noopener,noreferrer');
+    if (d.delivery_photo) {
+      window.open(d.delivery_photo, '_blank', 'noopener,noreferrer');
+      alert('Текст открыт в WhatsApp, накладная — отдельной вкладкой: на компьютере прикрепить фото автоматически нельзя, сохраните и прикрепите вручную.');
+    }
+  };
+  if (!d.delivery_photo) {
+    openFallback();
+    return;
+  }
+  try {
+    const resp = await fetch(d.delivery_photo);
+    const blob = await resp.blob();
+    const file = new File([blob], `nakladnaya-${d.order_id || d.sale_id}.jpg`, {
+      type: blob.type || 'image/jpeg'
+    });
+    if (navigator.canShare && navigator.canShare({
+      files: [file]
+    })) {
+      await navigator.share({
+        files: [file],
+        text
+      });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  openFallback();
+}
 const SL = {
   new: "Ожидает",
   in_transit: "В работе",
@@ -1672,10 +1715,8 @@ function DebtsPanel({
         color: C.navy,
         textDecoration: "none"
       }
-    }, "\uD83D\uDCC4 \u041D\u0430\u043A\u043B\u0430\u0434\u043D\u0430\u044F"), waMeLink(d.contact_phone, debtReminderText(d)) && /*#__PURE__*/React.createElement("a", {
-      href: waMeLink(d.contact_phone, debtReminderText(d)),
-      target: "_blank",
-      rel: "noopener noreferrer",
+    }, "\uD83D\uDCC4 \u041D\u0430\u043A\u043B\u0430\u0434\u043D\u0430\u044F"), waMeLink(d.contact_phone, debtReminderText(d)) && /*#__PURE__*/React.createElement("button", {
+      onClick: () => shareDebtReminder(d),
       style: {
         display: "inline-flex",
         alignItems: "center",
@@ -1683,7 +1724,11 @@ function DebtsPanel({
         fontSize: 14,
         fontWeight: 600,
         color: "#25D366",
-        textDecoration: "none"
+        background: "none",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+        fontFamily: "inherit"
       }
     }, "\uD83D\uDCAC \u041D\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0432 WhatsApp")), !readOnly && /*#__PURE__*/React.createElement("div", {
       style: {

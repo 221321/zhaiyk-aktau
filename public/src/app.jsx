@@ -48,6 +48,39 @@ function debtReminderText(d) {
   return `Здравствуйте, ${d.client_name}! Напоминаем о задолженности по ${ref} от ${d.date} на сумму ${d.remaining.toLocaleString()} ₸. Будем благодарны за оплату в ближайшее время.`;
 }
 
+// Тот же принцип, что у wa.me выше (см. комментарий) — отправляет вживую сам
+// человек, автоматизации нет. wa.me умеет предзаполнить только текст, фото
+// приложить диплинком нельзя — где доступен Web Share API с файлами (по сути
+// только мобильные браузеры), открываем системное "Поделиться" сразу с
+// накладной и текстом-подписью, человек сам выбирает в нём WhatsApp и
+// отправляет. На компьютере (или если share недоступен) откатываемся к
+// прежнему поведению — текст в wa.me плюс накладная отдельной вкладкой,
+// чтобы прикрепить вручную.
+async function shareDebtReminder(d) {
+  const text = debtReminderText(d);
+  const link = waMeLink(d.contact_phone, text);
+  const openFallback = () => {
+    if (link) window.open(link, '_blank', 'noopener,noreferrer');
+    if (d.delivery_photo) {
+      window.open(d.delivery_photo, '_blank', 'noopener,noreferrer');
+      alert('Текст открыт в WhatsApp, накладная — отдельной вкладкой: на компьютере прикрепить фото автоматически нельзя, сохраните и прикрепите вручную.');
+    }
+  };
+  if (!d.delivery_photo) { openFallback(); return; }
+  try {
+    const resp = await fetch(d.delivery_photo);
+    const blob = await resp.blob();
+    const file = new File([blob], `nakladnaya-${d.order_id || d.sale_id}.jpg`, { type: blob.type || 'image/jpeg' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], text });
+      return;
+    }
+  } catch(e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  openFallback();
+}
+
 const SL = { new: "Ожидает", in_transit: "В работе", delivered: "Доставлено", cancelled: "Отказ при получении", returned: "Возврат", revoked: "Отозвана" };
 const SC = { new: "#DA1A10", in_transit: "#B45309", delivered: "#15803D", cancelled: "#DC2626", returned: "#7C3AED", revoked: "#6B7280" };
 const SB = { new: "#FCEBEA", in_transit: "#FBF3E6", delivered: "#EAF5EE", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6" };
@@ -709,7 +742,7 @@ function DebtsPanel({ readOnly }) {
                   <a href={d.delivery_photo} target="_blank" rel="noopener noreferrer" download style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600,color:C.navy,textDecoration:"none"}}>📄 Накладная</a>
                 )}
                 {waMeLink(d.contact_phone,debtReminderText(d))&&(
-                  <a href={waMeLink(d.contact_phone,debtReminderText(d))} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600,color:"#25D366",textDecoration:"none"}}>💬 Написать в WhatsApp</a>
+                  <button onClick={()=>shareDebtReminder(d)} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600,color:"#25D366",background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit"}}>💬 Написать в WhatsApp</button>
                 )}
               </div>
             )}
