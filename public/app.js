@@ -2407,14 +2407,89 @@ const COMPANY_INFO = {
   account: 'KZ33722S000046085888',
   releaseAuthorizedBy: 'Байсмаков С.К.'
 };
+
+// Сумма прописью для накладной (см. buildWaybillInnerHtml) — стандартная
+// русская форма как в бумажных бланках: "Триста четыре тысячи двести тенге
+// 00 тиын". Тенге не склоняется и не меняет род числительного (в отличие
+// от "тысяча" — та требует "одна/две", а не "один/два"), поэтому для неё
+// используем мужской род (NUM_ONES), а для группы тысяч — женский (NUM_ONES_F).
+const NUM_ONES = ['', 'один', 'два', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
+const NUM_ONES_F = ['', 'одна', 'две', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
+const NUM_TEENS = ['десять', 'одиннадцать', 'двенадцать', 'тринадцать', 'четырнадцать', 'пятнадцать', 'шестнадцать', 'семнадцать', 'восемнадцать', 'девятнадцать'];
+const NUM_TENS = ['', '', 'двадцать', 'тридцать', 'сорок', 'пятьдесят', 'шестьдесят', 'семьдесят', 'восемьдесят', 'девяносто'];
+const NUM_HUNDREDS = ['', 'сто', 'двести', 'триста', 'четыреста', 'пятьсот', 'шестьсот', 'семьсот', 'восемьсот', 'девятьсот'];
+function threeDigitsToWordsRu(n, feminine) {
+  const words = [];
+  const h = Math.floor(n / 100),
+    t = Math.floor(n % 100 / 10),
+    o = n % 10;
+  if (h) words.push(NUM_HUNDREDS[h]);
+  if (t === 1) words.push(NUM_TEENS[o]);else {
+    if (t) words.push(NUM_TENS[t]);
+    if (o) words.push((feminine ? NUM_ONES_F : NUM_ONES)[o]);
+  }
+  return words;
+}
+function pluralFormRu(n, forms) {
+  const n100 = Math.abs(n) % 100,
+    n10 = n100 % 10;
+  if (n100 > 10 && n100 < 20) return forms[2];
+  if (n10 === 1) return forms[0];
+  if (n10 > 1 && n10 < 5) return forms[1];
+  return forms[2];
+}
+function numberToWordsRu(num) {
+  num = Math.floor(num);
+  if (num === 0) return 'ноль';
+  const groups = [{
+    div: 1000000000,
+    forms: ['миллиард', 'миллиарда', 'миллиардов'],
+    feminine: false
+  }, {
+    div: 1000000,
+    forms: ['миллион', 'миллиона', 'миллионов'],
+    feminine: false
+  }, {
+    div: 1000,
+    forms: ['тысяча', 'тысячи', 'тысяч'],
+    feminine: true
+  }];
+  let remainder = num;
+  const parts = [];
+  groups.forEach(g => {
+    const count = Math.floor(remainder / g.div);
+    remainder = remainder % g.div;
+    if (count > 0) {
+      parts.push(...threeDigitsToWordsRu(count, g.feminine));
+      parts.push(pluralFormRu(count, g.forms));
+    }
+  });
+  if (remainder > 0 || parts.length === 0) parts.push(...threeDigitsToWordsRu(remainder, false));
+  return parts.join(' ');
+}
+function tengeSumToWords(amount) {
+  const whole = Math.floor(Math.abs(Number(amount) || 0));
+  const tiyn = Math.round((Math.abs(Number(amount) || 0) - whole) * 100);
+  const words = numberToWordsRu(whole);
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)} тенге ${String(tiyn).padStart(2, '0')} тиын`;
+}
 function buildWaybillInnerHtml(order) {
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : order.items || [];
-  const totalNds = 0;
   // Единица измерения на самой заявке не хранится (см. POST /api/orders) —
   // единственный надёжный признак на позиции это is_weight_item (кг у
   // весового товара), для остального берём "шт" по умолчанию.
   const unitOf = it => it.is_weight_item ? 'кг' : 'шт';
-  const rows = items.map((it, i) => `
+  // НДС 16%: цена в заявке — это то, что реально платит клиент (order.total
+  // нигде не меняем — от него зависят касса/долги/прибыль), т.е. цена уже
+  // С учётом налога. В накладной отдельно показываем встроенную в неё сумму
+  // налога — извлекаем её из суммы позиции (sum×16/116), а не начисляем
+  // сверху (sum×0.16, что увеличило бы итог сверх того, что уже оплачено).
+  let totalNds = 0;
+  const rows = items.map((it, i) => {
+    const sum = Number(it.qty) * Number(it.price);
+    const nds = Math.round(sum * 16 / 116);
+    totalNds += nds;
+    return `
     <tr>
       <td style="text-align:center">${i + 1}</td>
       <td>${it.name}</td>
@@ -2423,9 +2498,10 @@ function buildWaybillInnerHtml(order) {
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:right">${Number(it.price).toLocaleString()}</td>
-      <td style="text-align:right">${(Number(it.qty) * Number(it.price)).toLocaleString()}</td>
-      <td style="text-align:right">0</td>
-    </tr>`).join('');
+      <td style="text-align:right">${sum.toLocaleString()}</td>
+      <td style="text-align:right">${nds.toLocaleString()}</td>
+    </tr>`;
+  }).join('');
   return `
     <div class="topright">Приложение 26<br>к приказу Министра финансов<br>Республики Казахстан<br>от 20 декабря 2012 года № 562</div>
     <div class="toprow"><span>Организация (индивидуальный предприниматель) <b>${COMPANY_INFO.name}</b></span><span>ИИН/БИН <b>${COMPANY_INFO.bin}</b></span></div>
@@ -2442,17 +2518,15 @@ function buildWaybillInnerHtml(order) {
     <table>
       <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Ед.<br>изм.</th><th>Кол-во<br>подлежит<br>отпуску</th><th>Кол-во<br>отпущено</th><th>Цена за ед., ₸</th><th>Сумма, ₸</th><th>Сумма НДС, ₸</th></tr>
       ${rows}
-      <tr><td colspan="7" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(order.total || 0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds}</td></tr>
+      <tr><td colspan="7" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(order.total || 0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds.toLocaleString()}</td></tr>
     </table>
     <div class="totals">
-      <p>Всего отпущено количество запасов (прописью): <span class="signline"></span></p>
-      <p>на сумму (прописью): <span class="signline" style="min-width:400px"></span> тенге <b>${(order.total || 0).toLocaleString()} ₸</b></p>
+      <p>Всего отпущено на сумму: <b>${(order.total || 0).toLocaleString()} ₸</b></p>
+      <p>Сумма прописью: ${tengeSumToWords(order.total || 0)}</p>
     </div>
     <div class="sign">
       <p>Отпуск разрешил: <span class="signline">${COMPANY_INFO.releaseAuthorizedBy}</span> должность / подпись</p>
-      <p>Главный бухгалтер: <span class="signline"></span> подпись</p>
       <p>Отпустил (водитель): <span class="signline">${order.driver_name || ''}</span> подпись</p>
-      <p>По доверенности № <span class="signline" style="min-width:100px"></span> выданной <span class="signline" style="min-width:180px"></span> от <span class="signline" style="min-width:100px"></span></p>
       <p style="margin-top:20px">М.П.</p>
     </div>`;
 }
