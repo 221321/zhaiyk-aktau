@@ -2845,7 +2845,11 @@ const COMPANY_INFO = {
   bank: 'АО "Kaspi Bank"',
   bik: 'CASPKZKA',
   account: 'KZ33722S000046085888',
-  releaseAuthorizedBy: 'Байсмаков С.К.'
+  releaseAuthorizedBy: 'Байсмаков С.К.',
+  // Контактный номер под "Ответственный за поставку" в накладной — чтобы
+  // клиенту было куда позвонить по доставке, независимо от того, кто
+  // именно из водителей её вёз.
+  responsiblePhone: '+7-775-593-95-75'
 };
 
 // Сумма прописью для накладной (см. buildWaybillInnerHtml) — стандартная
@@ -2953,7 +2957,7 @@ function buildWaybillInnerHtml(order) {
       <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${order.client_name || ''}</div>
     </div>
     <div class="headrow row2">
-      <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name || ''}</div>
+      <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name || ''}${order.driver_name ? '<br>' : ''}${COMPANY_INFO.responsiblePhone}</div>
       <div><div class="label">ТРАНСПОРТНАЯ ОРГАНИЗАЦИЯ</div>&nbsp;</div>
       <div><div class="label">АДРЕС ДОСТАВКИ</div>${order.address || ''}${order.contact_phone ? '<br>Тел: ' + order.contact_phone : ''}</div>
     </div>
@@ -11130,6 +11134,7 @@ function AdminCabinet({
   const [driverFilter, setDriverFilter] = useState("");
   const [salesFilter, setSalesFilter] = useState("");
   const [dogovornikOnly, setDogovornikOnly] = useState(false);
+  const [pickupOnly, setPickupOnly] = useState(false);
   const [showDogovornikModal, setShowDogovornikModal] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
@@ -11895,7 +11900,7 @@ function AdminCabinet({
   // по client_code с уже загруженным списком клиентов.
   const dogovornikCodes = useMemo(() => new Set(clients.filter(c => c.is_dogovornik).map(c => c.code)), [clients]);
   const q = orderSearch.trim().toLowerCase();
-  const filtered = useMemo(() => orders.filter(o => filter === "all" || o.status === filter).filter(o => !driverFilter || String(o.driver_id) === driverFilter).filter(o => !salesFilter || String(o.sales_id) === salesFilter).filter(o => !dogovornikOnly || dogovornikCodes.has(o.client_code)).filter(o => orderDatePreset === "all" || o.date >= orderDateFrom && o.date <= orderDateTo).filter(o => !q || String(o.id).includes(q) || (o.client_name || '').toLowerCase().includes(q) || (o.sales_name || '').toLowerCase().includes(q) || (o.driver_name || '').toLowerCase().includes(q) || (o.address || '').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, orderDatePreset, orderDateFrom, orderDateTo, q]);
+  const filtered = useMemo(() => orders.filter(o => filter === "all" || o.status === filter).filter(o => !driverFilter || String(o.driver_id) === driverFilter).filter(o => !salesFilter || String(o.sales_id) === salesFilter).filter(o => !dogovornikOnly || dogovornikCodes.has(o.client_code)).filter(o => !pickupOnly || o.time_slot === PICKUP_SLOT).filter(o => orderDatePreset === "all" || o.date >= orderDateFrom && o.date <= orderDateTo).filter(o => !q || String(o.id).includes(q) || (o.client_name || '').toLowerCase().includes(q) || (o.sales_name || '').toLowerCase().includes(q) || (o.driver_name || '').toLowerCase().includes(q) || (o.address || '').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, pickupOnly, orderDatePreset, orderDateFrom, orderDateTo, q]);
   const {
     stats,
     repList,
@@ -12473,6 +12478,45 @@ function AdminCabinet({
       color: C.textMid
     }
   }, "\u2699\uFE0F \u041D\u0430\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0443"));
+  const pickupFilterChip = /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginBottom: 16,
+      flexWrap: "wrap",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      color: C.textFaint,
+      fontWeight: 600
+    }
+  }, "\u0421\u0430\u043C\u043E\u0432\u044B\u0432\u043E\u0437:"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setPickupOnly(false),
+    style: {
+      padding: "6px 13px",
+      borderRadius: 99,
+      border: `1px solid ${!pickupOnly ? C.navy : C.border}`,
+      cursor: "pointer",
+      fontSize: 14,
+      fontWeight: 600,
+      background: !pickupOnly ? C.navy : C.white,
+      color: !pickupOnly ? C.white : C.textMid
+    }
+  }, "\u0412\u0441\u0435"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setPickupOnly(true),
+    style: {
+      padding: "6px 13px",
+      borderRadius: 99,
+      border: `1px solid ${pickupOnly ? C.navy : C.border}`,
+      cursor: "pointer",
+      fontSize: 14,
+      fontWeight: 600,
+      background: pickupOnly ? C.navy : C.white,
+      color: pickupOnly ? C.white : C.textMid
+    }
+  }, "\uD83C\uDFEC \u0422\u043E\u043B\u044C\u043A\u043E \u0441\u0430\u043C\u043E\u0432\u044B\u0432\u043E\u0437"));
   const searchInput = /*#__PURE__*/React.createElement("input", {
     type: "search",
     style: {
@@ -12598,7 +12642,7 @@ function AdminCabinet({
       padding: "9px 16px",
       fontSize: 14
     }
-  }, "\uD83D\uDCDD \u041D\u043E\u0432\u0430\u044F \u0437\u0430\u044F\u0432\u043A\u0430"), searchInput, orderDateFilterUI, filterChips, driverFilterChips, salesFilterChips, dogovornikFilterChip, !loading && filtered.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCDD \u041D\u043E\u0432\u0430\u044F \u0437\u0430\u044F\u0432\u043A\u0430"), searchInput, orderDateFilterUI, filterChips, driverFilterChips, salesFilterChips, dogovornikFilterChip, pickupFilterChip, !loading && filtered.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: () => printWaybillsBatch(filtered),
     style: {
       ...S.btnOutline,

@@ -1238,6 +1238,10 @@ const COMPANY_INFO = {
   bik: 'CASPKZKA',
   account: 'KZ33722S000046085888',
   releaseAuthorizedBy: 'Байсмаков С.К.',
+  // Контактный номер под "Ответственный за поставку" в накладной — чтобы
+  // клиенту было куда позвонить по доставке, независимо от того, кто
+  // именно из водителей её вёз.
+  responsiblePhone: '+7-775-593-95-75',
 };
 
 // Сумма прописью для накладной (см. buildWaybillInnerHtml) — стандартная
@@ -1336,7 +1340,7 @@ function buildWaybillInnerHtml(order) {
       <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${order.client_name||''}</div>
     </div>
     <div class="headrow row2">
-      <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name||''}</div>
+      <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name||''}${order.driver_name?'<br>':''}${COMPANY_INFO.responsiblePhone}</div>
       <div><div class="label">ТРАНСПОРТНАЯ ОРГАНИЗАЦИЯ</div>&nbsp;</div>
       <div><div class="label">АДРЕС ДОСТАВКИ</div>${order.address||''}${order.contact_phone?('<br>Тел: '+order.contact_phone):''}</div>
     </div>
@@ -5060,6 +5064,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [driverFilter, setDriverFilter] = useState("");
   const [salesFilter, setSalesFilter] = useState("");
   const [dogovornikOnly, setDogovornikOnly] = useState(false);
+  const [pickupOnly, setPickupOnly] = useState(false);
   const [showDogovornikModal, setShowDogovornikModal] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
@@ -5623,13 +5628,14 @@ function AdminCabinet({ user, onLogout, desktop }) {
     .filter(o=>!driverFilter||String(o.driver_id)===driverFilter)
     .filter(o=>!salesFilter||String(o.sales_id)===salesFilter)
     .filter(o=>!dogovornikOnly||dogovornikCodes.has(o.client_code))
+    .filter(o=>!pickupOnly||o.time_slot===PICKUP_SLOT)
     .filter(o=>orderDatePreset==="all"||(o.date>=orderDateFrom&&o.date<=orderDateTo))
     .filter(o=>!q
       || String(o.id).includes(q)
       || (o.client_name||'').toLowerCase().includes(q)
       || (o.sales_name||'').toLowerCase().includes(q)
       || (o.driver_name||'').toLowerCase().includes(q)
-      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, orderDatePreset, orderDateFrom, orderDateTo, q]);
+      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, pickupOnly, orderDatePreset, orderDateFrom, orderDateTo, q]);
 
   const { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo, totalCommission } = useMemo(() => {
     // Погашение долга нал/QR "перетекает" из долга в наличку/QR того же
@@ -5944,6 +5950,14 @@ function AdminCabinet({ user, onLogout, desktop }) {
     </div>
   );
 
+  const pickupFilterChip = (
+    <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+      <span style={{fontSize:14,color:C.textFaint,fontWeight:600}}>Самовывоз:</span>
+      <button onClick={()=>setPickupOnly(false)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${!pickupOnly?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:!pickupOnly?C.navy:C.white,color:!pickupOnly?C.white:C.textMid}}>Все</button>
+      <button onClick={()=>setPickupOnly(true)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${pickupOnly?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:pickupOnly?C.navy:C.white,color:pickupOnly?C.white:C.textMid}}>🏬 Только самовывоз</button>
+    </div>
+  );
+
   const searchInput = (
     <input
       type="search"
@@ -6005,6 +6019,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {driverFilterChips}
         {salesFilterChips}
         {dogovornikFilterChip}
+        {pickupFilterChip}
         {!loading&&filtered.length>0&&(
           <button onClick={()=>printWaybillsBatch(filtered)} style={{...S.btnOutline,width:"auto",marginTop:0,marginBottom:16,padding:"9px 16px",fontSize:14}}>🖨 Печать накладных ({filtered.length})</button>
         )}
