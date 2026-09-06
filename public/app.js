@@ -2862,14 +2862,22 @@ function buildWaybillInnerHtml(order) {
       ${rows}
       <tr><td colspan="7" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(order.total || 0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds.toLocaleString()}</td></tr>
     </table>
-    <div class="totals">
-      <p>Всего отпущено на сумму: <b>${(order.total || 0).toLocaleString()} ₸</b></p>
-      <p>Сумма прописью: ${tengeSumToWords(order.total || 0)}</p>
-    </div>
-    <div class="sign">
-      <p>Отпуск разрешил: <span class="signline">${COMPANY_INFO.releaseAuthorizedBy}</span> должность / подпись</p>
-      <p>Отпустил (водитель): <span class="signline">${order.driver_name || ''}</span> подпись</p>
-      <p style="margin-top:20px">М.П.</p>
+    <div class="paysection">
+      <div class="paytext">
+        <div class="totals">
+          <p>Всего отпущено на сумму: <b>${(order.total || 0).toLocaleString()} ₸</b></p>
+          <p>Сумма прописью: ${tengeSumToWords(order.total || 0)}</p>
+        </div>
+        <div class="sign">
+          <p>Отпуск разрешил: <span class="signline">${COMPANY_INFO.releaseAuthorizedBy}</span> должность / подпись</p>
+          <p>Отпустил (водитель): <span class="signline">${order.driver_name || ''}</span> подпись</p>
+          <p style="margin-top:20px">М.П.</p>
+        </div>
+      </div>
+      <div class="payqr">
+        <img src="/kaspi-qr.png" alt="Kaspi QR"/>
+        <p>Kaspi QR<br>Сканируйте и платите</p>
+      </div>
     </div>`;
 }
 
@@ -2880,11 +2888,11 @@ function buildWaybillInnerHtml(order) {
 // окне (см. openPrintOverlay ниже) голый body{}/table{}/h1{} наложился бы
 // на весь остальной сайт, пока оверлей открыт.
 const WAYBILL_STYLE = `
-    .printScope{font-family:Arial, sans-serif; font-size:12px; padding:20px; color:#111; max-width:900px; margin:0 auto; background:#fff;}
-    .printScope .topright{text-align:right; font-size:11px; line-height:1.4; margin-bottom:10px;}
-    .printScope h1{font-size:15px; text-align:center; margin:16px 0;}
+    .printScope{font-family:Arial, sans-serif; font-size:11px; padding:20px; color:#111; max-width:900px; margin:0 auto; background:#fff;}
+    .printScope .topright{text-align:right; font-size:10px; line-height:1.4; margin-bottom:10px;}
+    .printScope h1{font-size:14px; text-align:center; margin:14px 0;}
     .printScope table{width:100%; border-collapse:collapse; margin:10px 0;}
-    .printScope th,.printScope td{border:1px solid #333; padding:5px 6px; font-size:11px;}
+    .printScope th,.printScope td{border:1px solid #333; padding:4px 6px; font-size:10px;}
     .printScope th{background:#f0f0f0; text-align:center;}
     .printScope table.docnumtable{width:auto; margin:0 0 8px auto;}
     .printScope table.docnumtable td{text-align:center;}
@@ -2892,13 +2900,18 @@ const WAYBILL_STYLE = `
     .printScope .headrow.row2{border-top:none; margin-top:0;}
     .printScope .headrow > div{flex:1; border-right:1px solid #333; padding:6px;}
     .printScope .headrow > div:last-child{border-right:none;}
-    .printScope .headrow .label{font-size:10px; color:#444; margin-bottom:4px;}
+    .printScope .headrow .label{font-size:9px; color:#444; margin-bottom:4px;}
     .printScope .toprow{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;}
-    .printScope .totals{margin-top:8px; font-size:12px;}
+    .printScope .paysection{display:flex; justify-content:space-between; align-items:flex-start; gap:16px;}
+    .printScope .paytext{flex:1; min-width:0;}
+    .printScope .totals{margin-top:8px; font-size:11px;}
     .printScope .totals p{margin:6px 0;}
     .printScope .sign{margin-top:24px;}
     .printScope .sign p{margin:14px 0 2px;}
     .printScope .signline{display:inline-block; min-width:220px; border-bottom:1px solid #333; margin:0 6px;}
+    .printScope .payqr{flex-shrink:0; text-align:center; font-size:9px; color:#444;}
+    .printScope .payqr img{width:72px; height:72px; display:block; margin:0 auto 4px;}
+    .printScope .payqr p{margin:0;}
     .printScope .btnbar{text-align:center; margin-bottom:20px; display:flex; gap:10px; justify-content:center;}
     .printScope .btnbar button{padding:12px 24px; font-size:15px; font-weight:700; cursor:pointer; border-radius:8px; border:none; color:#fff;}
     @media print { .printScope .btnbar{display:none;} }`;
@@ -3130,6 +3143,14 @@ async function shareWaybillPdf(order) {
   document.body.appendChild(overlay);
   try {
     await new Promise(r => setTimeout(r, 50));
+    // Дожидаемся загрузки картинок (Kaspi QR в накладной, см.
+    // buildWaybillInnerHtml) — без этого html2canvas мог бы снять снимок
+    // раньше, чем браузер успел подгрузить /kaspi-qr.png, и в PDF попал бы
+    // пустой квадрат вместо QR-кода.
+    await Promise.all(Array.from(container.querySelectorAll('img')).map(img => img.complete ? Promise.resolve() : new Promise(res => {
+      img.onload = res;
+      img.onerror = res;
+    })));
     const canvas = await html2canvas(container, {
       scale: 2,
       backgroundColor: '#ffffff',
