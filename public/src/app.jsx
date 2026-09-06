@@ -788,6 +788,67 @@ function DebtsPanel({ readOnly }) {
   );
 }
 
+// Управление группой "Договорники" — ярлык поверх контрагента из 1С (см.
+// clientTags/PUT /api/clients/:code/dogovornik на сервере), нужен для
+// отбора заявок по этой группе клиентов в "Заявках" (dogovornikOnly в
+// AdminCabinet). Простой список с поиском и переключателем прямо по клику
+// на строку — отдельного экрана "Клиенты" в приложении пока нет, заводить
+// его целиком ради одной пометки было бы избыточно.
+function DogovornikModal({ clients, onClose, onSaved }) {
+  const [search, setSearch] = useState("");
+  const [savingCode, setSavingCode] = useState(null);
+  const q = search.trim().toLowerCase();
+  const filtered = clients
+    .filter(c => !q || (c.name||'').toLowerCase().includes(q) || (c.code||'').includes(q))
+    .sort((a,b) => (a.name||'').localeCompare(b.name||'','ru'));
+
+  const toggle = async (c) => {
+    if (savingCode) return;
+    setSavingCode(c.code);
+    try {
+      await apiCall('PUT', `/api/clients/${c.code}/dogovornik`, { is_dogovornik: !c.is_dogovornik });
+      await onSaved();
+    } catch(e) { alert(e.message); }
+    setSavingCode(null);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
+      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
+        <div style={{...S.row,marginBottom:14}}>
+          <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>Договорники</p>
+          <button style={S.btnSecondary} onClick={onClose}>✕</button>
+        </div>
+        <p style={{margin:"0 0 12px",fontSize:14,color:C.textSub}}>Отметьте клиентов-договорников — по этой группе можно будет отобрать заявки.</p>
+        <input
+          type="search"
+          style={{...S.input,marginBottom:12}}
+          placeholder="Поиск по названию или коду..."
+          value={search}
+          onChange={e=>setSearch(e.target.value)}
+          autoComplete="off"
+        />
+        <div style={{maxHeight:420,overflowY:"auto"}}>
+          {filtered.length===0
+            ? <div style={{textAlign:"center",padding:"20px 0",color:C.textFaint}}>Ничего не найдено</div>
+            : filtered.map(c=>(
+              <div key={c.code} onClick={()=>toggle(c)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 4px",borderBottom:`1px solid ${C.border}`,cursor:savingCode?"default":"pointer",opacity:savingCode===c.code?0.5:1}}>
+                <div style={{width:22,height:22,borderRadius:6,border:`2px solid ${c.is_dogovornik?C.navy:C.border}`,background:c.is_dogovornik?C.navy:C.white,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {c.is_dogovornik&&<span style={{color:C.white,fontSize:15,fontWeight:700}}>✓</span>}
+                </div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:15,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
+                  <div style={{fontSize:13,color:C.textFaint}}>Код: {c.code}</div>
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Возврат — отдельная от статуса заявки сущность (см. POST /api/returns):
 // либо конкретные позиции/количество из уже ДОСТАВЛЕННОЙ заявки (магазин
 // вернул 1 из 5 коробок), либо совсем без заявки — товар без привязки
@@ -4501,6 +4562,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [filter, setFilter] = useState("all");
   const [driverFilter, setDriverFilter] = useState("");
   const [salesFilter, setSalesFilter] = useState("");
+  const [dogovornikOnly, setDogovornikOnly] = useState(false);
+  const [showDogovornikModal, setShowDogovornikModal] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -5039,18 +5102,24 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return Object.entries(map).map(([id,name])=>({id,name})).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ru'));
   }, [orders]);
 
+  // Коды клиентов-договорников (см. PUT /api/clients/:code/dogovornik) — для
+  // отбора заявок по этой группе ниже. Заявка сама по себе такую пометку не
+  // хранит (это свойство контрагента, а не разовой заявки), поэтому сверяем
+  // по client_code с уже загруженным списком клиентов.
+  const dogovornikCodes = useMemo(() => new Set(clients.filter(c=>c.is_dogovornik).map(c=>c.code)), [clients]);
   const q = orderSearch.trim().toLowerCase();
   const filtered = useMemo(() => orders
     .filter(o=>filter==="all"||o.status===filter)
     .filter(o=>!driverFilter||String(o.driver_id)===driverFilter)
     .filter(o=>!salesFilter||String(o.sales_id)===salesFilter)
+    .filter(o=>!dogovornikOnly||dogovornikCodes.has(o.client_code))
     .filter(o=>orderDatePreset==="all"||(o.date>=orderDateFrom&&o.date<=orderDateTo))
     .filter(o=>!q
       || String(o.id).includes(q)
       || (o.client_name||'').toLowerCase().includes(q)
       || (o.sales_name||'').toLowerCase().includes(q)
       || (o.driver_name||'').toLowerCase().includes(q)
-      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, orderDatePreset, orderDateFrom, orderDateTo, q]);
+      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, orderDatePreset, orderDateFrom, orderDateTo, q]);
 
   const { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo, totalCommission } = useMemo(() => {
     // Погашение долга нал/QR "перетекает" из долга в наличку/QR того же
@@ -5356,6 +5425,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
     </div>
   );
 
+  const dogovornikFilterChip = (
+    <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+      <button onClick={()=>setDogovornikOnly(v=>!v)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${dogovornikOnly?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:dogovornikOnly?C.navy:C.white,color:dogovornikOnly?C.white:C.textMid}}>{dogovornikOnly?"✓ ":""}🏷 Договорники</button>
+      {!readOnlyOp&&<button onClick={()=>setShowDogovornikModal(true)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:C.white,color:C.textMid}}>⚙️ Настроить группу</button>}
+    </div>
+  );
+
   const searchInput = (
     <input
       type="search"
@@ -5415,6 +5491,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {filterChips}
         {driverFilterChips}
         {salesFilterChips}
+        {dogovornikFilterChip}
         {!loading&&filtered.length>0&&(
           <button onClick={()=>printWaybillsBatch(filtered)} style={{...S.btnOutline,width:"auto",marginTop:0,marginBottom:16,padding:"9px 16px",fontSize:14}}>🖨 Печать накладных ({filtered.length})</button>
         )}
@@ -6229,6 +6306,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
+        {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
         <aside style={S.side}>
           <div style={{marginBottom:34}}><Brand size={44}/></div>
           <nav style={{flex:1}}>
@@ -6258,6 +6336,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
+      {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
       <div style={S.page}>
         {content}
       </div>
