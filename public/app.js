@@ -14618,7 +14618,7 @@ function WarehouseCabinet({
         style: {
           color: C.textFaint
         }
-      }, "(\u0431\u044B\u043B\u043E ", it.qty, ")"), it.weight_confirmed && it.weighed_by_name && /*#__PURE__*/React.createElement("span", {
+      }, "(\u0437\u0430\u044F\u0432\u043A\u0430 ", it.qty, " \u043A\u0433)"), it.weight_confirmed && it.weighed_by_name && /*#__PURE__*/React.createElement("span", {
         style: {
           display: "block",
           fontSize: 12,

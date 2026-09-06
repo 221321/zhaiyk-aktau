@@ -6853,7 +6853,7 @@ function WarehouseCabinet({ user, onLogout }) {
                         {weightItems.map(it=>(
                           <div key={it.code} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:6}}>
                             <span style={{flex:1,minWidth:0,fontSize:14,color:C.textMid,overflowWrap:"anywhere"}}>
-                              {it.name} {!it.weight_confirmed&&<span style={{color:C.textFaint}}>(было {it.qty})</span>}
+                              {it.name} {!it.weight_confirmed&&<span style={{color:C.textFaint}}>(заявка {it.qty} кг)</span>}
                               {it.weight_confirmed&&it.weighed_by_name&&<span style={{display:"block",fontSize:12,color:C.textFaint}}>Взвесил: {it.weighed_by_name}{it.weighed_at?', '+new Date(it.weighed_at).toLocaleString('ru-RU'):''}</span>}
                             </span>
                             {it.weight_confirmed ? (
