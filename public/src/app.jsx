@@ -3924,16 +3924,24 @@ function PosSaleModal({ products, clients, onClose, onCompleted }) {
 // чтобы отчёт мог честно предупредить "прибыль занижена".
 function sumItemsProfit(list) {
   let revenue = 0, cost = 0, missingCostLines = 0;
+  const missingCostItemsMap = {};
   (list || []).forEach(o => {
     const its = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
     its.forEach(it => {
       const qty = Number(it.qty) || 0, price = Number(it.price) || 0;
       revenue += qty * price;
       if (it.cost != null) cost += qty * Number(it.cost);
-      else missingCostLines += 1;
+      else {
+        missingCostLines += 1;
+        // Дедуп по коду (или имени, если кода нет) — один и тот же товар
+        // без закупочной цены может встретиться в десятках заявок, но
+        // в предупреждении назвать его нужно один раз.
+        const key = it.code || it.name;
+        if (key && !missingCostItemsMap[key]) missingCostItemsMap[key] = { code: it.code || null, name: it.name };
+      }
     });
   });
-  return { revenue, cost, profit: revenue - cost, missingCostLines };
+  return { revenue, cost, profit: revenue - cost, missingCostLines, missingCostItems: Object.values(missingCostItemsMap) };
 }
 
 // Блок "Прибыль" — переиспользуется в "Отчёте" (только заявки), "Кассе"
@@ -3946,7 +3954,7 @@ function sumItemsProfit(list) {
 // сотруднику, см. totalCommission выше). Когда он передан, показываем ещё и
 // "чистую" прибыль (после вычета бонуса) — то, что владелец реально
 // зарабатывает, а не валовую маржу без учёта, сколько ушло на бонусы.
-function ProfitBlock({ revenue, cost, profit, missingLines, commission }) {
+function ProfitBlock({ revenue, cost, profit, missingLines, missingItems, commission }) {
   const margin = revenue > 0 ? (profit / revenue * 100) : 0;
   const hasCommission = commission != null;
   const netProfit = hasCommission ? profit - commission : null;
@@ -3980,7 +3988,7 @@ function ProfitBlock({ revenue, cost, profit, missingLines, commission }) {
       )}
       {missingLines>0&&(
         <p style={{margin:"10px 0 0",fontSize:13.5,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"7px 10px"}}>
-          ⚠️ У {missingLines} {missingLines===1?'позиции':'позиций'} нет закупочной цены — прибыль занижена. Заполните на вкладке «Товары».
+          ⚠️ У {missingLines} {missingLines===1?'позиции':'позиций'} нет закупочной цены — прибыль занижена. Заполните на вкладке «Товары»{missingItems&&missingItems.length>0&&<>: <b>{missingItems.map(it=>it.name).join(', ')}</b></>}.
         </p>
       )}
     </div>
@@ -4996,6 +5004,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     stats.costTotal = ordersProfit.cost;
     stats.profit = ordersProfit.profit;
     stats.profitMissingLines = ordersProfit.missingCostLines;
+    stats.profitMissingItems = ordersProfit.missingCostItems;
 
     // Продажи по кассе за тот же период — отдельно от заявок на доставку,
     // но объединяем в общую сумму (combinedCash/Qr/Debt) ниже, чтобы
@@ -5017,9 +5026,18 @@ function AdminCabinet({ user, onLogout, desktop }) {
     posReport.costTotal = salesProfit.cost;
     posReport.profit = salesProfit.profit;
     posReport.profitMissingLines = salesProfit.missingCostLines;
+    posReport.profitMissingItems = salesProfit.missingCostItems;
     posReport.combinedCost = stats.costTotal + salesProfit.cost;
     posReport.combinedProfit = stats.profit + salesProfit.profit;
     posReport.combinedProfitMissingLines = stats.profitMissingLines + salesProfit.missingCostLines;
+    // Дедуп по коду/имени между заявками и кассой — один и тот же товар без
+    // закупочной цены не должен назваться дважды в общем предупреждении.
+    const combinedMissingMap = {};
+    [...ordersProfit.missingCostItems, ...salesProfit.missingCostItems].forEach(it => {
+      const key = it.code || it.name;
+      if (key && !combinedMissingMap[key]) combinedMissingMap[key] = it;
+    });
+    posReport.combinedProfitMissingItems = Object.values(combinedMissingMap);
 
     const commissionByCode = {};
     products.forEach(p => { commissionByCode[p.code] = p.commission || 0; });
@@ -5342,7 +5360,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
           </div>
         </div>
         <div style={{maxWidth: desktop?560:"none"}}>
-          <ProfitBlock revenue={stats.revenue} cost={stats.costTotal} profit={stats.profit} missingLines={stats.profitMissingLines} commission={totalCommission}/>
+          <ProfitBlock revenue={stats.revenue} cost={stats.costTotal} profit={stats.profit} missingLines={stats.profitMissingLines} missingItems={stats.profitMissingItems} commission={totalCommission}/>
         </div>
         <div style={{maxWidth: desktop?560:"none"}}>
           <div style={{...S.card,marginTop:10}}>
@@ -5528,7 +5546,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
               </div>
             </div>
           </div>
-          <ProfitBlock revenue={posReport.combinedRevenue} cost={posReport.combinedCost} profit={posReport.combinedProfit} missingLines={posReport.combinedProfitMissingLines} commission={totalCommission}/>
+          <ProfitBlock revenue={posReport.combinedRevenue} cost={posReport.combinedCost} profit={posReport.combinedProfit} missingLines={posReport.combinedProfitMissingLines} missingItems={posReport.combinedProfitMissingItems} commission={totalCommission}/>
         </div>
         {user.role!=="operator"&&<div style={{maxWidth: desktop?560:"none"}}>
           <p style={{...S.sectionTitle,fontSize:17,marginTop:20}}>Продажи по кассе ({posReport.count})</p>
