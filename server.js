@@ -2279,7 +2279,9 @@ function getCommissionMap() {
 db.defaults({ returns: [], nextReturnId: 1 }).write();
 
 app.get('/api/returns', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'operator', 'driver', 'sales', 'senior_sales'].includes(req.user.role)) {
+  // warehouse — должен видеть очередь на подтверждение (см. PUT
+  // /api/returns/:id/confirm), иначе некому проверять список ожидающих.
+  if (!['admin', 'manager', 'operator', 'warehouse', 'driver', 'sales', 'senior_sales'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   let list = db.get('returns').value();
@@ -2403,21 +2405,30 @@ app.post('/api/returns', authMiddleware, (req, res) => {
     created_by_id: req.user.id,
     created_by_name: req.user.name,
     created_at: new Date().toISOString(),
+    // Товар ещё не принят складом физически — остаток зачисляется только
+    // после подтверждения (см. PUT /api/returns/:id/confirm и
+    // creditReturnStock), не в момент оформления. Раньше остаток
+    // приходовался сразу здесь, до какой-либо проверки складом.
+    status: 'pending',
   };
   db.get('returns').push(ret).write();
   db.set('nextReturnId', id + 1).write();
 
-  // Товар физически вернулся на склад — приходуем остаток сразу и напрямую.
-  // Весовой товар (is_weight_item): it.qty здесь — кг (см. комментарий на
-  // cleanItems выше), а не короба́, поэтому идёт ТОЛЬКО в кг-пул
-  // (stock.weight_kg), никогда в stock.qty — форма возврата не спрашивает,
-  // сколько именно коробов физически вернулось (частичный по весу возврат
-  // необязательно кратен целому коробу), так что короба́ трогать нечем; их
-  // при необходимости поправит склад вручную через "Остатки". Раньше при
-  // отсутствии настроенного кг-пула (weight_kg===null) кг-число ошибочно
-  // прибавлялось прямо в stock.qty, задваивая единицы измерения.
+  res.json(ret);
+});
+
+// Приходует остаток по позициям возврата — общая логика для подтверждения
+// (см. PUT /api/returns/:id/confirm) и для отката при удалении неподтверждённого
+// быть не может (у pending остаток ещё не тронут, см. DELETE ниже).
+// Весовой товар (is_weight_item): it.qty здесь — кг (см. комментарий на
+// cleanItems в POST /api/returns), а не короба́, поэтому идёт ТОЛЬКО в кг-пул
+// (stock.weight_kg), никогда в stock.qty — форма возврата не спрашивает,
+// сколько именно коробов физически вернулось (частичный по весу возврат
+// необязательно кратен целому коробу), так что короба́ трогать нечем; их
+// при необходимости поправит склад вручную через "Остатки".
+function creditReturnStock(items) {
   const stockCol = db.get('stock');
-  cleanItems.forEach(it => {
+  items.forEach(it => {
     if (!it.code) return;
     const rec = stockCol.find({ code: it.code }).value();
     if (it.is_weight_item) {
@@ -2434,8 +2445,31 @@ app.post('/api/returns', authMiddleware, (req, res) => {
       stockCol.push({ code: it.code, qty: it.qty }).write();
     }
   });
+}
 
-  res.json(ret);
+// Подтверждение возврата складом — по просьбе владельца: раньше товар
+// приходовался в остаток сразу при оформлении водителем, без проверки
+// склада. Теперь остаток зачисляется только здесь, после того как зав.
+// склад физически принял товар (та же модель, что и подтверждение сдачи
+// налички, см. PUT /api/cash-handovers/:id/confirm).
+app.put('/api/returns/:id/confirm', authMiddleware, (req, res) => {
+  if (!['warehouse', 'admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const id = parseInt(req.params.id);
+  const ret = db.get('returns').find({ id }).value();
+  if (!ret) return res.status(404).json({ error: 'Возврат не найден' });
+  if (ret.status === 'confirmed') return res.status(400).json({ error: 'Этот возврат уже подтверждён' });
+
+  creditReturnStock(ret.items || []);
+
+  db.get('returns').find({ id }).assign({
+    status: 'confirmed',
+    confirmed_by_id: req.user.id,
+    confirmed_by_name: req.user.name,
+    confirmed_at: new Date().toISOString(),
+  }).write();
+  res.json(db.get('returns').find({ id }).value());
 });
 
 app.delete('/api/returns/:id', authMiddleware, (req, res) => {
@@ -2443,26 +2477,29 @@ app.delete('/api/returns/:id', authMiddleware, (req, res) => {
   const id = parseInt(req.params.id);
   const ret = db.get('returns').find({ id }).value();
   if (!ret) return res.status(404).json({ error: 'Возврат не найден' });
-  // Откатываем остаток обратно — возврат приходовал его напрямую при
-  // создании (см. выше — весовой товар только в кг-пул), удаление должно
-  // симметрично списать именно то, что было приходовано.
-  const stockCol = db.get('stock');
-  (ret.items || []).forEach(it => {
-    if (!it.code) return;
-    const rec = stockCol.find({ code: it.code }).value();
-    if (!rec) return;
-    if (it.is_weight_item) {
-      // rec.weight_kg может стать null уже ПОСЛЕ создания возврата, если
-      // склад вручную очистил "Вес, кг" в "Остатках" — раньше в этом случае
-      // откат молча ничего не делал (rec.weight_kg != null было false), и
-      // кг, зачисленные этим возвратом, так и оставались учтены нигде.
-      // Считаем пустой пул нулём, как и везде в этом файле.
-      const kg = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
-      stockCol.find({ code: it.code }).assign({ weight_kg: Math.max(0, kg - (Number(it.qty) || 0)) }).write();
-      return;
-    }
-    stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - (Number(it.qty) || 0)) }).write();
-  });
+  // Откатываем остаток обратно — только если возврат уже был подтверждён
+  // складом (см. PUT /api/returns/:id/confirm): именно тогда и только тогда
+  // остаток был приходован. Неподтверждённый (status==='pending') остатка
+  // ещё не касался — откатывать нечего, обычное remove() ниже.
+  if (ret.status === 'confirmed') {
+    const stockCol = db.get('stock');
+    (ret.items || []).forEach(it => {
+      if (!it.code) return;
+      const rec = stockCol.find({ code: it.code }).value();
+      if (!rec) return;
+      if (it.is_weight_item) {
+        // rec.weight_kg может стать null уже ПОСЛЕ подтверждения возврата,
+        // если склад вручную очистил "Вес, кг" в "Остатках" — раньше в этом
+        // случае откат молча ничего не делал (rec.weight_kg != null было
+        // false), и кг, зачисленные этим возвратом, так и оставались учтены
+        // нигде. Считаем пустой пул нулём, как и везде в этом файле.
+        const kg = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
+        stockCol.find({ code: it.code }).assign({ weight_kg: Math.max(0, kg - (Number(it.qty) || 0)) }).write();
+        return;
+      }
+      stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - (Number(it.qty) || 0)) }).write();
+    });
+  }
   db.get('returns').remove({ id }).write();
   res.json({ success: true });
 });

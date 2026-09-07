@@ -1366,6 +1366,72 @@ function buildWaybillInnerHtml(order) {
     </div>`;
 }
 
+// Возвратная накладная (см. PUT /api/returns/:id/confirm) — та же форма,
+// что и обычная накладная на отпуск (buildWaybillInnerHtml), но товар
+// движется в обратную сторону: отправитель — клиент, получатель — компания.
+// Печатается только после того, как зав. склад подтвердил возврат (см.
+// WarehouseCabinet), а не сразу при оформлении водителем — до подтверждения
+// возврат ещё не приходован в остаток, печатать по нему рано.
+function buildReturnWaybillInnerHtml(ret) {
+  const items = ret.items || [];
+  const unitOf = (it) => it.is_weight_item ? 'кг' : 'шт';
+  let totalNds = 0;
+  const rows = items.map((it,i)=>{
+    const sum = Number(it.qty)*Number(it.price);
+    const nds = Math.round(sum*0.16);
+    totalNds += nds;
+    return `
+    <tr>
+      <td style="text-align:center">${i+1}</td>
+      <td>${it.name}</td>
+      <td style="text-align:center">${it.code||''}</td>
+      <td style="text-align:center">${unitOf(it)}</td>
+      <td style="text-align:center">${it.qty}</td>
+      <td style="text-align:right">${Number(it.price).toLocaleString()}</td>
+      <td style="text-align:right">${sum.toLocaleString()}</td>
+      <td style="text-align:right">${nds.toLocaleString()}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="topright">Приложение 26<br>к приказу Министра финансов<br>Республики Казахстан<br>от 20 декабря 2012 года № 562</div>
+    <div class="toprow"><span>Организация (индивидуальный предприниматель) <b>${COMPANY_INFO.name}</b></span><span>ИИН/БИН <b>${COMPANY_INFO.bin}</b></span></div>
+    <table class="docnumtable">
+      <tr><th>Номер документа</th><th>Дата составления</th></tr>
+      <tr><td>Возврат №${ret.id}</td><td>${ret.date}</td></tr>
+    </table>
+    <h1>НАКЛАДНАЯ НА ВОЗВРАТ ЗАПАСОВ<br><span style="font-weight:400;font-size:12px">${ret.order_id?`по заявке № ${ret.order_id}`:'без привязки к заявке'}</span></h1>
+    <div class="headrow">
+      <div><div class="label">ОРГАНИЗАЦИЯ — ОТПРАВИТЕЛЬ</div>${ret.client_name||''}</div>
+      <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${COMPANY_INFO.name}</div>
+    </div>
+    <div class="headrow row2">
+      <div><div class="label">ОФОРМИЛ (Ф.И.О.)</div>${ret.created_by_name||''}</div>
+      <div><div class="label">ПОДТВЕРДИЛ (СКЛАД)</div>${ret.confirmed_by_name||''}</div>
+      <div><div class="label">ПРИЧИНА ВОЗВРАТА</div>${ret.reason||'—'}</div>
+    </div>
+    <table>
+      <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Ед.<br>изм.</th><th>Кол-во</th><th>Цена за ед., ₸</th><th>Сумма, ₸</th><th>Сумма НДС, ₸</th></tr>
+      ${rows}
+      <tr><td colspan="6" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(ret.total||0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds.toLocaleString()}</td></tr>
+    </table>
+    <div class="totals">
+      <p>Всего принято на сумму: <b>${(ret.total||0).toLocaleString()} ₸</b></p>
+      <p>Сумма прописью: ${tengeSumToWords(ret.total||0)}</p>
+    </div>
+    <div class="signcols">
+      <div class="sign">
+        <p>Сдал: <span class="signline">&nbsp;</span> подпись</p>
+        <p style="margin-top:20px">М.П.</p>
+      </div>
+      <div class="sign">
+        <p>Принял (склад): <span class="signline">${ret.confirmed_by_name||''}</span> подпись</p>
+      </div>
+    </div>`;
+}
+function printReturnWaybill(ret) {
+  openPrintOverlay(buildReturnWaybillInnerHtml(ret), WAYBILL_STYLE, true);
+}
+
 // Стили печатных форм (накладная/загрузочный лист) — селекторы намеренно
 // со scope-префиксом .printScope, а не голые body/table/h1: раньше эти
 // правила жили в HTML-документе отдельного window.open()-окна (там body{}
@@ -3062,6 +3128,17 @@ function DriverCabinet({ user, onLogout }) {
     } catch(e) { alert(e.message); }
   };
 
+  // Мои возвраты — см. POST /api/returns и PUT /api/returns/:id/confirm.
+  // Пока склад не подтвердил (status "pending"), товар ещё не приходован
+  // в остаток — водителю важно видеть, что возврат ждёт подтверждения,
+  // а не считать оформление конечным шагом.
+  const [myReturns, setMyReturns] = useState([]);
+  const loadMyReturns = useCallback(async () => {
+    try { setMyReturns(await apiCall('GET','/api/returns')); } catch(e) {}
+  }, []);
+  useEffect(() => { loadMyReturns(); }, []);
+  useRefetchOnVisible(loadMyReturns);
+
   const todayStr = new Date().toISOString().slice(0,10);
   const [driverDateFrom, setDriverDateFrom] = useState(todayStr);
   const [driverDateTo, setDriverDateTo] = useState(todayStr);
@@ -3151,7 +3228,7 @@ function DriverCabinet({ user, onLogout }) {
   return (
     <div style={{paddingBottom:72}}>
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
-      {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadOrders}/>}
+      {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={()=>{loadOrders();loadMyReturns();}}/>}
       <div style={S.page}>
         {tab==="queue"&&<>
           <div style={S.statsRow}>
@@ -3159,7 +3236,12 @@ function DriverCabinet({ user, onLogout }) {
             <div style={S.statCard()}><p style={S.statNum(C.amber)}>{queueActive.length}</p><p style={S.statLabel}>В работе</p></div>
           </div>
           <p style={S.sectionTitle}>Заявки</p>
-          <button onClick={()=>setShowReturnModal(true)} style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:0,marginBottom:14}}>↩️ Оформить возврат</button>
+          <button onClick={()=>setShowReturnModal(true)} style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:0,marginBottom:myReturns.some(r=>r.status==="pending")?8:14}}>↩️ Оформить возврат</button>
+          {myReturns.filter(r=>r.status==="pending").length>0&&(
+            <div style={{marginBottom:14,padding:"9px 12px",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:10,fontSize:13,color:"#92400E"}}>
+              ⏳ {myReturns.filter(r=>r.status==="pending").length} {myReturns.filter(r=>r.status==="pending").length===1?'возврат ждёт':'возвратов ждут'} подтверждения складом — товар примут и зачтут в остаток, когда физически привезёте.
+            </div>
+          )}
           {myActive.length>0&&(
             <button onClick={()=>printLoadingList(myActive,user.name)} style={{width:"100%",marginBottom:14,padding:"12px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:16,fontWeight:700,cursor:"pointer"}}>🧾 Загрузочный лист ({myActive.length} {myActive.length===1?'заявка':'заявок'})</button>
           )}
@@ -6148,6 +6230,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                           {r.items.map(it=>`${it.name} × ${it.qty}`).join(', ')}
                           {r.sales_name?` · торговый: ${r.sales_name}`:' · без торгового'}
                           {r.reason?` · причина: ${r.reason}`:''}
+                          {" · "}{r.status==="confirmed"?<span style={{color:C.green,fontWeight:600}}>✓ принят складом</span>:<span style={{color:"#92400E",fontWeight:600}}>⏳ ждёт склад</span>}
                         </p>
                       </div>
                     ))}
@@ -6990,6 +7073,32 @@ function WarehouseCabinet({ user, onLogout }) {
   const pendingHandovers = cashHandovers.filter(h=>h.status==="pending");
   const confirmedHandovers = cashHandovers.filter(h=>h.status==="confirmed");
 
+  // Подтверждение возвратов от водителей — см. PUT /api/returns/:id/confirm.
+  // До подтверждения возврат ещё не приходован в остаток (см. POST
+  // /api/returns на сервере) — водитель мог заявить возврат, которого
+  // физически не привёз, поэтому остаток зачисляется только здесь, после
+  // того как склад реально принял товар. Та же модель, что и приём
+  // налички выше.
+  const [returns, setReturns] = useState([]);
+  const [loadingReturns, setLoadingReturns] = useState(true);
+  const loadReturns = useCallback(async () => {
+    try { setReturns(await apiCall('GET','/api/returns')); } catch(e) {}
+    setLoadingReturns(false);
+  }, []);
+  useEffect(() => { loadReturns(); }, []);
+  useRefetchOnVisible(loadReturns);
+  const [confirmingReturnId, setConfirmingReturnId] = useState(null);
+  const confirmReturn = async (id) => {
+    setConfirmingReturnId(id);
+    try {
+      await apiCall('PUT', `/api/returns/${id}/confirm`, {});
+      loadReturns();
+    } catch(e) { alert(e.message); }
+    setConfirmingReturnId(null);
+  };
+  const pendingReturns = returns.filter(r=>r.status==="pending");
+  const confirmedReturns = returns.filter(r=>r.status==="confirmed");
+
   const loadProducts = useCallback(async () => {
     try {
       const data = await fetch('/api/products').then(r => r.json());
@@ -7382,13 +7491,55 @@ function WarehouseCabinet({ user, onLogout }) {
             )}
           </>}
         </>}
+        {tab==="returns"&&<>
+          <p style={S.sectionTitle}>Возвраты от водителей</p>
+          <p style={{margin:"0 0 16px",fontSize:13,color:C.textFaint}}>Подтвердите, только когда товар физически принят — до этого остаток по нему не пополняется.</p>
+          {loadingReturns?<div style={S.loadingWrap}>Загрузка...</div>:<>
+            {pendingReturns.length===0
+              ? <div style={{textAlign:"center",padding:"40px 0",color:C.textFaint}}>Ожидающих возвратов нет</div>
+              : pendingReturns.map(r=>(
+                <div key={r.id} style={{...S.card,background:"#FFFBEB",border:"1px solid #FDE68A"}}>
+                  <div style={S.row}>
+                    <div>
+                      <p style={S.cardTitle}>{r.client_name}{r.order_id?` · заявка №${r.order_id}`:''}</p>
+                      <p style={S.cardSub}>{r.date} · оформил {r.created_by_name}</p>
+                    </div>
+                    <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:"#92400E"}}>{r.total.toLocaleString()} ₸</p>
+                  </div>
+                  <p style={{margin:"8px 0 0",fontSize:14,color:C.textSub}}>{r.items.map(it=>`${it.name} × ${it.qty}`).join(', ')}</p>
+                  {r.reason&&<p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>Причина: {r.reason}</p>}
+                  <button onClick={()=>confirmReturn(r.id)} disabled={confirmingReturnId===r.id} style={{...S.btnPrimary,marginTop:10,opacity:confirmingReturnId===r.id?0.6:1}}>{confirmingReturnId===r.id?"Подтверждаю...":"✓ Принял, подтвердить"}</button>
+                </div>
+              ))
+            }
+            {confirmedReturns.length>0&&(
+              <>
+                <p style={{...S.sectionTitle,fontSize:17,marginTop:20}}>История</p>
+                {confirmedReturns.map(r=>(
+                  <div key={r.id} style={S.card}>
+                    <div style={S.row}>
+                      <div>
+                        <p style={S.cardTitle}>{r.client_name}{r.order_id?` · заявка №${r.order_id}`:''}</p>
+                        <p style={S.cardSub}>{r.date} · принял {r.confirmed_by_name}</p>
+                      </div>
+                      <p style={{margin:0,fontSize:17,fontWeight:800,fontFamily:FH,color:C.text}}>{r.total.toLocaleString()} ₸</p>
+                    </div>
+                    <p style={{margin:"8px 0 0",fontSize:14,color:C.textSub}}>{r.items.map(it=>`${it.name} × ${it.qty}`).join(', ')}</p>
+                    <button onClick={()=>printReturnWaybill(r)} style={{...S.btnOutline,marginTop:10,width:"auto",padding:"8px 14px",fontSize:14}}>🖨 Печать накладной</button>
+                  </div>
+                ))}
+              </>
+            )}
+          </>}
+        </>}
       </div>
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} currentUser={user}/>}
       <div style={S.nav}>
-        {[["stock","📦","Остатки"],["orders","📋","Заявки"],["shipping","🚚","Отгрузка"],["cash","💰","Инкассация"]].map(([k,ic,lb])=>(
+        {[["stock","📦","Остатки"],["orders","📋","Заявки"],["shipping","🚚","Отгрузка"],["cash","💰","Инкассация"],["returns","↩️","Возвраты"]].map(([k,ic,lb])=>(
           <button key={k} style={{...S.navBtn(tab===k),flex:1,position:"relative"}} onClick={()=>setTab(k)}>
             <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
             {k==="cash"&&pendingHandovers.length>0&&<span style={{position:"absolute",top:2,right:"22%",background:C.red,color:C.white,fontSize:10,fontWeight:700,borderRadius:99,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{pendingHandovers.length}</span>}
+            {k==="returns"&&pendingReturns.length>0&&<span style={{position:"absolute",top:2,right:"22%",background:C.red,color:C.white,fontSize:10,fontWeight:700,borderRadius:99,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{pendingReturns.length}</span>}
           </button>
         ))}
       </div>
