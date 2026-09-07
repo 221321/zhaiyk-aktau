@@ -2025,10 +2025,14 @@ function SalesCabinet({ user, token, onLogout }) {
   // Поэтому такие строки не считаем заполненными.
   const filledLines = lines.filter(l=>l.name&&l.productId&&Number(l.qty)>0&&Number(l.price)>0&&(!l.pricedByWeight||Number(l.weightPerBox)>0));
   const total = filledLines.reduce((s,l)=>s+estWeightOf(l)*Number(l.price),0);
+  // Оценка веса весового товара может превысить кг-остаток склада (см.
+  // проверку на сервере в POST /api/orders) — не даём отправить такую заявку
+  // и здесь, чтобы не ждать ответа сервера ради того, что уже видно на экране.
+  const hasOverStock = filledLines.some(l=>l.pricedByWeight&&l.stockWeightKg!=null&&estWeightOf(l)>l.stockWeightKg);
 
   const handleSubmit = async () => {
     if (submitting) return;
-    if (!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()) return;
+    if (!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()||hasOverStock) return;
     const client = clients.find(c=>c.code===clientId);
     const items = filledLines.map(l=>l.pricedByWeight
       ? {id:l.productId,code:l.code,name:l.name,qty:estWeightOf(l),boxes:Number(l.qty),price:Number(l.price),commission:l.commission||0}
@@ -2351,8 +2355,11 @@ function SalesCabinet({ user, token, onLogout }) {
                         onChange={e=>updateLine(line.uid,{weightPerBox:e.target.value})}
                         onFocus={e=>e.target.select()}
                       />
-                      {lineWeight>0&&<span style={{fontSize:13,color:C.textFaint}}>≈ {lineWeight.toLocaleString()} кг</span>}
+                      {lineWeight>0&&<span style={{fontSize:13,color:(line.stockWeightKg!=null&&lineWeight>line.stockWeightKg)?C.red:C.textFaint}}>≈ {lineWeight.toLocaleString()} кг</span>}
                     </div>
+                  )}
+                  {line.pricedByWeight&&line.stockWeightKg!=null&&lineWeight>line.stockWeightKg&&(
+                    <p style={{margin:"2px 0 0",fontSize:12,color:C.red}}>Недостаточно остатка: доступно {line.stockWeightKg.toLocaleString()} кг</p>
                   )}
                   {lineTotal&&<div style={{textAlign:"right",fontSize:13,color:C.textSub,marginTop:2,paddingRight:34}}>= <strong style={{color:C.navy}}>{lineTotal.toLocaleString()} ₸</strong></div>}
                   {line.priceOptions&&line.priceOptions.length>0&&(
@@ -2372,7 +2379,7 @@ function SalesCabinet({ user, token, onLogout }) {
               <label style={S.label}>Комментарий</label>
               <textarea style={S.textarea} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Особые пожелания..."/>
             </div>
-            <button style={{...S.btnPrimary,opacity:(submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim())?0.45:1}} onClick={handleSubmit} disabled={submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()}>{submitting?"Отправка...":"Отправить заявку"}</button>
+            <button style={{...S.btnPrimary,opacity:(submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()||hasOverStock)?0.45:1}} onClick={handleSubmit} disabled={submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()||hasOverStock}>{submitting?"Отправка...":"Отправить заявку"}</button>
                   </div>
         </>}
         {tab==="cashbox"&&<>
@@ -4364,10 +4371,14 @@ function NewOrderModal({ products, clients, onClose, onCreated }) {
   const estWeightOf = (l) => l.pricedByWeight ? (Number(l.qty)||0)*(Number(l.weightPerBox)||0) : (Number(l.qty)||0);
   const filledLines = lines.filter(l=>l.name&&l.productId&&Number(l.qty)>0&&Number(l.price)>0&&(!l.pricedByWeight||Number(l.weightPerBox)>0));
   const total = filledLines.reduce((s,l)=>s+estWeightOf(l)*Number(l.price),0);
+  // Оценка веса весового товара может превысить кг-остаток склада (см.
+  // проверку на сервере в POST /api/orders) — не даём отправить такую заявку
+  // и здесь, чтобы не ждать ответа сервера ради того, что уже видно на экране.
+  const hasOverStock = filledLines.some(l=>l.pricedByWeight&&l.stockWeightKg!=null&&estWeightOf(l)>l.stockWeightKg);
 
   const handleSubmit = async () => {
     if (submitting) return;
-    if (!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()) return;
+    if (!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()||hasOverStock) return;
     const client = clients.find(c=>c.code===clientId);
     const items = filledLines.map(l=>l.pricedByWeight
       ? {id:l.productId,code:l.code,name:l.name,qty:estWeightOf(l),boxes:Number(l.qty),price:Number(l.price),commission:l.commission||0}
@@ -4512,8 +4523,11 @@ function NewOrderModal({ products, clients, onClose, onCreated }) {
                       onChange={e=>updateLine(line.uid,{weightPerBox:e.target.value})}
                       onFocus={e=>e.target.select()}
                     />
-                    {lineWeight>0&&<span style={{fontSize:13,color:C.textFaint}}>≈ {lineWeight.toLocaleString()} кг</span>}
+                    {lineWeight>0&&<span style={{fontSize:13,color:(line.stockWeightKg!=null&&lineWeight>line.stockWeightKg)?C.red:C.textFaint}}>≈ {lineWeight.toLocaleString()} кг</span>}
                   </div>
+                )}
+                {line.pricedByWeight&&line.stockWeightKg!=null&&lineWeight>line.stockWeightKg&&(
+                  <p style={{margin:"2px 0 0",fontSize:12,color:C.red}}>Недостаточно остатка: доступно {line.stockWeightKg.toLocaleString()} кг</p>
                 )}
                 {lineTotal&&<div style={{textAlign:"right",fontSize:13,color:C.textSub,marginTop:2,paddingRight:34}}>= <strong style={{color:C.navy}}>{lineTotal.toLocaleString()} ₸</strong></div>}
                 {line.priceOptions&&line.priceOptions.length>0&&(
@@ -4533,7 +4547,7 @@ function NewOrderModal({ products, clients, onClose, onCreated }) {
             <label style={S.label}>Комментарий</label>
             <textarea style={S.textarea} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Особые пожелания..."/>
           </div>
-          <button style={{...S.btnPrimary,opacity:(submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim())?0.45:1}} onClick={handleSubmit} disabled={submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()}>{submitting?"Отправка...":"Отправить заявку"}</button>
+          <button style={{...S.btnPrimary,opacity:(submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()||hasOverStock)?0.45:1}} onClick={handleSubmit} disabled={submitting||!clientId||filledLines.length===0||!timeSlot||!contactPhone.trim()||hasOverStock}>{submitting?"Отправка...":"Отправить заявку"}</button>
         </div>
       </div>
     </div>

@@ -394,13 +394,30 @@ app.post('/api/orders', authMiddleware, (req, res) => {
   // Развесной товар (priced_by_weight): 1С коробов не считает вообще, только
   // кг (см. /api/stock/sync ниже) — короба́ в stock.qty никем не
   // поддерживаются, проверять по ним нечего. Торговый указывает ПРИМЕРНОЕ
-  // кол-во при оформлении, точный расход кг выяснится и проверится при
-  // взвешивании на складе (см. POST /api/orders/weights и
-  // computeAvailableWeightKg) — решение владельца, блокировать заявку на
-  // этапе оформления по коробам не нужно.
+  // кол-во коробов, но итоговое qty позиции — это уже оценка веса в кг
+  // (кол-во коробов × примерный вес короба, см. форму заявки), и её
+  // сравнивать есть с чем: с кг-остатком склада (см. computeAvailableWeightKg,
+  // тот же пул, что проверяется при факт. взвешивании). Иначе торговый мог
+  // оформить заявку на вес, которого физически нет на складе, и об этом
+  // узнавал бы только зав. склад при взвешивании — заявка уже создана и
+  // висит в очереди.
   const availableMap = computeAvailableStock();
+  const weightAvailableMap = computeAvailableWeightKg();
   for (const it of finalItems) {
-    if (!it.code || it.is_weight_item) continue;
+    if (!it.code) continue;
+    if (it.is_weight_item) {
+      // Кг-остаток известен только если склад заполнил "Вес, кг" на
+      // "Остатках" (PUT /api/stock/:code) — если нет, сверять не с чем,
+      // пропускаем проверку, а не блокируем оформление из-за отсутствующих
+      // данных (та же логика, что в POST /api/orders/weights).
+      if (!Object.prototype.hasOwnProperty.call(weightAvailableMap, it.code)) continue;
+      const avail = weightAvailableMap[it.code];
+      const checkQty = Number(it.qty) || 0;
+      if (checkQty > avail) {
+        return res.status(400).json({ error: `Недостаточно остатка: "${it.name}" (доступно ${avail.toLocaleString()} кг)` });
+      }
+      continue;
+    }
     const avail = availableMap[it.code] != null ? availableMap[it.code] : 0;
     const checkQty = Number(it.qty) || 0;
     if (checkQty > avail) {

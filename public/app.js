@@ -4045,9 +4045,13 @@ function SalesCabinet({
   // Поэтому такие строки не считаем заполненными.
   const filledLines = lines.filter(l => l.name && l.productId && Number(l.qty) > 0 && Number(l.price) > 0 && (!l.pricedByWeight || Number(l.weightPerBox) > 0));
   const total = filledLines.reduce((s, l) => s + estWeightOf(l) * Number(l.price), 0);
+  // Оценка веса весового товара может превысить кг-остаток склада (см.
+  // проверку на сервере в POST /api/orders) — не даём отправить такую заявку
+  // и здесь, чтобы не ждать ответа сервера ради того, что уже видно на экране.
+  const hasOverStock = filledLines.some(l => l.pricedByWeight && l.stockWeightKg != null && estWeightOf(l) > l.stockWeightKg);
   const handleSubmit = async () => {
     if (submitting) return;
-    if (!clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim()) return;
+    if (!clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim() || hasOverStock) return;
     const client = clients.find(c => c.code === clientId);
     const items = filledLines.map(l => l.pricedByWeight ? {
       id: l.productId,
@@ -4988,9 +4992,15 @@ function SalesCabinet({
     }), lineWeight > 0 && /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 13,
-        color: C.textFaint
+        color: line.stockWeightKg != null && lineWeight > line.stockWeightKg ? C.red : C.textFaint
       }
-    }, "\u2248 ", lineWeight.toLocaleString(), " \u043A\u0433")), lineTotal && /*#__PURE__*/React.createElement("div", {
+    }, "\u2248 ", lineWeight.toLocaleString(), " \u043A\u0433")), line.pricedByWeight && line.stockWeightKg != null && lineWeight > line.stockWeightKg && /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "2px 0 0",
+        fontSize: 12,
+        color: C.red
+      }
+    }, "\u041D\u0435\u0434\u043E\u0441\u0442\u0430\u0442\u043E\u0447\u043D\u043E \u043E\u0441\u0442\u0430\u0442\u043A\u0430: \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E ", line.stockWeightKg.toLocaleString(), " \u043A\u0433"), lineTotal && /*#__PURE__*/React.createElement("div", {
       style: {
         textAlign: "right",
         fontSize: 13,
@@ -5058,10 +5068,10 @@ function SalesCabinet({
   })), /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnPrimary,
-      opacity: submitting || !clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim() ? 0.45 : 1
+      opacity: submitting || !clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim() || hasOverStock ? 0.45 : 1
     },
     onClick: handleSubmit,
-    disabled: submitting || !clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim()
+    disabled: submitting || !clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim() || hasOverStock
   }, submitting ? "Отправка..." : "Отправить заявку"))), tab === "cashbox" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u041A\u0430\u0441\u0441\u0430"), /*#__PURE__*/React.createElement("div", {
@@ -9361,9 +9371,13 @@ function NewOrderModal({
   const estWeightOf = l => l.pricedByWeight ? (Number(l.qty) || 0) * (Number(l.weightPerBox) || 0) : Number(l.qty) || 0;
   const filledLines = lines.filter(l => l.name && l.productId && Number(l.qty) > 0 && Number(l.price) > 0 && (!l.pricedByWeight || Number(l.weightPerBox) > 0));
   const total = filledLines.reduce((s, l) => s + estWeightOf(l) * Number(l.price), 0);
+  // Оценка веса весового товара может превысить кг-остаток склада (см.
+  // проверку на сервере в POST /api/orders) — не даём отправить такую заявку
+  // и здесь, чтобы не ждать ответа сервера ради того, что уже видно на экране.
+  const hasOverStock = filledLines.some(l => l.pricedByWeight && l.stockWeightKg != null && estWeightOf(l) > l.stockWeightKg);
   const handleSubmit = async () => {
     if (submitting) return;
-    if (!clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim()) return;
+    if (!clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim() || hasOverStock) return;
     const client = clients.find(c => c.code === clientId);
     const items = filledLines.map(l => l.pricedByWeight ? {
       id: l.productId,
@@ -9853,9 +9867,15 @@ function NewOrderModal({
     }), lineWeight > 0 && /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 13,
-        color: C.textFaint
+        color: line.stockWeightKg != null && lineWeight > line.stockWeightKg ? C.red : C.textFaint
       }
-    }, "\u2248 ", lineWeight.toLocaleString(), " \u043A\u0433")), lineTotal && /*#__PURE__*/React.createElement("div", {
+    }, "\u2248 ", lineWeight.toLocaleString(), " \u043A\u0433")), line.pricedByWeight && line.stockWeightKg != null && lineWeight > line.stockWeightKg && /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "2px 0 0",
+        fontSize: 12,
+        color: C.red
+      }
+    }, "\u041D\u0435\u0434\u043E\u0441\u0442\u0430\u0442\u043E\u0447\u043D\u043E \u043E\u0441\u0442\u0430\u0442\u043A\u0430: \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E ", line.stockWeightKg.toLocaleString(), " \u043A\u0433"), lineTotal && /*#__PURE__*/React.createElement("div", {
       style: {
         textAlign: "right",
         fontSize: 13,
@@ -9923,10 +9943,10 @@ function NewOrderModal({
   })), /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnPrimary,
-      opacity: submitting || !clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim() ? 0.45 : 1
+      opacity: submitting || !clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim() || hasOverStock ? 0.45 : 1
     },
     onClick: handleSubmit,
-    disabled: submitting || !clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim()
+    disabled: submitting || !clientId || filledLines.length === 0 || !timeSlot || !contactPhone.trim() || hasOverStock
   }, submitting ? "Отправка..." : "Отправить заявку"))));
 }
 
