@@ -3217,6 +3217,10 @@ function DriverCabinet({ user, onLogout }) {
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={()=>{loadOrders();loadMyReturns();}}/>}
       <div style={S.page}>
         {tab==="queue"&&<>
+          <div style={S.statsRow}>
+            <div style={S.statCard()}><p style={S.statNum(C.pending)}>{queueNew.length}</p><p style={S.statLabel}>Ожидают</p></div>
+            <div style={S.statCard()}><p style={S.statNum(C.amber)}>{queueActive.length}</p><p style={S.statLabel}>В работе</p></div>
+          </div>
           <p style={S.sectionTitle}>Заявки</p>
           <button onClick={()=>setShowReturnModal(true)} style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:0,marginBottom:myReturns.some(r=>r.status==="pending")?8:14}}>↩️ Оформить возврат</button>
           {myReturns.filter(r=>r.status==="pending").length>0&&(
