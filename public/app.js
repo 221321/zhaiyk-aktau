@@ -6645,7 +6645,21 @@ function DriverCabinet({
     }
   }), /*#__PURE__*/React.createElement("div", {
     style: S.page
-  }, tab === "queue" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+  }, tab === "queue" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: S.statsRow
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.statCard()
+  }, /*#__PURE__*/React.createElement("p", {
+    style: S.statNum(C.pending)
+  }, queueNew.length), /*#__PURE__*/React.createElement("p", {
+    style: S.statLabel
+  }, "\u041E\u0436\u0438\u0434\u0430\u044E\u0442")), /*#__PURE__*/React.createElement("div", {
+    style: S.statCard()
+  }, /*#__PURE__*/React.createElement("p", {
+    style: S.statNum(C.amber)
+  }, queueActive.length), /*#__PURE__*/React.createElement("p", {
+    style: S.statLabel
+  }, "\u0412 \u0440\u0430\u0431\u043E\u0442\u0435"))), /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u0417\u0430\u044F\u0432\u043A\u0438"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowReturnModal(true),
