@@ -3188,20 +3188,6 @@ function DriverCabinet({ user, onLogout }) {
   const FILTERS=[["all","Все"],["new","Ожидает"],["in_transit","В работе"],["delivered","Доставлено"],["cancelled","Отказ"],["returned","Возврат"]];
   const filterShown = filter==="all"?combinedAll:filter==="new"?queueNew:filter==="in_transit"?queueActive:filter==="delivered"?myDelivered:filter==="cancelled"?myCancelled:myReturned;
 
-  const [showMyClients, setShowMyClients] = useState(false);
-  const myCashTotal = myDelivered.reduce((s,o)=>s+(o.payment_cash||0),0);
-  const myQrTotal = myDelivered.reduce((s,o)=>s+(o.payment_qr||0),0);
-  const myDebtTotal = myDelivered.reduce((s,o)=>s+(o.payment_debt||0),0);
-  const myClientBreakdown = {};
-  myDelivered.forEach(o=>{
-    const key = o.client_name;
-    if(!myClientBreakdown[key]) myClientBreakdown[key] = { name:o.client_name, cash:0, qr:0, debt:0 };
-    myClientBreakdown[key].cash += (o.payment_cash||0);
-    myClientBreakdown[key].qr += (o.payment_qr||0);
-    myClientBreakdown[key].debt += (o.payment_debt||0);
-  });
-  const myClientList = Object.values(myClientBreakdown).sort((a,b)=>(b.cash+b.qr+b.debt)-(a.cash+a.qr+a.debt));
-
 
   const driverDateFilter = (
     <div style={{marginBottom:16}}>
@@ -3231,10 +3217,6 @@ function DriverCabinet({ user, onLogout }) {
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={()=>{loadOrders();loadMyReturns();}}/>}
       <div style={S.page}>
         {tab==="queue"&&<>
-          <div style={S.statsRow}>
-            <div style={S.statCard()}><p style={S.statNum(C.pending)}>{queueNew.length}</p><p style={S.statLabel}>Ожидают</p></div>
-            <div style={S.statCard()}><p style={S.statNum(C.amber)}>{queueActive.length}</p><p style={S.statLabel}>В работе</p></div>
-          </div>
           <p style={S.sectionTitle}>Заявки</p>
           <button onClick={()=>setShowReturnModal(true)} style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:0,marginBottom:myReturns.some(r=>r.status==="pending")?8:14}}>↩️ Оформить возврат</button>
           {myReturns.filter(r=>r.status==="pending").length>0&&(
@@ -3303,38 +3285,6 @@ function DriverCabinet({ user, onLogout }) {
               ))}
             </div>
           )}
-          <p style={S.sectionTitle}>Касса за период</p>
-          {driverDateFilter}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
-            <div style={{background:C.cashGreen,borderRadius:10,padding:"10px"}}>
-              <p style={{margin:"0 0 2px",fontSize:12,color:"#15803D",fontWeight:600}}>НАЛИЧКА</p>
-              <p style={{margin:0,fontSize:17,fontWeight:800,fontFamily:FH,color:"#15803D"}}>{myCashTotal.toLocaleString()} ₸</p>
-            </div>
-            <div style={{background:C.qrBlue,borderRadius:10,padding:"10px"}}>
-              <p style={{margin:"0 0 2px",fontSize:12,color:"#1D4ED8",fontWeight:600}}>QR</p>
-              <p style={{margin:0,fontSize:17,fontWeight:800,fontFamily:FH,color:"#1D4ED8"}}>{myQrTotal.toLocaleString()} ₸</p>
-            </div>
-            <div style={{background:C.debtAmber,borderRadius:10,padding:"10px"}}>
-              <p style={{margin:"0 0 2px",fontSize:12,color:"#92400E",fontWeight:600}}>ДОЛГ</p>
-              <p style={{margin:0,fontSize:17,fontWeight:800,fontFamily:FH,color:"#92400E"}}>{myDebtTotal.toLocaleString()} ₸</p>
-            </div>
-          </div>
-          {myClientList.length>0&&<>
-            <div style={{...S.row,cursor:"pointer",marginBottom:8}} onClick={()=>setShowMyClients(s=>!s)}>
-              <p style={{...S.sectionTitle,fontSize:17,margin:0}}>По точкам за период</p>
-              <p style={{margin:0,fontSize:14,color:C.textFaint}}>{showMyClients?"▲ Свернуть":"▼ Показать"}</p>
-            </div>
-            {showMyClients&&myClientList.map((c,i)=>(
-              <div key={i} style={S.card}>
-                <p style={S.cardTitle}>{c.name}</p>
-                <div style={{marginTop:6,display:"flex",gap:8,flexWrap:"wrap"}}>
-                  <span style={{fontSize:14,color:"#15803D"}}>Нал: {c.cash.toLocaleString()} ₸</span>
-                  <span style={{fontSize:14,color:"#1D4ED8"}}>QR: {c.qr.toLocaleString()} ₸</span>
-                  <span style={{fontSize:14,color:"#92400E"}}>Долг: {c.debt.toLocaleString()} ₸</span>
-                </div>
-              </div>
-            ))}
-          </>}
           <div style={{marginTop:20}}><DebtsPanel readOnly/></div>
         </>}
       </div>
