@@ -3148,22 +3148,35 @@ function printWaybillsBatch(orders) {
     alert('Нет заявок для печати');
     return;
   }
+  // Заявка с неподтверждённым весом (is_weight_item && !weight_confirmed) —
+  // её qty всё ещё ОЦЕНКА торгового (см. POST /api/orders), а не факт.
+  // вес с весов склада, поэтому сумма в накладной может быть неточной.
+  // Раньше это только предупреждало (window.confirm "всё равно напечатать?")
+  // и по факту печатало ВСЕ заявки, включая невзвешенные — по просьбе
+  // владельца печатаются только те, что уже прошли проверку зав. склада;
+  // невзвешенные молча исключаются из пачки, а не блокируют печать
+  // остальных.
   const pendingOrders = orders.filter(o => {
     const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : o.items || [];
     return items.some(it => it.is_weight_item && !it.weight_confirmed);
   });
+  const readyOrders = orders.filter(o => !pendingOrders.includes(o));
+  if (readyOrders.length === 0) {
+    alert(`Печать недоступна: по ${pendingOrders.length === 1 ? 'заявке' : 'всем заявкам'} (№${pendingOrders.map(o => o.id).join(', №')}) вес ещё не подтверждён складом.`);
+    return;
+  }
   if (pendingOrders.length > 0) {
-    if (!window.confirm(`По ${pendingOrders.length} ${pendingOrders.length === 1 ? 'заявке' : 'заявкам'} (№${pendingOrders.map(o => o.id).join(', №')}) вес ещё не подтверждён складом — суммы могут быть неточными.\n\nВсё равно напечатать накладные по всем ${orders.length}?`)) return;
-  } else if (!window.confirm(`Напечатать накладные по ${orders.length} ${orders.length === 1 ? 'заявке' : 'заявкам'} (по 2 на лист A4)?`)) {
+    if (!window.confirm(`По ${pendingOrders.length} ${pendingOrders.length === 1 ? 'заявке' : 'заявкам'} (№${pendingOrders.map(o => o.id).join(', №')}) вес ещё не подтверждён складом — ${pendingOrders.length === 1 ? 'она' : 'они'} не будет напечатана.\n\nНапечатать накладные по остальным ${readyOrders.length} из ${orders.length}?`)) return;
+  } else if (!window.confirm(`Напечатать накладные по ${readyOrders.length} ${readyOrders.length === 1 ? 'заявке' : 'заявкам'} (по 2 на лист A4)?`)) {
     return;
   }
   // margin-bottom — только видимый на экране зазор между листами в
   // превью; на печать не влияет (там разрыв страницы делает page-break-after,
   // см. .waybillSheet в WAYBILL_PAIR_STYLE).
   const sheets = [];
-  for (let i = 0; i < orders.length; i += 2) {
-    const a = orders[i],
-      b = orders[i + 1];
+  for (let i = 0; i < readyOrders.length; i += 2) {
+    const a = readyOrders[i],
+      b = readyOrders[i + 1];
     sheets.push(`
       <div class="waybillSheet" style="margin-bottom:32px;">
         <div class="waybillSlot">${buildWaybillInnerHtml(a)}</div>
@@ -3386,10 +3399,16 @@ function OrderDetail({
   };
   // Весовые позиции, вес которых ещё не подтверждён складом (см.
   // POST /api/orders/weights) — до этого кол-во в заявке условное, и
-  // накладная/PDF с текущей суммой могут оказаться неточными.
+  // накладная/PDF с текущей суммой могут оказаться неточными. Печать
+  // такой заявки заблокирована (не просто предупреждение с возможностью
+  // напечатать всё равно — по просьбе владельца печатается только то,
+  // что уже прошло проверку зав. складом, см. printWaybillsBatch).
   const pendingWeightItems = items.filter(it => it.is_weight_item && !it.weight_confirmed);
   const confirmPrintIfPending = fn => {
-    if (pendingWeightItems.length > 0 && !window.confirm(`Вес по ${pendingWeightItems.length === 1 ? 'позиции' : 'позициям'} (${pendingWeightItems.map(it => it.name).join(', ')}) ещё не подтверждён складом — сумма может быть неточной. Всё равно напечатать?`)) return;
+    if (pendingWeightItems.length > 0) {
+      alert(`Печать недоступна: вес по ${pendingWeightItems.length === 1 ? 'позиции' : 'позициям'} (${pendingWeightItems.map(it => it.name).join(', ')}) ещё не подтверждён складом.`);
+      return;
+    }
     fn();
   };
   // Самовывоз клиент забирает прямо со склада, без водителя — зав. склад
@@ -3475,7 +3494,8 @@ function OrderDetail({
       borderRadius: 10,
       fontSize: 15,
       fontWeight: 700,
-      cursor: "pointer",
+      cursor: pendingWeightItems.length > 0 ? "not-allowed" : "pointer",
+      opacity: pendingWeightItems.length > 0 ? 0.5 : 1,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
@@ -3492,7 +3512,8 @@ function OrderDetail({
       borderRadius: 10,
       fontSize: 15,
       fontWeight: 700,
-      cursor: "pointer",
+      cursor: pendingWeightItems.length > 0 ? "not-allowed" : "pointer",
+      opacity: pendingWeightItems.length > 0 ? 0.5 : 1,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
