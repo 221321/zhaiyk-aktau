@@ -2978,7 +2978,7 @@ function buildWaybillInnerHtml(order) {
       </div>
       <div class="sign">
         <p>Запасы получил: <span class="signline">&nbsp;</span> подпись</p>
-        <p>Расшифровка подписи: <span class="signline">${order.contact_name || ''}</span></p>
+        <p>Расшифровка подписи: <span class="signline">&nbsp;</span></p>
       </div>
     </div>`;
 }
