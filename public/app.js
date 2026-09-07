@@ -3076,6 +3076,19 @@ const LOADING_LIST_STYLE = WAYBILL_STYLE + `
 // использовался для html2canvas в shareWaybillPdf) — новое окно вообще не
 // открывается, поэтому эта проблема пропадает на любой платформе.
 function openPrintOverlay(bodyHtml, styleText, showPrintButton) {
+  // Если предыдущий оверлей ещё не закрыт (например, двойное нажатие на
+  // "Печать накладных" — второй клик успевает открыть ВТОРОЙ оверлей раньше,
+  // чем пользователь закрыл первый через "Закрыть") — старый host с тем же
+  // id остаётся в DOM. document.body.appendChild() с повторяющимся id не
+  // заменяет прежний элемент, а добавляет второй рядом; при печати оба
+  // становятся position:static (см. правило ниже) и уходят на печать один
+  // за другим на том же листе — так на бумаге видна лишняя (старая)
+  // накладная поверх новой. Снимаем прошлый оверлей перед тем как открыть
+  // новый, чтобы одновременно был активен только один.
+  const prevHost = document.getElementById('printOverlayHost');
+  if (prevHost) prevHost.remove();
+  const prevRule = document.getElementById('printOverlayHostRule');
+  if (prevRule) prevRule.remove();
   const host = document.createElement('div');
   host.id = 'printOverlayHost';
   host.className = 'printScope';
@@ -3087,6 +3100,7 @@ function openPrintOverlay(bodyHtml, styleText, showPrintButton) {
   // Печать текущего окна как есть напечатала бы весь остальной сайт вместе
   // с оверлеем — на время, пока оверлей открыт, прячем всё остальное.
   const printRule = document.createElement('style');
+  printRule.id = 'printOverlayHostRule';
   printRule.textContent = `@media print {
     body > *:not(#printOverlayHost) { display:none !important; }
     #printOverlayHost { position:static !important; overflow:visible !important; }
