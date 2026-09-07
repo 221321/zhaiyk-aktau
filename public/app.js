@@ -6557,24 +6557,6 @@ function DriverCabinet({
   const combinedAll = [...queueAll, ...myDoneAll].sort((a, b) => b.id - a.id);
   const FILTERS = [["all", "Все"], ["new", "Ожидает"], ["in_transit", "В работе"], ["delivered", "Доставлено"], ["cancelled", "Отказ"], ["returned", "Возврат"]];
   const filterShown = filter === "all" ? combinedAll : filter === "new" ? queueNew : filter === "in_transit" ? queueActive : filter === "delivered" ? myDelivered : filter === "cancelled" ? myCancelled : myReturned;
-  const [showMyClients, setShowMyClients] = useState(false);
-  const myCashTotal = myDelivered.reduce((s, o) => s + (o.payment_cash || 0), 0);
-  const myQrTotal = myDelivered.reduce((s, o) => s + (o.payment_qr || 0), 0);
-  const myDebtTotal = myDelivered.reduce((s, o) => s + (o.payment_debt || 0), 0);
-  const myClientBreakdown = {};
-  myDelivered.forEach(o => {
-    const key = o.client_name;
-    if (!myClientBreakdown[key]) myClientBreakdown[key] = {
-      name: o.client_name,
-      cash: 0,
-      qr: 0,
-      debt: 0
-    };
-    myClientBreakdown[key].cash += o.payment_cash || 0;
-    myClientBreakdown[key].qr += o.payment_qr || 0;
-    myClientBreakdown[key].debt += o.payment_debt || 0;
-  });
-  const myClientList = Object.values(myClientBreakdown).sort((a, b) => b.cash + b.qr + b.debt - (a.cash + a.qr + a.debt));
   const driverDateFilter = /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16
@@ -6663,21 +6645,7 @@ function DriverCabinet({
     }
   }), /*#__PURE__*/React.createElement("div", {
     style: S.page
-  }, tab === "queue" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: S.statsRow
-  }, /*#__PURE__*/React.createElement("div", {
-    style: S.statCard()
-  }, /*#__PURE__*/React.createElement("p", {
-    style: S.statNum(C.pending)
-  }, queueNew.length), /*#__PURE__*/React.createElement("p", {
-    style: S.statLabel
-  }, "\u041E\u0436\u0438\u0434\u0430\u044E\u0442")), /*#__PURE__*/React.createElement("div", {
-    style: S.statCard()
-  }, /*#__PURE__*/React.createElement("p", {
-    style: S.statNum(C.amber)
-  }, queueActive.length), /*#__PURE__*/React.createElement("p", {
-    style: S.statLabel
-  }, "\u0412 \u0440\u0430\u0431\u043E\u0442\u0435"))), /*#__PURE__*/React.createElement("p", {
+  }, tab === "queue" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u0417\u0430\u044F\u0432\u043A\u0438"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowReturnModal(true),
@@ -6897,125 +6865,7 @@ function DriverCabinet({
       fontSize: 13,
       color: C.textFaint
     }
-  }, h.comment)))), /*#__PURE__*/React.createElement("p", {
-    style: S.sectionTitle
-  }, "\u041A\u0430\u0441\u0441\u0430 \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434"), driverDateFilter, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr 1fr",
-      gap: 8,
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: C.cashGreen,
-      borderRadius: 10,
-      padding: "10px"
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: "0 0 2px",
-      fontSize: 12,
-      color: "#15803D",
-      fontWeight: 600
-    }
-  }, "\u041D\u0410\u041B\u0418\u0427\u041A\u0410"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: 0,
-      fontSize: 17,
-      fontWeight: 800,
-      fontFamily: FH,
-      color: "#15803D"
-    }
-  }, myCashTotal.toLocaleString(), " \u20B8")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: C.qrBlue,
-      borderRadius: 10,
-      padding: "10px"
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: "0 0 2px",
-      fontSize: 12,
-      color: "#1D4ED8",
-      fontWeight: 600
-    }
-  }, "QR"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: 0,
-      fontSize: 17,
-      fontWeight: 800,
-      fontFamily: FH,
-      color: "#1D4ED8"
-    }
-  }, myQrTotal.toLocaleString(), " \u20B8")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: C.debtAmber,
-      borderRadius: 10,
-      padding: "10px"
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: "0 0 2px",
-      fontSize: 12,
-      color: "#92400E",
-      fontWeight: 600
-    }
-  }, "\u0414\u041E\u041B\u0413"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: 0,
-      fontSize: 17,
-      fontWeight: 800,
-      fontFamily: FH,
-      color: "#92400E"
-    }
-  }, myDebtTotal.toLocaleString(), " \u20B8"))), myClientList.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...S.row,
-      cursor: "pointer",
-      marginBottom: 8
-    },
-    onClick: () => setShowMyClients(s => !s)
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.sectionTitle,
-      fontSize: 17,
-      margin: 0
-    }
-  }, "\u041F\u043E \u0442\u043E\u0447\u043A\u0430\u043C \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: 0,
-      fontSize: 14,
-      color: C.textFaint
-    }
-  }, showMyClients ? "▲ Свернуть" : "▼ Показать")), showMyClients && myClientList.map((c, i) => /*#__PURE__*/React.createElement("div", {
-    key: i,
-    style: S.card
-  }, /*#__PURE__*/React.createElement("p", {
-    style: S.cardTitle
-  }, c.name), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 6,
-      display: "flex",
-      gap: 8,
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 14,
-      color: "#15803D"
-    }
-  }, "\u041D\u0430\u043B: ", c.cash.toLocaleString(), " \u20B8"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 14,
-      color: "#1D4ED8"
-    }
-  }, "QR: ", c.qr.toLocaleString(), " \u20B8"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 14,
-      color: "#92400E"
-    }
-  }, "\u0414\u043E\u043B\u0433: ", c.debt.toLocaleString(), " \u20B8"))))), /*#__PURE__*/React.createElement("div", {
+  }, h.comment)))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 20
     }
