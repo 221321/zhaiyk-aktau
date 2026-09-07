@@ -1454,7 +1454,7 @@ const WAYBILL_STYLE = `
     .printScope .headrow .label{font-size:9px; color:#444; margin-bottom:4px;}
     .printScope .toprow{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;}
     .printScope .headrow .miniqr{display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;}
-    .printScope .headrow .miniqr img{width:44px; height:44px; display:block; margin:0 0 2px;}
+    .printScope .headrow .miniqr img{width:60px; height:60px; display:block; margin:0 0 2px;}
     .printScope .headrow .miniqr p{margin:0; font-size:8px; color:#444; line-height:1.2;}
     .printScope .totals{margin-top:8px; font-size:11px;}
     .printScope .totals p{margin:6px 0;}
@@ -1489,7 +1489,7 @@ const WAYBILL_PAIR_STYLE = WAYBILL_STYLE + `
     .printScope .waybillSlot .sign{margin-top:10px;}
     .printScope .waybillSlot .sign p{margin:8px 0 2px;}
     .printScope .waybillSlot .signline{min-width:110px;}
-    .printScope .waybillSlot .headrow .miniqr img{width:28px; height:28px;}
+    .printScope .waybillSlot .headrow .miniqr img{width:38px; height:38px;}
     .printScope .waybillSlot .headrow .miniqr p{font-size:6px;}
     .printScope .cutline{text-align:center; font-size:10px; color:#888; margin:8px 0; border-top:1px dashed #999; position:relative; top:-1px;}
     @media print { .printScope .waybillSheet{page-break-after:always;} .printScope .waybillSheet:last-child{page-break-after:auto;} }`;
