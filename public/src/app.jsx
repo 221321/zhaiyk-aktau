@@ -1919,7 +1919,7 @@ function PhotoViewerOverlay({ src, onClose }) {
   );
 }
 
-function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, currentUser, drivers }) {
+function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, onEditDeliveredItems, currentUser, drivers }) {
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [fixingCostIndex, setFixingCostIndex] = useState(null);
   const [costInput, setCostInput] = useState("");
@@ -1928,6 +1928,14 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
   const [weightInput, setWeightInput] = useState("");
   const [savingWeight, setSavingWeight] = useState(false);
   const [viewPhoto, setViewPhoto] = useState(null);
+  // Правка кол-ва по позициям уже ДОСТАВЛЕННОЙ заявки задним числом — см.
+  // PUT /api/orders/:id/delivered-items на сервере. Доступно только admin
+  // (onEditDeliveredItems передаётся только из AdminCabinet и только ему).
+  const [editingDelivered, setEditingDelivered] = useState(false);
+  const [deliveredQty, setDeliveredQty] = useState({});
+  const [editReason, setEditReason] = useState("");
+  const [savingDeliveredItems, setSavingDeliveredItems] = useState(false);
+  const [editHistoryOpen, setEditHistoryOpen] = useState(false);
   // Договорник ли клиент заявки (см. DogovornikModal/is_dogovornik) — влияет
   // на печать накладной: см. printWaybill/buildWaybillInnerHtml (hideQr).
   const [isDogovornik, setIsDogovornik] = useState(false);
@@ -1946,6 +1954,42 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
   // при частичной доставке (см. PUT /api/orders/:id/status, patch.items_ordered),
   // чтобы было видно, что именно клиент не принял целиком/частично.
   const itemsOrdered = order.items_ordered ? (typeof order.items_ordered === 'string' ? JSON.parse(order.items_ordered||'[]') : order.items_ordered) : [];
+  // Эталон для правки кол-ва задним числом (см. onEditDeliveredItems ниже) —
+  // то же самое, что сервер берёт за потолок в PUT /api/orders/:id/delivered-items:
+  // items_ordered, если он уже есть (заявку уже сокращали), иначе текущий
+  // состав (значит, это первая правка и сокращать больше него нельзя).
+  const deliveredRefItems = itemsOrdered.length > 0 ? itemsOrdered : items;
+  const qtyKeyD = (it, i) => it.code || `i${i}`;
+  const startEditingDelivered = () => {
+    const init = {};
+    deliveredRefItems.forEach((ref, i) => {
+      const cur = items.find(it => it.code === ref.code);
+      init[qtyKeyD(ref, i)] = String(cur ? cur.qty : 0);
+    });
+    setDeliveredQty(init);
+    setEditReason("");
+    setEditingDelivered(true);
+  };
+  const acceptedForD = (ref, i) => {
+    const refQty = Number(ref.qty) || 0;
+    const raw = Number(deliveredQty[qtyKeyD(ref, i)]);
+    if (!Number.isFinite(raw) || raw < 0) return 0;
+    return Math.min(raw, refQty);
+  };
+  const saveDeliveredItems = async () => {
+    if (savingDeliveredItems) return;
+    const payloadItems = deliveredRefItems.map((ref, i) => ({ code: ref.code, qty: acceptedForD(ref, i) }));
+    if (!window.confirm(`Исправить доставленное кол-во по заявке № ${order.id}? Сумма, остаток на складе и комиссия торгового пересчитаются задним числом.`)) return;
+    setSavingDeliveredItems(true);
+    try {
+      const res = await onEditDeliveredItems(order.id, payloadItems, editReason);
+      setEditingDelivered(false);
+      if (res && res.payment_mismatch) {
+        alert('Готово. Обратите внимание: сумма заявки после правки больше не совпадает с уже принятой оплатой (нал/QR/долг) — оплату сверьте отдельно.');
+      }
+    } catch(e) { alert(e.message); }
+    setSavingDeliveredItems(false);
+  };
   // Весовые позиции, вес которых ещё не подтверждён складом (см.
   // POST /api/orders/weights) — до этого кол-во в заявке условное, и
   // накладная/PDF с текущей суммой могут оказаться неточными. Печать
@@ -2123,6 +2167,59 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
           <div style={{marginTop:20,display:"flex",flexDirection:"column",gap:8}}>
             <button style={{...S.btnOutline,borderColor:"#6B7280",color:"#6B7280"}} onClick={()=>{if(window.confirm('Вернуть заявку в очередь? Другой водитель сможет её забрать.'))onUpdateStatus(order.id,"new",null);}}>🔄 Вернуть в очередь</button>
             <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED"}} onClick={()=>{if(window.confirm('Оформить возврат по заявке № '+order.id+'? Действие нельзя отменить.'))onUpdateStatus(order.id,"returned",null);}}>↩️ Оформить возврат</button>
+          </div>
+        )}
+        {currentUser.role==="admin" && onEditDeliveredItems && order.status==="delivered" && (
+          <div style={{marginTop:20,paddingTop:16,borderTop:`1px dashed ${C.border}`}}>
+            {!editingDelivered ? (
+              <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",width:"100%"}} onClick={startEditingDelivered}>✏️ Исправить доставленное количество</button>
+            ) : (
+              <div>
+                <p style={{margin:"0 0 8px",fontSize:15,fontWeight:700,color:C.navy}}>Реально доставленное количество</p>
+                <p style={{margin:"0 0 10px",fontSize:13,color:C.textFaint}}>Задним числом — для заявок, которые водитель довёз "целиком" ещё до появления частичной доставки, хотя клиент по факту принял не всё. Сумма, остаток на складе и комиссия торгового пересчитаются.</p>
+                {deliveredRefItems.map((ref,i)=>{
+                  const key = qtyKeyD(ref,i);
+                  const unit = ref.is_weight_item?"кг":"шт";
+                  const refQty = Number(ref.qty)||0;
+                  const accepted = acceptedForD(ref,i);
+                  const short = accepted + 1e-9 < refQty;
+                  return (
+                    <div key={key} style={{padding:"10px 12px",borderRadius:10,background:short?"#F5F3FF":C.surface,border:`1px solid ${short?"#DDD6FE":C.border}`,marginBottom:8}}>
+                      <div style={{...S.row,marginBottom:8}}>
+                        <span style={{fontSize:14,fontWeight:600,color:C.text}}>{ref.name}</span>
+                        <span style={{fontSize:13,color:C.textFaint,whiteSpace:"nowrap"}}>изначально {refQty} {unit}</span>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                        <input type="number" min="0" max={refQty} step={ref.is_weight_item?"0.1":"0.5"} value={deliveredQty[key]} onFocus={e=>e.target.select()}
+                          onChange={e=>setDeliveredQty(a=>({...a,[key]:e.target.value}))}
+                          style={{...S.input,width:88,padding:"7px 8px",fontSize:15,fontWeight:700,textAlign:"right"}}/>
+                        <span style={{fontSize:14,color:C.textFaint}}>{unit}</span>
+                        <button type="button" onClick={()=>setDeliveredQty(a=>({...a,[key]:String(refQty)}))} style={{...S.btnOutline,padding:"6px 10px",fontSize:13,width:"auto"}}>Весь</button>
+                        <button type="button" onClick={()=>setDeliveredQty(a=>({...a,[key]:String(Math.round(refQty/2*100)/100)}))} style={{...S.btnOutline,padding:"6px 10px",fontSize:13,width:"auto"}}>Половину</button>
+                        <button type="button" onClick={()=>setDeliveredQty(a=>({...a,[key]:"0"}))} style={{...S.btnOutline,padding:"6px 10px",fontSize:13,width:"auto",borderColor:C.red,color:C.red}}>Ничего</button>
+                      </div>
+                    </div>
+                  );
+                })}
+                <input style={{...S.input,marginBottom:10}} placeholder="Причина правки (необязательно)" value={editReason} onChange={e=>setEditReason(e.target.value)}/>
+                <div style={{display:"flex",gap:8}}>
+                  <button disabled={savingDeliveredItems} style={{...S.btnPrimary,flex:1,marginTop:0,opacity:savingDeliveredItems?0.5:1}} onClick={saveDeliveredItems}>{savingDeliveredItems?"Сохранение...":"Сохранить"}</button>
+                  <button disabled={savingDeliveredItems} style={{...S.btnSecondary,flex:1}} onClick={()=>setEditingDelivered(false)}>Отмена</button>
+                </div>
+              </div>
+            )}
+            {Array.isArray(order.items_edits) && order.items_edits.length>0 && (
+              <div style={{marginTop:14}}>
+                <p style={{margin:0,fontSize:14,fontWeight:600,color:C.navy,cursor:"pointer",textDecoration:"underline"}} onClick={()=>setEditHistoryOpen(o=>!o)}>{editHistoryOpen?"▲ Скрыть историю правок":`▼ История правок (${order.items_edits.length})`}</p>
+                {editHistoryOpen && order.items_edits.slice().reverse().map((e,i)=>(
+                  <div key={i} style={{marginTop:8,padding:"8px 10px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,fontSize:13,color:C.textSub}}>
+                    <div style={{fontWeight:600,color:C.text}}>{e.by_name} · {fmtDT(e.at)}</div>
+                    <div>Сумма: {(e.before_total||0).toLocaleString()} ₸ → {(e.after_total||0).toLocaleString()} ₸</div>
+                    {e.reason&&<div>Причина: {e.reason}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {currentUser.role==="admin" && onDeleteOrder && (
@@ -5813,6 +5910,17 @@ function AdminCabinet({ user, onLogout, desktop }) {
     if (updated) setSelectedOrder(updated);
   };
 
+  // Правка кол-ва по позициям уже ДОСТАВЛЕННОЙ заявки задним числом — см.
+  // PUT /api/orders/:id/delivered-items на сервере (доступ там тоже
+  // проверяется, здесь только для того, чтобы кнопка вообще не
+  // показывалась не-admin, см. OrderDetail).
+  const editDeliveredItems = async (orderId, items, reason) => {
+    const res = await apiCall('PUT', `/api/orders/${orderId}/delivered-items`, { items, reason });
+    setSelectedOrder(res);
+    loadOrders();
+    return res;
+  };
+
   const [expandedSales, setExpandedSales] = useState({});
   const [cashboxGroupBy, setCashboxGroupBy] = useState("driver");
   // Клик по кругляшкам НАЛ/QR/ДОЛГ в сводке "Касса за период" прокручивает
@@ -7112,7 +7220,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return (
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
         <AutofillDecoy/>
-        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         {showNewOrderModal&&<NewOrderModal products={products} clients={clients} onClose={()=>setShowNewOrderModal(false)} onCreated={()=>{ setShowNewOrderModal(false); loadOrders(); }} isAdmin={user.role==="admin"}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
@@ -7143,7 +7251,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   return (
     <div style={{paddingBottom:72}}>
       <AutofillDecoy/>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
       {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
