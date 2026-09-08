@@ -2917,6 +2917,21 @@ function tengeSumToWords(amount) {
   const words = numberToWordsRu(whole);
   return `${words.charAt(0).toUpperCase()}${words.slice(1)} тенге ${String(tiyn).padStart(2, '0')} тиын`;
 }
+
+// Экранирование свободного текста (имя клиента/водителя, адрес, название
+// товара и т.п.) перед вставкой в HTML-шаблоны печати ниже — без него,
+// например, символы "<"/">" в имени клиента браузер трактует как начало
+// тега: "<<DIAMOND>> ИП" рендерился как просто "<> ИП" — "DIAMOND" не
+// пропадал из данных, он превращался в невидимый HTML-тег и не отображался.
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[c]);
+}
 function buildWaybillInnerHtml(order, opts) {
   const hideQr = !!(opts && opts.hideQr);
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : order.items || [];
@@ -2935,8 +2950,8 @@ function buildWaybillInnerHtml(order, opts) {
     return `
     <tr>
       <td style="text-align:center">${i + 1}</td>
-      <td>${it.name}</td>
-      <td style="text-align:center">${it.code || ''}</td>
+      <td>${esc(it.name)}</td>
+      <td style="text-align:center">${esc(it.code)}</td>
       <td style="text-align:center">${unitOf(it)}</td>
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:center">${it.qty}</td>
@@ -2947,20 +2962,20 @@ function buildWaybillInnerHtml(order, opts) {
   }).join('');
   return `
     <div class="topright">Приложение 26<br>к приказу Министра финансов<br>Республики Казахстан<br>от 20 декабря 2012 года № 562</div>
-    <div class="toprow"><span>Организация (индивидуальный предприниматель) <b>${COMPANY_INFO.name}</b></span><span>ИИН/БИН <b>${COMPANY_INFO.bin}</b></span></div>
+    <div class="toprow"><span>Организация (индивидуальный предприниматель) <b>${esc(COMPANY_INFO.name)}</b></span><span>ИИН/БИН <b>${esc(COMPANY_INFO.bin)}</b></span></div>
     <table class="docnumtable">
       <tr><th>Номер документа</th><th>Дата составления</th></tr>
       <tr><td>${order.id}</td><td>${order.date}</td></tr>
     </table>
     <h1>НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ<br><span style="font-weight:400;font-size:12px">Форма З-2</span></h1>
     <div class="headrow">
-      <div><div class="label">ОРГАНИЗАЦИЯ — ОТПРАВИТЕЛЬ</div>${COMPANY_INFO.name}</div>
-      <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${order.client_name || ''}</div>
+      <div><div class="label">ОРГАНИЗАЦИЯ — ОТПРАВИТЕЛЬ</div>${esc(COMPANY_INFO.name)}</div>
+      <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${esc(order.client_name)}</div>
     </div>
     <div class="headrow row2">
-      <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name || ''}${order.driver_name ? '<br>' : ''}${COMPANY_INFO.responsiblePhone}</div>
+      <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${esc(order.driver_name)}${order.driver_name ? '<br>' : ''}${esc(COMPANY_INFO.responsiblePhone)}</div>
       ${hideQr ? '' : '<div class="miniqr"><img src="/kaspi-qr.png" alt="Kaspi QR"/><p>Kaspi QR — оплата</p></div>'}
-      <div><div class="label">АДРЕС ДОСТАВКИ</div>${order.address || ''}${order.contact_phone ? '<br>Тел: ' + order.contact_phone : ''}</div>
+      <div><div class="label">АДРЕС ДОСТАВКИ</div>${esc(order.address)}${order.contact_phone ? '<br>Тел: ' + esc(order.contact_phone) : ''}</div>
     </div>
     <table>
       <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Ед.<br>изм.</th><th>Кол-во<br>подлежит<br>отпуску</th><th>Кол-во<br>отпущено</th><th>Цена за ед., ₸</th><th>Сумма, ₸</th><th>Сумма НДС, ₸</th></tr>
@@ -2973,8 +2988,8 @@ function buildWaybillInnerHtml(order, opts) {
     </div>
     <div class="signcols">
       <div class="sign">
-        <p>Отпуск разрешил: <span class="signline">${COMPANY_INFO.releaseAuthorizedBy}</span> должность / подпись</p>
-        <p>Отпустил (водитель): <span class="signline">${order.driver_name || ''}</span> подпись</p>
+        <p>Отпуск разрешил: <span class="signline">${esc(COMPANY_INFO.releaseAuthorizedBy)}</span> должность / подпись</p>
+        <p>Отпустил (водитель): <span class="signline">${esc(order.driver_name)}</span> подпись</p>
         <p style="margin-top:20px">М.П.</p>
       </div>
       <div class="sign">
@@ -3001,8 +3016,8 @@ function buildReturnWaybillInnerHtml(ret) {
     return `
     <tr>
       <td style="text-align:center">${i + 1}</td>
-      <td>${it.name}</td>
-      <td style="text-align:center">${it.code || ''}</td>
+      <td>${esc(it.name)}</td>
+      <td style="text-align:center">${esc(it.code)}</td>
       <td style="text-align:center">${unitOf(it)}</td>
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:right">${Number(it.price).toLocaleString()}</td>
@@ -3012,20 +3027,20 @@ function buildReturnWaybillInnerHtml(ret) {
   }).join('');
   return `
     <div class="topright">Приложение 26<br>к приказу Министра финансов<br>Республики Казахстан<br>от 20 декабря 2012 года № 562</div>
-    <div class="toprow"><span>Организация (индивидуальный предприниматель) <b>${COMPANY_INFO.name}</b></span><span>ИИН/БИН <b>${COMPANY_INFO.bin}</b></span></div>
+    <div class="toprow"><span>Организация (индивидуальный предприниматель) <b>${esc(COMPANY_INFO.name)}</b></span><span>ИИН/БИН <b>${esc(COMPANY_INFO.bin)}</b></span></div>
     <table class="docnumtable">
       <tr><th>Номер документа</th><th>Дата составления</th></tr>
       <tr><td>Возврат №${ret.id}</td><td>${ret.date}</td></tr>
     </table>
     <h1>НАКЛАДНАЯ НА ВОЗВРАТ ЗАПАСОВ<br><span style="font-weight:400;font-size:12px">${ret.order_id ? `по заявке № ${ret.order_id}` : 'без привязки к заявке'}</span></h1>
     <div class="headrow">
-      <div><div class="label">ОРГАНИЗАЦИЯ — ОТПРАВИТЕЛЬ</div>${ret.client_name || ''}</div>
-      <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${COMPANY_INFO.name}</div>
+      <div><div class="label">ОРГАНИЗАЦИЯ — ОТПРАВИТЕЛЬ</div>${esc(ret.client_name)}</div>
+      <div><div class="label">ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ</div>${esc(COMPANY_INFO.name)}</div>
     </div>
     <div class="headrow row2">
-      <div><div class="label">ОФОРМИЛ (Ф.И.О.)</div>${ret.created_by_name || ''}</div>
-      <div><div class="label">ПОДТВЕРДИЛ (СКЛАД)</div>${ret.confirmed_by_name || ''}</div>
-      <div><div class="label">ПРИЧИНА ВОЗВРАТА</div>${ret.reason || '—'}</div>
+      <div><div class="label">ОФОРМИЛ (Ф.И.О.)</div>${esc(ret.created_by_name)}</div>
+      <div><div class="label">ПОДТВЕРДИЛ (СКЛАД)</div>${esc(ret.confirmed_by_name)}</div>
+      <div><div class="label">ПРИЧИНА ВОЗВРАТА</div>${ret.reason ? esc(ret.reason) : '—'}</div>
     </div>
     <table>
       <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Ед.<br>изм.</th><th>Кол-во</th><th>Цена за ед., ₸</th><th>Сумма, ₸</th><th>Сумма НДС, ₸</th></tr>
@@ -3042,7 +3057,7 @@ function buildReturnWaybillInnerHtml(ret) {
         <p style="margin-top:20px">М.П.</p>
       </div>
       <div class="sign">
-        <p>Принял (склад): <span class="signline">${ret.confirmed_by_name || ''}</span> подпись</p>
+        <p>Принял (склад): <span class="signline">${esc(ret.confirmed_by_name)}</span> подпись</p>
       </div>
     </div>`;
 }
@@ -3320,8 +3335,8 @@ function buildLoadingListHtml(orders, driverName, productByCode) {
     return `
     <tr>
       <td style="text-align:center">${i + 1}</td>
-      <td>${it.name}</td>
-      <td style="text-align:center">${it.code}</td>
+      <td>${esc(it.name)}</td>
+      <td style="text-align:center">${esc(it.code)}</td>
       <td style="text-align:center">${unit}</td>
       <td style="text-align:center">${it.qty} ${unit}</td>
       <td style="text-align:center">${weighed ? it.qty + ' ' + unit : ''}</td>
@@ -3331,10 +3346,10 @@ function buildLoadingListHtml(orders, driverName, productByCode) {
   const now = new Date();
   const orderNumbers = orders.map(o => '№' + o.id).join(', ');
   return `
-    <h1>ЗАГРУЗОЧНЫЙ ЛИСТ<br><span style="font-weight:400;font-size:12px">${now.toLocaleDateString('ru-RU')} · Водитель: ${driverName}</span></h1>
+    <h1>ЗАГРУЗОЧНЫЙ ЛИСТ<br><span style="font-weight:400;font-size:12px">${now.toLocaleDateString('ru-RU')} · Водитель: ${esc(driverName)}</span></h1>
     <div class="headrow">
-      <div><div class="label">ОРГАНИЗАЦИЯ</div>${COMPANY_INFO.name}</div>
-      <div><div class="label">ВОДИТЕЛЬ</div>${driverName}</div>
+      <div><div class="label">ОРГАНИЗАЦИЯ</div>${esc(COMPANY_INFO.name)}</div>
+      <div><div class="label">ВОДИТЕЛЬ</div>${esc(driverName)}</div>
       <div><div class="label">ЗАЯВОК В ПАРТИИ</div>${orders.length} шт (${orderNumbers})</div>
     </div>
     <div class="tablewrap">
@@ -3345,7 +3360,7 @@ function buildLoadingListHtml(orders, driverName, productByCode) {
     </div>
     <div class="sign">
       <p>Выдал (складовщик): <span class="signline">&nbsp;</span> подпись</p>
-      <p>Принял (водитель): <span class="signline">${driverName}</span> подпись</p>
+      <p>Принял (водитель): <span class="signline">${esc(driverName)}</span> подпись</p>
       <p>Дата/время выдачи: <span class="signline">&nbsp;</span></p>
     </div>`;
 }
