@@ -9386,11 +9386,19 @@ function PosSaleModal({
 // получает sales_id/sales_name текущего пользователя (см. POST
 // /api/orders на сервере) — заявка от менеджера так и подписывается его
 // именем, это нормально: менеджеру и так доступны все заявки целиком.
+//
+// isAdmin (только role==="admin", см. вызов в AdminCabinet) разблокирует
+// ручной ввод цены даже у товара с готовыми price1/2/3 из 1С — у пары
+// клиентов админ продаёт по своей, нестандартной цене. Сама цена дальше
+// идёт в заявку тем же полем items[].price, что и обычно (см. handleSubmit
+// ниже) — на кассу/прибыль/отчёты это никак специально не влияет, для них
+// это просто ещё одна цена позиции, как если бы её выбрали из priceOptions.
 function NewOrderModal({
   products,
   clients,
   onClose,
-  onCreated
+  onCreated,
+  isAdmin
 }) {
   const mappedProducts = useMemo(() => products.filter(p => p.has_alias).map((p, i) => ({
     id: i + 1,
@@ -9892,13 +9900,13 @@ function NewOrderModal({
         padding: "8px 6px",
         fontSize: 15,
         textAlign: "right",
-        background: line.priceOptions && line.priceOptions.length > 0 ? C.surface : C.white,
-        color: line.priceOptions && line.priceOptions.length > 0 ? C.textSub : C.text
+        background: !isAdmin && line.priceOptions && line.priceOptions.length > 0 ? C.surface : C.white,
+        color: !isAdmin && line.priceOptions && line.priceOptions.length > 0 ? C.textSub : C.text
       },
       placeholder: "\u0446\u0435\u043D\u0430",
       value: line.price,
       type: "number",
-      disabled: line.priceOptions && line.priceOptions.length > 0,
+      disabled: !isAdmin && line.priceOptions && line.priceOptions.length > 0,
       onChange: e => updateLine(line.uid, {
         price: e.target.value
       }),
@@ -11245,6 +11253,12 @@ function AdminCabinet({
   const [salesFilter, setSalesFilter] = useState("");
   const [dogovornikOnly, setDogovornikOnly] = useState(false);
   const [pickupOnly, setPickupOnly] = useState(false);
+  // Отбор по времени доставки (см. TIME_SLOTS) внутри отбора "Заявки" за
+  // конкретный день — доступен только при orderDatePreset==="day", иначе
+  // "До обеда"/"После обеда" пришлось бы сравнивать заявки за недели/месяц
+  // без даты рядом, что бессмысленно. Сбрасывается при уходе с "День" (см.
+  // applyOrderDatePreset), чтобы скрытый чип не продолжал молча фильтровать.
+  const [timeSlotFilter, setTimeSlotFilter] = useState("");
   const [showDogovornikModal, setShowDogovornikModal] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
@@ -11413,6 +11427,7 @@ function AdminCabinet({
       setOrderDateFrom(from.toISOString().slice(0, 10));
       setOrderDateTo(todayStr);
     }
+    if (preset !== "day") setTimeSlotFilter("");
   };
   const [employees, setEmployees] = useState([]);
   const [users, setUsers] = useState([]);
@@ -12010,7 +12025,7 @@ function AdminCabinet({
   // по client_code с уже загруженным списком клиентов.
   const dogovornikCodes = useMemo(() => new Set(clients.filter(c => c.is_dogovornik).map(c => c.code)), [clients]);
   const q = orderSearch.trim().toLowerCase();
-  const filtered = useMemo(() => orders.filter(o => filter === "all" || o.status === filter).filter(o => !driverFilter || String(o.driver_id) === driverFilter).filter(o => !salesFilter || String(o.sales_id) === salesFilter).filter(o => !dogovornikOnly || dogovornikCodes.has(o.client_code)).filter(o => !pickupOnly || o.time_slot === PICKUP_SLOT).filter(o => orderDatePreset === "all" || o.date >= orderDateFrom && o.date <= orderDateTo).filter(o => !q || String(o.id).includes(q) || (o.client_name || '').toLowerCase().includes(q) || (o.sales_name || '').toLowerCase().includes(q) || (o.driver_name || '').toLowerCase().includes(q) || (o.address || '').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, pickupOnly, orderDatePreset, orderDateFrom, orderDateTo, q]);
+  const filtered = useMemo(() => orders.filter(o => filter === "all" || o.status === filter).filter(o => !driverFilter || String(o.driver_id) === driverFilter).filter(o => !salesFilter || String(o.sales_id) === salesFilter).filter(o => !dogovornikOnly || dogovornikCodes.has(o.client_code)).filter(o => !pickupOnly || o.time_slot === PICKUP_SLOT).filter(o => orderDatePreset === "all" || o.date >= orderDateFrom && o.date <= orderDateTo).filter(o => orderDatePreset !== "day" || !timeSlotFilter || o.time_slot === timeSlotFilter).filter(o => !q || String(o.id).includes(q) || (o.client_name || '').toLowerCase().includes(q) || (o.sales_name || '').toLowerCase().includes(q) || (o.driver_name || '').toLowerCase().includes(q) || (o.address || '').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, pickupOnly, orderDatePreset, orderDateFrom, orderDateTo, timeSlotFilter, q]);
   const {
     stats,
     repList,
@@ -12394,7 +12409,7 @@ function AdminCabinet({
     style: {
       display: "flex",
       gap: 6,
-      marginBottom: orderDatePreset === "custom" ? 10 : 0,
+      marginBottom: orderDatePreset === "custom" || orderDatePreset === "day" ? 10 : 0,
       flexWrap: "wrap"
     }
   }, [["all", "Все"], ["day", "День"], ["week", "Неделя"], ["month", "Месяц"], ["custom", "Свободный отбор"]].map(([k, lb]) => /*#__PURE__*/React.createElement("button", {
@@ -12410,7 +12425,28 @@ function AdminCabinet({
       background: orderDatePreset === k ? C.navy : C.white,
       color: orderDatePreset === k ? C.white : C.textMid
     }
-  }, lb))), orderDatePreset === "custom" && /*#__PURE__*/React.createElement("div", {
+  }, lb))), orderDatePreset === "day" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxWidth: 200
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      ...S.label,
+      marginBottom: 4
+    }
+  }, "\u0414\u0430\u0442\u0430"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    style: {
+      ...S.input,
+      padding: "8px 10px",
+      fontSize: 15
+    },
+    value: orderDateFrom,
+    onChange: e => {
+      setOrderDateFrom(e.target.value);
+      setOrderDateTo(e.target.value);
+    }
+  })), orderDatePreset === "custom" && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -12457,6 +12493,50 @@ function AdminCabinet({
     value: orderDateTo,
     onChange: e => setOrderDateTo(e.target.value)
   }))));
+
+  // Показывается только при отборе за конкретный день (orderDatePreset==="day")
+  // — по просьбе владельца: за день заявки удобно разом видеть отдельно "до
+  // обеда" и "после обеда" (см. TIME_SLOTS), а не одним общим списком.
+  const timeSlotFilterChip = orderDatePreset === "day" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginBottom: 16,
+      flexWrap: "wrap",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      color: C.textFaint,
+      fontWeight: 600
+    }
+  }, "\u0412\u0440\u0435\u043C\u044F \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0438:"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setTimeSlotFilter(""),
+    style: {
+      padding: "6px 13px",
+      borderRadius: 99,
+      border: `1px solid ${timeSlotFilter === "" ? C.navy : C.border}`,
+      cursor: "pointer",
+      fontSize: 14,
+      fontWeight: 600,
+      background: timeSlotFilter === "" ? C.navy : C.white,
+      color: timeSlotFilter === "" ? C.white : C.textMid
+    }
+  }, "\u0412\u0441\u0435"), TIME_SLOTS.map(slot => /*#__PURE__*/React.createElement("button", {
+    key: slot,
+    onClick: () => setTimeSlotFilter(slot),
+    style: {
+      padding: "6px 13px",
+      borderRadius: 99,
+      border: `1px solid ${timeSlotFilter === slot ? C.navy : C.border}`,
+      cursor: "pointer",
+      fontSize: 14,
+      fontWeight: 600,
+      background: timeSlotFilter === slot ? C.navy : C.white,
+      color: timeSlotFilter === slot ? C.white : C.textMid
+    }
+  }, slot)));
   const driverFilterChips = driverOptions.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -12752,7 +12832,7 @@ function AdminCabinet({
       padding: "9px 16px",
       fontSize: 14
     }
-  }, "\uD83D\uDCDD \u041D\u043E\u0432\u0430\u044F \u0437\u0430\u044F\u0432\u043A\u0430"), searchInput, orderDateFilterUI, filterChips, driverFilterChips, salesFilterChips, dogovornikFilterChip, pickupFilterChip, !loading && filtered.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCDD \u041D\u043E\u0432\u0430\u044F \u0437\u0430\u044F\u0432\u043A\u0430"), searchInput, orderDateFilterUI, timeSlotFilterChip, filterChips, driverFilterChips, salesFilterChips, dogovornikFilterChip, pickupFilterChip, !loading && filtered.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: () => printWaybillsBatch(filtered, dogovornikCodes),
     style: {
       ...S.btnOutline,
@@ -14874,7 +14954,8 @@ function AdminCabinet({
       onCreated: () => {
         setShowNewOrderModal(false);
         loadOrders();
-      }
+      },
+      isAdmin: user.role === "admin"
     }), showReturnModal && /*#__PURE__*/React.createElement(ReturnFormModal, {
       user: user,
       onClose: () => setShowReturnModal(false),
