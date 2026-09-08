@@ -1893,6 +1893,13 @@ app.post('/api/client-contacts', authMiddleware, (req, res) => {
 
 // ===== DEBTS (учёт погашения долгов, частично или полностью) =====
 db.defaults({ debtSettlements: [] }).write();
+// Журнал "написал должнику в WhatsApp" (см. POST /api/debt-reminders) —
+// операторы иногда путаются, кому уже напоминали сегодня, а кому ещё нет
+// (просьба владельца): само сообщение всё равно уходит вживую из
+// WhatsApp человека (см. комментарий у toWhatsAppDigits), приложение
+// не может знать, дошло ли оно — только фиксирует, что оператор нажал
+// "Написать в WhatsApp" по этому долгу.
+db.defaults({ debtReminders: [], nextDebtReminderId: 1 }).write();
 
 app.get('/api/debts', authMiddleware, (req, res) => {
   if (!['admin', 'manager', 'operator', 'driver', 'sales', 'senior_sales'].includes(req.user.role)) {
@@ -1973,7 +1980,83 @@ app.get('/api/debts', authMiddleware, (req, res) => {
     .filter(d => d.remaining > 0)
     .sort((a, b) => b.days_ago - a.days_ago);
 
+  // Последнее напоминание в WhatsApp по этому долгу (см. POST
+  // /api/debt-reminders) — чтобы оператор видел прямо в списке, что
+  // сегодня этому должнику уже писали, не открывая отдельную историю.
+  // Берём последнюю запись на пару order_id/sale_id (напоминаний может
+  // быть несколько за разные дни).
+  const lastReminderByKey = {};
+  db.get('debtReminders').value().forEach(r => {
+    const k = r.order_id ? `o${r.order_id}` : `s${r.sale_id}`;
+    if (!lastReminderByKey[k] || r.sent_at > lastReminderByKey[k].sent_at) lastReminderByKey[k] = r;
+  });
+  const todayStr = new Date().toISOString().slice(0, 10);
+  debts.forEach(d => {
+    const k = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
+    const last = lastReminderByKey[k];
+    if (last) {
+      d.last_reminder_at = last.sent_at;
+      d.last_reminder_by_name = last.sent_by_name;
+      d.last_reminder_today = last.sent_at.slice(0, 10) === todayStr;
+    }
+  });
+
   res.json(debts);
+});
+
+// Фиксирует, что оператор нажал "Написать в WhatsApp" по конкретному
+// долгу — само сообщение уходит вживую из приложения WhatsApp человека
+// (см. toWhatsAppDigits), это не подтверждение доставки, а просто "кто и
+// когда пробовал напомнить", чтобы больше одного человека не писали
+// одному и тому же должнику в один день вслепую (см. last_reminder_today
+// в GET /api/debts выше и GET /api/debt-reminders — полная история).
+app.post('/api/debt-reminders', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'operator', 'driver', 'sales', 'senior_sales'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { orderId, saleId } = req.body;
+  if (!orderId && !saleId) {
+    return res.status(400).json({ error: 'Не указана заявка или продажа' });
+  }
+  let clientName = '', clientCode = null;
+  if (orderId) {
+    const order = db.get('orders').find({ id: Number(orderId) }).value();
+    if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+    clientName = order.client_name;
+    clientCode = order.client_code || null;
+  } else {
+    const sale = db.get('sales').find({ id: Number(saleId) }).value();
+    if (!sale) return res.status(404).json({ error: 'Продажа не найдена' });
+    clientName = sale.client_name || 'Без клиента';
+    clientCode = sale.client_code || null;
+  }
+  const id = db.get('nextDebtReminderId').value();
+  const reminder = {
+    id,
+    order_id: orderId ? Number(orderId) : null,
+    sale_id: saleId ? Number(saleId) : null,
+    client_code: clientCode,
+    client_name: clientName,
+    sent_by_id: req.user.id,
+    sent_by_name: req.user.name,
+    sent_at: new Date().toISOString(),
+  };
+  db.get('debtReminders').push(reminder).write();
+  db.set('nextDebtReminderId', id + 1).write();
+  res.json(reminder);
+});
+
+// История напоминаний — весь журнал (не только последнее по каждому долгу,
+// см. выше), чтобы можно было посмотреть, кто и когда писал за прошлые дни.
+app.get('/api/debt-reminders', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'operator', 'driver', 'sales', 'senior_sales'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  let list = db.get('debtReminders').value();
+  // Водитель/торговый видят только свои напоминания — как и с остальными
+  // read-only списками, полная история только у admin/manager/operator.
+  if (req.user.role === 'driver' || req.user.role === 'sales') list = list.filter(r => r.sent_by_id === req.user.id);
+  res.json(list.slice().reverse());
 });
 
 app.post('/api/debts/settle', authMiddleware, (req, res) => {

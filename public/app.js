@@ -72,6 +72,17 @@ function debtReminderText(d) {
 // прежнему поведению — текст в wa.me плюс накладная отдельной вкладкой,
 // чтобы прикрепить вручную.
 async function shareDebtReminder(d) {
+  // Фиксируем сам факт "нажал написать" сразу, до открытия WhatsApp — само
+  // сообщение всё равно отправляет вживую человек внутри WhatsApp (см.
+  // комментарий у toWhatsAppDigits), приложение не может знать, дошло ли
+  // оно; ждать успеха native share не нужно (share может и не завершиться,
+  // напр. пользователь просто закрыл системный диалог, см. ниже). Список
+  // "Должники" (см. DebtsPanel) после этого перезагружается и показывает
+  // "сегодня уже писали" остальным операторам.
+  apiCall('POST', '/api/debt-reminders', {
+    orderId: d.order_id || undefined,
+    saleId: d.sale_id || undefined
+  }).catch(() => {});
   const text = debtReminderText(d);
   const link = waMeLink(d.contact_phone, text);
   const openFallback = () => {
@@ -1769,6 +1780,42 @@ function DebtsPanel({
   useEffect(() => {
     if (role) loadSettlements();
   }, []);
+
+  // История "написал в WhatsApp" (см. POST /api/debt-reminders) — операторы
+  // путаются, кому уже напоминали сегодня; last_reminder_at/today на каждом
+  // d уже приходит из GET /api/debts (см. sendReminder ниже, бейдж прямо на
+  // карточке), а это — полный список за все дни, для отдельной вкладки
+  // "История напоминаний" (аналог истории погашений выше).
+  const [reminders, setReminders] = useState([]);
+  const [loadingReminders, setLoadingReminders] = useState(true);
+  const [remindersHistoryOpen, setRemindersHistoryOpen] = useState(false);
+  const loadReminders = useCallback(async () => {
+    try {
+      setReminders(await apiCall('GET', '/api/debt-reminders'));
+    } catch (e) {}
+    setLoadingReminders(false);
+  }, []);
+  useEffect(() => {
+    if (role) loadReminders();
+  }, []);
+
+  // Отправка напоминания в WhatsApp — если по этому долгу СЕГОДНЯ уже
+  // писали (last_reminder_today, см. GET /api/debts), переспрашиваем перед
+  // повторной отправкой, чтобы два оператора не написали одному должнику
+  // одно и то же вслепую. Завтра last_reminder_today само станет false —
+  // напоминание раз в день это нормальный рабочий процесс, не ошибка.
+  const sendReminder = async d => {
+    if (d.last_reminder_today) {
+      const when = new Date(d.last_reminder_at).toLocaleTimeString('ru-RU', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      if (!window.confirm(`Сегодня в ${when} должнику «${d.client_name}» уже писали (${d.last_reminder_by_name}). Отправить ещё раз?`)) return;
+    }
+    await shareDebtReminder(d);
+    loadDebts();
+    if (role) loadReminders();
+  };
   const saveCorrection = async s => {
     const amount = Number(correctAmount);
     if (!amount || amount <= 0) return;
@@ -2057,7 +2104,8 @@ function DebtsPanel({
         display: "flex",
         gap: 14,
         flexWrap: "wrap",
-        marginTop: 8
+        marginTop: 8,
+        alignItems: "center"
       }
     }, d.delivery_photo && /*#__PURE__*/React.createElement("a", {
       href: d.delivery_photo,
@@ -2074,7 +2122,7 @@ function DebtsPanel({
         textDecoration: "none"
       }
     }, "\uD83D\uDCC4 \u041D\u0430\u043A\u043B\u0430\u0434\u043D\u0430\u044F"), waMeLink(d.contact_phone, debtReminderText(d)) && /*#__PURE__*/React.createElement("button", {
-      onClick: () => shareDebtReminder(d),
+      onClick: () => sendReminder(d),
       style: {
         display: "inline-flex",
         alignItems: "center",
@@ -2088,7 +2136,29 @@ function DebtsPanel({
         cursor: "pointer",
         fontFamily: "inherit"
       }
-    }, "\uD83D\uDCAC \u041D\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0432 WhatsApp")), !readOnly && /*#__PURE__*/React.createElement("div", {
+    }, "\uD83D\uDCAC \u041D\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0432 WhatsApp"), d.last_reminder_at && (
+    // Видно прямо в списке, не нужно ничего открывать — именно
+    // то, чего не хватало операторам (см. sendReminder выше):
+    // "сегодня" — заметный зелёный бейдж, более старое
+    // напоминание — приглушённая справочная строка.
+    d.last_reminder_today ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: 700,
+        color: "#15803D",
+        background: "#EAF5EE",
+        padding: "3px 8px",
+        borderRadius: 99
+      }
+    }, "\u2713 \u0421\u0435\u0433\u043E\u0434\u043D\u044F \u0432 ", new Date(d.last_reminder_at).toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit'
+    }), " (", d.last_reminder_by_name, ")") : /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        color: C.textFaint
+      }
+    }, "\u041F\u0438\u0441\u0430\u043B\u0438 ", fmtDT(d.last_reminder_at), " (", d.last_reminder_by_name, ")"))), !readOnly && /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         gap: 6,
@@ -2267,7 +2337,80 @@ function DebtsPanel({
       setCorrectingId(s.id);
       setCorrectAmount(String(s.amount));
     }
-  }, "\u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0441\u0443\u043C\u043C\u0443")))))));
+  }, "\u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0441\u0443\u043C\u043C\u0443")))))), role && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.card,
+      padding: 0,
+      marginTop: 16,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    onClick: () => setRemindersHistoryOpen(o => !o),
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "13px 14px",
+      cursor: "pointer",
+      background: C.surface
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 15,
+      fontWeight: 700,
+      color: C.navy
+    }
+  }, "\uD83D\uDCAC \u0418\u0441\u0442\u043E\u0440\u0438\u044F \u043D\u0430\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0439 \u0432 WhatsApp"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      color: C.textFaint
+    }
+  }, remindersHistoryOpen ? "▲ Свернуть" : "▼ Показать")), remindersHistoryOpen && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 10,
+      maxHeight: 420,
+      overflowY: "auto",
+      borderTop: `1px solid ${C.border}`
+    }
+  }, loadingReminders ? /*#__PURE__*/React.createElement("div", {
+    style: S.loadingWrap
+  }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : reminders.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      padding: "20px 0",
+      color: C.textFaint
+    }
+  }, "\u041D\u0430\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0439 \u043F\u043E\u043A\u0430 \u043D\u0435 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u043B\u0438") : reminders.map(r => /*#__PURE__*/React.createElement("div", {
+    key: r.id,
+    style: {
+      padding: "8px 0",
+      borderBottom: `1px solid ${C.border}`,
+      fontSize: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.text,
+      fontWeight: 600,
+      overflowWrap: "anywhere"
+    }
+  }, r.client_name), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.textFaint,
+      whiteSpace: "nowrap"
+    }
+  }, fmtDT(r.sent_at))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.textFaint,
+      fontSize: 13,
+      marginTop: 2
+    }
+  }, r.order_id ? `Заявка №${r.order_id}` : `Касса №${r.sale_id}`, " \xB7 \u043D\u0430\u043F\u0438\u0441\u0430\u043B: ", r.sent_by_name))))));
 }
 
 // Управление группой "Договорники" — ярлык поверх контрагента из 1С (см.
