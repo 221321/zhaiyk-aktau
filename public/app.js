@@ -4520,7 +4520,7 @@ function OrderDetail({
       fontWeight: 600,
       color: C.text
     }
-  }, e.by_name, " \xB7 ", fmtDT(e.at)), /*#__PURE__*/React.createElement("div", null, "\u0421\u0443\u043C\u043C\u0430: ", (e.before_total || 0).toLocaleString(), " \u20B8 \u2192 ", (e.after_total || 0).toLocaleString(), " \u20B8"), e.reason && /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u0438\u0447\u0438\u043D\u0430: ", e.reason))))), currentUser.role === "admin" && onDeleteOrder && /*#__PURE__*/React.createElement("div", {
+  }, e.by_name, " \xB7 ", fmtDT(e.at)), /*#__PURE__*/React.createElement("div", null, "\u0421\u0443\u043C\u043C\u0430: ", (e.before_total || 0).toLocaleString(), " \u20B8 \u2192 ", (e.after_total || 0).toLocaleString(), " \u20B8"), e.reason && /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u0438\u0447\u0438\u043D\u0430: ", e.reason))))), currentUser.role === "admin" && onDeleteOrder && order.status !== "delivered" && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 20,
       paddingTop: 16,
