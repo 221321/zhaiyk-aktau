@@ -4437,7 +4437,14 @@ function PosSaleModal({ products, clients, onClose, onCompleted }) {
 // получает sales_id/sales_name текущего пользователя (см. POST
 // /api/orders на сервере) — заявка от менеджера так и подписывается его
 // именем, это нормально: менеджеру и так доступны все заявки целиком.
-function NewOrderModal({ products, clients, onClose, onCreated }) {
+//
+// isAdmin (только role==="admin", см. вызов в AdminCabinet) разблокирует
+// ручной ввод цены даже у товара с готовыми price1/2/3 из 1С — у пары
+// клиентов админ продаёт по своей, нестандартной цене. Сама цена дальше
+// идёт в заявку тем же полем items[].price, что и обычно (см. handleSubmit
+// ниже) — на кассу/прибыль/отчёты это никак специально не влияет, для них
+// это просто ещё одна цена позиции, как если бы её выбрали из priceOptions.
+function NewOrderModal({ products, clients, onClose, onCreated, isAdmin }) {
   const mappedProducts = useMemo(() => products.filter(p => p.has_alias).map((p, i) => ({
     id: i + 1,
     name: p.display_name || p.name,
@@ -4624,8 +4631,8 @@ function NewOrderModal({ products, clients, onClose, onCreated }) {
                     }}
                     onFocus={e=>e.target.select()}
                   />
-                  <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"right",background:(line.priceOptions&&line.priceOptions.length>0)?C.surface:C.white,color:(line.priceOptions&&line.priceOptions.length>0)?C.textSub:C.text}} placeholder="цена" value={line.price} type="number"
-                    disabled={line.priceOptions&&line.priceOptions.length>0}
+                  <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"right",background:(!isAdmin&&line.priceOptions&&line.priceOptions.length>0)?C.surface:C.white,color:(!isAdmin&&line.priceOptions&&line.priceOptions.length>0)?C.textSub:C.text}} placeholder="цена" value={line.price} type="number"
+                    disabled={!isAdmin&&line.priceOptions&&line.priceOptions.length>0}
                     onChange={e=>updateLine(line.uid,{price:e.target.value})}
                     onFocus={e=>e.target.select()}
                   />
@@ -7019,7 +7026,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         <AutofillDecoy/>
         {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
-        {showNewOrderModal&&<NewOrderModal products={products} clients={clients} onClose={()=>setShowNewOrderModal(false)} onCreated={()=>{ setShowNewOrderModal(false); loadOrders(); }}/>}
+        {showNewOrderModal&&<NewOrderModal products={products} clients={clients} onClose={()=>setShowNewOrderModal(false)} onCreated={()=>{ setShowNewOrderModal(false); loadOrders(); }} isAdmin={user.role==="admin"}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
         {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
         <aside style={S.side}>

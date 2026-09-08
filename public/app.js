@@ -9386,11 +9386,19 @@ function PosSaleModal({
 // получает sales_id/sales_name текущего пользователя (см. POST
 // /api/orders на сервере) — заявка от менеджера так и подписывается его
 // именем, это нормально: менеджеру и так доступны все заявки целиком.
+//
+// isAdmin (только role==="admin", см. вызов в AdminCabinet) разблокирует
+// ручной ввод цены даже у товара с готовыми price1/2/3 из 1С — у пары
+// клиентов админ продаёт по своей, нестандартной цене. Сама цена дальше
+// идёт в заявку тем же полем items[].price, что и обычно (см. handleSubmit
+// ниже) — на кассу/прибыль/отчёты это никак специально не влияет, для них
+// это просто ещё одна цена позиции, как если бы её выбрали из priceOptions.
 function NewOrderModal({
   products,
   clients,
   onClose,
-  onCreated
+  onCreated,
+  isAdmin
 }) {
   const mappedProducts = useMemo(() => products.filter(p => p.has_alias).map((p, i) => ({
     id: i + 1,
@@ -9892,13 +9900,13 @@ function NewOrderModal({
         padding: "8px 6px",
         fontSize: 15,
         textAlign: "right",
-        background: line.priceOptions && line.priceOptions.length > 0 ? C.surface : C.white,
-        color: line.priceOptions && line.priceOptions.length > 0 ? C.textSub : C.text
+        background: !isAdmin && line.priceOptions && line.priceOptions.length > 0 ? C.surface : C.white,
+        color: !isAdmin && line.priceOptions && line.priceOptions.length > 0 ? C.textSub : C.text
       },
       placeholder: "\u0446\u0435\u043D\u0430",
       value: line.price,
       type: "number",
-      disabled: line.priceOptions && line.priceOptions.length > 0,
+      disabled: !isAdmin && line.priceOptions && line.priceOptions.length > 0,
       onChange: e => updateLine(line.uid, {
         price: e.target.value
       }),
@@ -14946,7 +14954,8 @@ function AdminCabinet({
       onCreated: () => {
         setShowNewOrderModal(false);
         loadOrders();
-      }
+      },
+      isAdmin: user.role === "admin"
     }), showReturnModal && /*#__PURE__*/React.createElement(ReturnFormModal, {
       user: user,
       onClose: () => setShowReturnModal(false),
