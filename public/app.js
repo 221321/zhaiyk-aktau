@@ -803,11 +803,16 @@ function Brand({
   }, "\u049B\u04B1\u0441 \u04E9\u043D\u0456\u043C\u0456")));
 }
 function StatusBadge({
-  status
+  status,
+  partial
 }) {
+  // partial (order.partial_delivery) — заявка доставлена, но клиент принял
+  // не всё (см. частичная доставка в DriverPaymentBlock/PUT
+  // /api/orders/:id/status) — статус в системе остаётся "delivered", но
+  // ярлык должен сразу показывать, что это не полная доставка.
   return /*#__PURE__*/React.createElement("span", {
     style: S.badge(status)
-  }, SL[status] || status);
+  }, partial && status === 'delivered' ? 'Частично' : SL[status] || status);
 }
 function PaymentTags({
   payment
@@ -926,7 +931,8 @@ function OrderCard({
       color: C.textFaint
     }
   }, "\u0421\u043E\u0437\u0434\u0430\u043D\u0430 ", fmtDT(order.created_at) || order.date, order.driver_name && order.in_transit_at ? ` · в работе с ${fmtDT(order.in_transit_at)}` : '')), /*#__PURE__*/React.createElement(StatusBadge, {
-    status: order.status
+    status: order.status,
+    partial: order.partial_delivery
   })), /*#__PURE__*/React.createElement("p", {
     style: {
       margin: "8px 0 4px",
@@ -993,12 +999,6 @@ function DriverPaymentBlock({
   const [qrPhotoUploading, setQrPhotoUploading] = useState(false);
   const [qrPhotoError, setQrPhotoError] = useState("");
   const [statusBusy, setStatusBusy] = useState(false);
-  const total = order.total || 0;
-  const cashPaid = payType.cash ? Number(payAmounts.cash) || 0 : 0;
-  const qrPaid = payType.qr ? Number(payAmounts.qr) || 0 : 0;
-  const remainder = Math.max(0, total - cashPaid - qrPaid);
-  const debtAmount = payType.debt ? remainder : 0;
-  const hasSelection = payType.cash || payType.qr || payType.debt;
   // Пока склад не подтвердил факт. вес весовой позиции (см. POST
   // /api/orders/weights), сумма заявки — ещё оценка, а не факт: довезти
   // такую заявку нельзя, иначе оценка навсегда останется финальной (сервер
@@ -1006,7 +1006,36 @@ function DriverPaymentBlock({
   // чтобы водитель видел причину сразу, не отправляя запрос).
   const orderItems = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : order.items || [];
   const pendingWeightItems = orderItems.filter(it => it.is_weight_item && !it.weight_confirmed);
-  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl && (!payType.cash || !!cashPhotoUrl) && (!payType.qr || !!qrPhotoUrl) && pendingWeightItems.length === 0;
+  // Частичная приёмка на месте: клиент не оценил свои возможности и на
+  // месте берёт не всё — вплоть до конкретной позиции (пол-короба вместо
+  // короба и т.п.). По умолчанию принято "как заказано"; водитель может
+  // уменьшить любую позицию вплоть до нуля, сумма и оплата пересчитываются
+  // сами (см. acceptedTotal/canConfirm ниже и PUT /api/orders/:id/status
+  // на сервере, куда эти количества уходят как items).
+  const qtyKey = (it, i) => it.code || `i${i}`;
+  const [acceptedQty, setAcceptedQty] = useState(() => {
+    const init = {};
+    orderItems.forEach((it, i) => {
+      init[qtyKey(it, i)] = String(it.qty);
+    });
+    return init;
+  });
+  const acceptedFor = (it, i) => {
+    const orderedQty = Number(it.qty) || 0;
+    const raw = Number(acceptedQty[qtyKey(it, i)]);
+    if (!Number.isFinite(raw) || raw < 0) return 0;
+    return Math.min(raw, orderedQty);
+  };
+  const hasShortfall = orderItems.some((it, i) => acceptedFor(it, i) + 1e-9 < (Number(it.qty) || 0));
+  const originalTotal = order.total || 0;
+  const total = orderItems.reduce((s, it, i) => s + acceptedFor(it, i) * (Number(it.price) || 0), 0);
+  const cashPaid = payType.cash ? Number(payAmounts.cash) || 0 : 0;
+  const qrPaid = payType.qr ? Number(payAmounts.qr) || 0 : 0;
+  const remainder = Math.max(0, total - cashPaid - qrPaid);
+  const debtAmount = payType.debt ? remainder : 0;
+  const hasSelection = payType.cash || payType.qr || payType.debt;
+  const hasAcceptedItem = orderItems.some((it, i) => acceptedFor(it, i) > 1e-9);
+  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl && (!payType.cash || !!cashPhotoUrl) && (!payType.qr || !!qrPhotoUrl) && pendingWeightItems.length === 0 && hasAcceptedItem;
   const toggleCashQr = key => {
     const turningOn = !payType[key];
     if (turningOn && payAmounts[key] === "") {
@@ -1096,12 +1125,12 @@ function DriverPaymentBlock({
     }
     setQrPhotoUploading(false);
   };
-  const changeStatus = async (status, payment, confirmMsg) => {
+  const changeStatus = async (status, payment, confirmMsg, items) => {
     if (statusBusy) return;
     if (confirmMsg && !window.confirm(confirmMsg)) return;
     setStatusBusy(true);
     try {
-      await onUpdateStatus(order.id, status, payment);
+      await onUpdateStatus(order.id, status, payment, undefined, items);
     } finally {
       setStatusBusy(false);
     }
@@ -1121,7 +1150,131 @@ function DriverPaymentBlock({
       color: "#92400E",
       fontWeight: 600
     }
-  }, "\u2696\uFE0F \u0421\u043A\u043B\u0430\u0434 \u0435\u0449\u0451 \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043B \u0444\u0430\u043A\u0442. \u0432\u0435\u0441: ", pendingWeightItems.map(it => it.name).join(', '), ". \u0414\u043E\u0441\u0442\u0430\u0432\u043A\u0430 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430, \u043F\u043E\u043A\u0430 \u0441\u043A\u043B\u0430\u0434 \u043D\u0435 \u0432\u0432\u0435\u0434\u0451\u0442 \u0432\u0435\u0441."), /*#__PURE__*/React.createElement("p", {
+  }, "\u2696\uFE0F \u0421\u043A\u043B\u0430\u0434 \u0435\u0449\u0451 \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043B \u0444\u0430\u043A\u0442. \u0432\u0435\u0441: ", pendingWeightItems.map(it => it.name).join(', '), ". \u0414\u043E\u0441\u0442\u0430\u0432\u043A\u0430 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430, \u043F\u043E\u043A\u0430 \u0441\u043A\u043B\u0430\u0434 \u043D\u0435 \u0432\u0432\u0435\u0434\u0451\u0442 \u0432\u0435\u0441."), pendingWeightItems.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 8px",
+      fontSize: 15,
+      fontWeight: 700,
+      color: C.navy
+    }
+  }, "\u0427\u0442\u043E \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u0437\u0430\u0431\u0440\u0430\u043B \u043A\u043B\u0438\u0435\u043D\u0442", hasShortfall && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#7C3AED",
+      fontWeight: 400
+    }
+  }, " \u2014 \u0441\u0443\u043C\u043C\u0430 \u043F\u0435\u0440\u0435\u0441\u0447\u0438\u0442\u0430\u043D\u0430")), orderItems.map((it, i) => {
+    const key = qtyKey(it, i);
+    const unit = it.is_weight_item ? "кг" : "шт";
+    const orderedQty = Number(it.qty) || 0;
+    const accepted = acceptedFor(it, i);
+    const short = accepted + 1e-9 < orderedQty;
+    return /*#__PURE__*/React.createElement("div", {
+      key: key,
+      style: {
+        padding: "10px 12px",
+        borderRadius: 10,
+        background: short ? "#F5F3FF" : C.surface,
+        border: `1px solid ${short ? "#DDD6FE" : C.border}`,
+        marginBottom: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...S.row,
+        marginBottom: 8
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 14,
+        fontWeight: 600,
+        color: C.text
+      }
+    }, it.name), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        color: C.textFaint,
+        whiteSpace: "nowrap"
+      }
+    }, "\u0437\u0430\u043A\u0430\u0437\u0430\u043D\u043E ", orderedQty, " ", unit)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        flexWrap: "wrap"
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      min: "0",
+      max: orderedQty,
+      step: it.is_weight_item ? "0.1" : "0.5",
+      value: acceptedQty[key],
+      onFocus: e => e.target.select(),
+      onChange: e => setAcceptedQty(a => ({
+        ...a,
+        [key]: e.target.value
+      })),
+      style: {
+        ...S.input,
+        width: 88,
+        padding: "7px 8px",
+        fontSize: 15,
+        fontWeight: 700,
+        textAlign: "right"
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 14,
+        color: C.textFaint
+      }
+    }, unit), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => setAcceptedQty(a => ({
+        ...a,
+        [key]: String(orderedQty)
+      })),
+      style: {
+        ...S.btnOutline,
+        padding: "6px 10px",
+        fontSize: 13,
+        width: "auto"
+      }
+    }, "\u0412\u0435\u0441\u044C"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => setAcceptedQty(a => ({
+        ...a,
+        [key]: String(Math.round(orderedQty / 2 * 100) / 100)
+      })),
+      style: {
+        ...S.btnOutline,
+        padding: "6px 10px",
+        fontSize: 13,
+        width: "auto"
+      }
+    }, "\u041F\u043E\u043B\u043E\u0432\u0438\u043D\u0443"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => setAcceptedQty(a => ({
+        ...a,
+        [key]: "0"
+      })),
+      style: {
+        ...S.btnOutline,
+        padding: "6px 10px",
+        fontSize: 13,
+        width: "auto",
+        borderColor: C.red,
+        color: C.red
+      }
+    }, "\u041D\u0438\u0447\u0435\u0433\u043E")));
+  }), !hasAcceptedItem && /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "4px 0 0",
+      fontSize: 14,
+      color: C.red
+    }
+  }, "\u041A\u043B\u0438\u0435\u043D\u0442 \u043D\u0435 \u043F\u0440\u0438\u043D\u044F\u043B \u043D\u0438 \u043E\u0434\u043D\u043E\u0439 \u043F\u043E\u0437\u0438\u0446\u0438\u0438 \u2014 \u044D\u0442\u043E \u043E\u0442\u043A\u0430\u0437, \u043E\u0444\u043E\u0440\u043C\u0438\u0442\u0435 \u0432\u043E\u0437\u0432\u0440\u0430\u0442 \u043F\u043E \u0432\u0441\u0435\u0439 \u0437\u0430\u044F\u0432\u043A\u0435 \u043A\u043D\u043E\u043F\u043A\u043E\u0439 \u043D\u0438\u0436\u0435, \u0430 \u043D\u0435 \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0443.")), /*#__PURE__*/React.createElement("p", {
     style: {
       margin: "0 0 12px",
       fontSize: 15,
@@ -1269,7 +1422,14 @@ function DriverPaymentBlock({
       fontWeight: 700,
       fontFamily: FH
     }
-  }, total.toLocaleString(), " \u20B8")), /*#__PURE__*/React.createElement("div", {
+  }, hasShortfall && /*#__PURE__*/React.createElement("span", {
+    style: {
+      textDecoration: "line-through",
+      color: C.textFaint,
+      marginRight: 6,
+      fontWeight: 400
+    }
+  }, originalTotal.toLocaleString(), " \u20B8"), total.toLocaleString(), " \u20B8")), /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.row,
       paddingTop: 6,
@@ -1482,8 +1642,11 @@ function DriverPaymentBlock({
       cash: cashPaid,
       qr: qrPaid,
       debt: debtAmount
-    }, `Подтвердить доставку заявки № ${order.id} на ${total.toLocaleString()} ₸? Остаток на складе спишется, оплату потом не изменить.`)
-  }, statusBusy ? "Сохранение..." : "✅ Подтвердить доставку"), /*#__PURE__*/React.createElement("button", {
+    }, hasShortfall ? `Подтвердить ЧАСТИЧНУЮ доставку заявки № ${order.id} на ${total.toLocaleString()} ₸ (из ${originalTotal.toLocaleString()} ₸)? Непринятое клиентом останется на складе, оплату потом не изменить.` : `Подтвердить доставку заявки № ${order.id} на ${total.toLocaleString()} ₸? Остаток на складе спишется, оплату потом не изменить.`, orderItems.map((it, i) => ({
+      code: it.code,
+      qty: acceptedFor(it, i)
+    })))
+  }, statusBusy ? "Сохранение..." : hasShortfall ? "✅ Подтвердить частичную доставку" : "✅ Подтвердить доставку"), /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnOutline,
       borderColor: "#7C3AED",
@@ -3564,6 +3727,10 @@ function OrderDetail({
     qr: order.payment_qr || 0,
     debt: order.payment_debt || 0
   };
+  // Исходный состав заявки на момент оформления — пишется на заявку только
+  // при частичной доставке (см. PUT /api/orders/:id/status, patch.items_ordered),
+  // чтобы было видно, что именно клиент не принял целиком/частично.
+  const itemsOrdered = order.items_ordered ? typeof order.items_ordered === 'string' ? JSON.parse(order.items_ordered || '[]') : order.items_ordered : [];
   // Весовые позиции, вес которых ещё не подтверждён складом (см.
   // POST /api/orders/weights) — до этого кол-во в заявке условное, и
   // накладная/PDF с текущей суммой могут оказаться неточными. Печать
@@ -3630,7 +3797,8 @@ function OrderDetail({
       gap: 10
     }
   }, /*#__PURE__*/React.createElement(StatusBadge, {
-    status: order.status
+    status: order.status,
+    partial: order.partial_delivery
   }), /*#__PURE__*/React.createElement("button", {
     style: S.btnSecondary,
     onClick: onClose
@@ -3645,7 +3813,25 @@ function OrderDetail({
       color: "#92400E",
       fontWeight: 600
     }
-  }, "\u2696\uFE0F \u0412\u0435\u0441 \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D \u0441\u043A\u043B\u0430\u0434\u043E\u043C: ", pendingWeightItems.map(it => it.name).join(', '), ". \u0421\u0443\u043C\u043C\u0430 \u0437\u0430\u044F\u0432\u043A\u0438 \u043C\u043E\u0436\u0435\u0442 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C\u0441\u044F."), currentUser.role !== "driver" && /*#__PURE__*/React.createElement("div", {
+  }, "\u2696\uFE0F \u0412\u0435\u0441 \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D \u0441\u043A\u043B\u0430\u0434\u043E\u043C: ", pendingWeightItems.map(it => it.name).join(', '), ". \u0421\u0443\u043C\u043C\u0430 \u0437\u0430\u044F\u0432\u043A\u0438 \u043C\u043E\u0436\u0435\u0442 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C\u0441\u044F."), order.partial_delivery && itemsOrdered.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#F5F3FF",
+      border: "1px solid #DDD6FE",
+      borderRadius: 10,
+      padding: "10px 12px",
+      marginBottom: 12,
+      fontSize: 14,
+      color: "#5B21B6",
+      fontWeight: 600
+    }
+  }, "\u21A9\uFE0F \u041A\u043B\u0438\u0435\u043D\u0442 \u043F\u0440\u0438\u043D\u044F\u043B \u043D\u0435 \u0432\u0441\u0451: ", itemsOrdered.map(oi => {
+    const delivered = items.find(it => it.code === oi.code);
+    const deliveredQty = delivered ? Number(delivered.qty) || 0 : 0;
+    const orderedQty = Number(oi.qty) || 0;
+    if (deliveredQty + 1e-9 >= orderedQty) return null;
+    const unit = oi.is_weight_item ? 'кг' : 'шт';
+    return `${oi.name} (заказано ${orderedQty} ${unit}, принято ${deliveredQty} ${unit})`;
+  }).filter(Boolean).join('; ')), currentUser.role !== "driver" && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -5744,7 +5930,8 @@ function StoreCabinet({
     }, "\u2014")), /*#__PURE__*/React.createElement("td", {
       style: S.td
     }, /*#__PURE__*/React.createElement(StatusBadge, {
-      status: o.status
+      status: o.status,
+      partial: o.partial_delivery
     })));
   }), filteredOrders.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: "8",
@@ -6584,11 +6771,12 @@ function DriverCabinet({
     loadOrders();
   }, []);
   useRefetchOnVisible(loadOrders);
-  const handleUpdate = async (id, status, payment) => {
+  const handleUpdate = async (id, status, payment, driverId, items) => {
     try {
       await apiCall('PUT', `/api/orders/${id}/status`, {
         status,
-        payment
+        payment,
+        items
       });
       setSelectedOrder(null);
       loadOrders();
@@ -6856,7 +7044,8 @@ function DriverCabinet({
       color: C.textFaint
     }
   }, "\u0421\u043E\u0437\u0434\u0430\u043D\u0430 ", fmtDT(o.created_at) || o.date, o.in_transit_at ? ` · в работе с ${fmtDT(o.in_transit_at)}` : '')), /*#__PURE__*/React.createElement(StatusBadge, {
-    status: o.status
+    status: o.status,
+    partial: o.partial_delivery
   })), /*#__PURE__*/React.createElement("p", {
     style: {
       margin: "8px 0 4px",
@@ -11923,12 +12112,13 @@ function AdminCabinet({
     await apiCall('DELETE', `/api/products/${code}/photo`);
     await loadProducts();
   }, [loadProducts]);
-  const handleUpdate = async (id, status, payment, driverId) => {
+  const handleUpdate = async (id, status, payment, driverId, items) => {
     try {
       await apiCall('PUT', `/api/orders/${id}/status`, {
         status,
         payment,
-        driverId
+        driverId,
+        items
       });
       setSelectedOrder(null);
       loadOrders();
@@ -12810,7 +13000,8 @@ function AdminCabinet({
     })), /*#__PURE__*/React.createElement("td", {
       style: S.td
     }, /*#__PURE__*/React.createElement(StatusBadge, {
-      status: o.status
+      status: o.status,
+      partial: o.partial_delivery
     })));
   }), filtered.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: "7",
@@ -15174,11 +15365,12 @@ function WarehouseCabinet({
 
   // Взять в работу и закрыть заявку самовывоза (см. canWarehousePickup в
   // OrderDetail) — единственные переходы статуса, доступные зав. складу.
-  const handleUpdate = async (id, status, payment) => {
+  const handleUpdate = async (id, status, payment, driverId, items) => {
     try {
       await apiCall('PUT', `/api/orders/${id}/status`, {
         status,
-        payment
+        payment,
+        items
       });
       setSelectedOrder(null);
       loadOrders();

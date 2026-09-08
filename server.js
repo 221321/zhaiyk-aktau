@@ -489,7 +489,7 @@ app.post('/api/orders', authMiddleware, (req, res) => {
 });
 
 app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
-  const { status, payment, driverId } = req.body;
+  const { status, payment, driverId, items: deliveredItemsInput } = req.body;
   const validStatuses = ['new', 'in_transit', 'delivered', 'cancelled', 'returned', 'revoked'];
   if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Неверный статус' });
   const orderId = parseInt(req.params.id);
@@ -546,6 +546,13 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Вернуть в очередь можно только заявку в статусе "В работе"' });
   }
 
+  // Заполняются только для status==='delivered' — используются и внутри
+  // блока проверок ниже, и позже при формировании patch (см. canChange/
+  // patch.items ниже), поэтому объявлены здесь, а не внутри if.
+  let finalDeliveredItems = null;
+  let finalDeliveredTotal = null;
+  let partialDelivery = false;
+
   if (status === 'delivered') {
     // Весовая позиция без факт. веса (weight_confirmed) всё ещё хранит
     // ОЦЕНКУ (кол-во коробов × примерный вес, вписанные торговым при
@@ -558,6 +565,51 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     if (pendingWeightItems.length > 0) {
       return res.status(400).json({ error: `Склад ещё не подтвердил факт. вес: ${pendingWeightItems.map(it => it.name).join(', ')}. Доставка недоступна, пока вес не введён` });
     }
+
+    // Частичная доставка: клиент на месте принял не всё (не оценил свои
+    // возможности) — водитель может снизить принятое кол-во по каждой
+    // позиции вплоть до дробного (например, пол-короба вместо короба),
+    // см. форму в DriverPaymentBlock. Позиция, для которой кол-во не
+    // прислано, считается принятой полностью (как раньше, без этого поля).
+    // Непринятая часть НИКОГДА не списывалась со склада (заявка до этого
+    // момента только резервирует остаток, см. computeAvailableStock) —
+    // поэтому просто не участвует в списании ниже, без отдельного возврата.
+    finalDeliveredItems = orderItems;
+    finalDeliveredTotal = orderBefore.total || 0;
+    if (Array.isArray(deliveredItemsInput)) {
+      const overrideMap = {};
+      deliveredItemsInput.forEach(it => {
+        if (it && it.code) overrideMap[it.code] = Number(it.qty);
+      });
+      const adjusted = [];
+      for (const oi of orderItems) {
+        const originalQty = Number(oi.qty) || 0;
+        const hasOverride = oi.code && Object.prototype.hasOwnProperty.call(overrideMap, oi.code);
+        let acceptedQty = hasOverride ? overrideMap[oi.code] : originalQty;
+        if (!Number.isFinite(acceptedQty) || acceptedQty < 0) acceptedQty = 0;
+        if (acceptedQty > originalQty + 1e-9) {
+          return res.status(400).json({ error: `"${oi.name}": принятое кол-во (${acceptedQty}) больше заказанного (${originalQty})` });
+        }
+        if (hasOverride && acceptedQty + 1e-9 < originalQty) partialDelivery = true;
+        if (acceptedQty <= 1e-9) continue;
+        // Для весового товара boxes — вспомогательный счётчик тары для
+        // склада (см. комментарий у creditReturnStock) — уменьшаем его
+        // пропорционально принятому весу, иначе спишется вся тара, даже
+        // если клиент взял только часть веса.
+        const ratio = originalQty > 0 ? acceptedQty / originalQty : 0;
+        adjusted.push({
+          ...oi,
+          qty: acceptedQty,
+          boxes: oi.is_weight_item ? (Number(oi.boxes) || 0) * ratio : oi.boxes,
+        });
+      }
+      if (adjusted.length === 0) {
+        return res.status(400).json({ error: 'Клиент не принял ни одной позиции — это отказ, а не доставка: оформите возврат по всей заявке' });
+      }
+      finalDeliveredItems = adjusted;
+      finalDeliveredTotal = adjusted.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+    }
+
     const cash = Number(payment && payment.cash) || 0;
     const qr = Number(payment && payment.qr) || 0;
     const debt = Number(payment && payment.debt) || 0;
@@ -579,11 +631,11 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     if (qr > 0 && !orderBefore.qr_photo) {
       return res.status(400).json({ error: 'Сфотографируйте чек оплаты по QR перед подтверждением доставки' });
     }
-    // Нал+QR+долг обязаны совпасть с суммой заявки — иначе касса/долги
-    // разъедутся с тем, что реально доставлено (для продаж кассы такая
-    // сверка уже была, см. POST /api/sales; для доставки её не хватало).
-    if (Math.abs((cash + qr + debt) - (orderBefore.total || 0)) > 1) {
-      return res.status(400).json({ error: `Сумма оплаты (${cash + qr + debt}) не совпадает с суммой заявки (${orderBefore.total || 0})` });
+    // Нал+QR+долг обязаны совпасть с суммой ФАКТИЧЕСКИ принятого (а не
+    // суммой заявки при её оформлении) — при частичной доставке это уже
+    // finalDeliveredTotal, пересчитанный выше по принятым позициям.
+    if (Math.abs((cash + qr + debt) - finalDeliveredTotal) > 1) {
+      return res.status(400).json({ error: `Сумма оплаты (${cash + qr + debt}) не совпадает с суммой заявки (${finalDeliveredTotal})` });
     }
 
     // Товар физически покинул склад — списываем остаток напрямую и сразу
@@ -593,8 +645,10 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     // подтверждения доставки — все проверки выше (вес подтверждён, оплата
     // указана) уже прошли, дальше статус этой заявки меняться не может
     // (см. canChange/прежний статус выше), так что повторно списать нельзя.
+    // Списываем именно finalDeliveredItems — при частичной доставке
+    // непринятая клиентом часть остаётся на складе (см. комментарий выше).
     const stockCol = db.get('stock');
-    orderItems.forEach(it => {
+    finalDeliveredItems.forEach(it => {
       if (!it.code) return;
       const rec = stockCol.find({ code: it.code }).value();
       if (!rec) return;
@@ -630,6 +684,21 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   }
 
   const patch = { status };
+  if (status === 'delivered') {
+    // Позиции/сумма заявки фиксируются по факту принятого клиентом — при
+    // обычной (не частичной) доставке finalDeliveredItems/Total совпадают
+    // с тем, что и так уже было в заявке, так что для старых интеграций
+    // (без items в теле запроса) ничего не меняется.
+    patch.items = finalDeliveredItems;
+    patch.total = finalDeliveredTotal;
+    patch.commission_total = finalDeliveredItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.commission) || 0), 0);
+    if (partialDelivery) {
+      patch.partial_delivery = true;
+      // Снимок исходного состава заявки на момент оформления — чтобы
+      // потом было видно, что именно клиент не принял (см. OrderDetail).
+      patch.items_ordered = typeof orderBefore.items === 'string' ? JSON.parse(orderBefore.items || '[]') : (orderBefore.items || []);
+    }
+  }
   if (['in_transit', 'delivered', 'cancelled', 'returned'].includes(status) && ['driver', 'warehouse'].includes(req.user.role)) {
     patch.driver_id = req.user.id;
     patch.driver_name = req.user.name;
@@ -659,7 +728,10 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   res.json(order);
 
   if (['delivered', 'cancelled', 'returned'].includes(status)) {
-    const STATUS_LABEL = { delivered: 'Доставлено', cancelled: 'Отказ при получении', returned: 'Возврат' };
+    // Частичная доставка (см. partial_delivery выше) — отдельная подпись,
+    // чтобы менеджер/торговый сразу видели с уведомления, что клиент принял
+    // не всё, не открывая саму заявку.
+    const STATUS_LABEL = { delivered: order.partial_delivery ? 'Доставлено частично' : 'Доставлено', cancelled: 'Отказ при получении', returned: 'Возврат' };
     const payload = {
       title: 'Заявка закрыта',
       body: `${order.client_name} · ${STATUS_LABEL[status]}`,
@@ -669,7 +741,7 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
     sendPushToRole('driver', payload, req.user.role === 'driver' ? req.user.id : null);
     if (order.source === 'store') {
       sendPushToUser(order.sales_id, {
-        title: STATUS_LABEL[status] === 'Доставлено' ? 'Ваш заказ доставлен' : 'Статус заказа изменился',
+        title: status === 'delivered' ? 'Ваш заказ доставлен' : 'Статус заказа изменился',
         body: `Заказ №${order.id} · ${STATUS_LABEL[status]}`,
         url: '/'
       });
