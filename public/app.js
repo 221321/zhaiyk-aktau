@@ -2415,7 +2415,7 @@ function DebtsPanel({
 
 // Управление группой "Договорники" — ярлык поверх контрагента из 1С (см.
 // clientTags/PUT /api/clients/:code/dogovornik на сервере), нужен для
-// отбора заявок по этой группе клиентов в "Заявках" (dogovornikOnly в
+// отбора заявок по этой группе клиентов в "Заявках" (dogovornikFilter в
 // AdminCabinet). Простой список с поиском и переключателем прямо по клику
 // на строку — отдельного экрана "Клиенты" в приложении пока нет, заводить
 // его целиком ради одной пометки было бы избыточно.
@@ -3224,6 +3224,18 @@ function tengeSumToWords(amount) {
   return `${words.charAt(0).toUpperCase()}${words.slice(1)} тенге ${String(tiyn).padStart(2, '0')} тиын`;
 }
 
+// Дата словами для "Расходной накладной" (см. buildExpenseWaybillInnerHtml)
+// — "6 июля 2026 г.", как в печатной форме 1С. order.date — "YYYY-MM-DD";
+// достаём компоненты через UTC-геттеры, а не локальные (getDate/getMonth),
+// чтобы часовой пояс браузера ни при каких обстоятельствах не сдвинул
+// день на печатном бланке.
+const MONTHS_RU_GENITIVE = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+function formatDateWordsRu(dateStr) {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return `${d.getUTCDate()} ${MONTHS_RU_GENITIVE[d.getUTCMonth()]} ${d.getUTCFullYear()} г.`;
+}
+
 // Экранирование свободного текста (имя клиента/водителя, адрес, название
 // товара и т.п.) перед вставкой в HTML-шаблоны печати ниже — без него,
 // например, символы "<"/">" в имени клиента браузер трактует как начало
@@ -3302,6 +3314,54 @@ function buildWaybillInnerHtml(order, opts) {
         <p>Запасы получил: <span class="signline">&nbsp;</span> подпись</p>
         <p>Расшифровка подписи: <span class="signline">&nbsp;</span></p>
       </div>
+    </div>`;
+}
+
+// "Расходная накладная" — простой бланк в стиле печатной формы 1С (по
+// образцу от владельца), для клиентов НЕ из группы "Договорники" (см.
+// dogovornikCodes в AdminCabinet и buildWaybillInnerHtml выше — у
+// договорников остаётся форма З-2, официальный бланк, только без Kaspi
+// QR, т.к. они рассчитываются по договору). У обычных клиентов, наоборот,
+// это основной способ оплаты на месте — бланк проще, но всегда с QR.
+// "Основание" повторяет "Покупателя" — так печатает и сам 1С в этой форме,
+// когда конкретный договор/документ-основание не указан отдельно.
+function buildExpenseWaybillInnerHtml(order) {
+  const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : order.items || [];
+  const unitOf = it => it.is_weight_item ? 'кг' : 'шт';
+  const rows = items.map((it, i) => `
+    <tr>
+      <td style="text-align:center">${i + 1}</td>
+      <td style="text-align:center">${esc(it.code)}</td>
+      <td>${esc(it.name)}</td>
+      <td style="text-align:right">${it.qty}&nbsp;${unitOf(it)}</td>
+      <td style="text-align:right">${Number(it.price).toLocaleString()}</td>
+      <td style="text-align:right">${(Number(it.qty) * Number(it.price)).toLocaleString()}</td>
+    </tr>`).join('');
+  const total = order.total || 0;
+  return `
+    <div class="exphead">Расходная накладная № ${order.id} от ${formatDateWordsRu(order.date)}</div>
+    <table class="expfields">
+      <tr><td class="expfields-label">Поставщик</td><td class="expfields-value">${esc(COMPANY_INFO.name)}</td></tr>
+      <tr><td class="expfields-label">Покупатель</td><td class="expfields-value">${esc(order.client_name)}</td></tr>
+      <tr><td class="expfields-label">Основание</td><td class="expfields-value">${esc(order.client_name)}</td></tr>
+      <tr><td class="expfields-label">Склад</td><td class="expfields-value">Основной склад</td></tr>
+    </table>
+    <table>
+      <tr><th>№ п/п</th><th>Код</th><th>Товар</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr>
+      ${rows}
+      <tr><td colspan="5" style="text-align:right;font-weight:700">Итого:</td><td style="text-align:right;font-weight:700">${total.toLocaleString()}</td></tr>
+    </table>
+    <div class="totals">
+      <p style="text-decoration:underline">Всего наименований ${items.length}, на сумму ${total.toLocaleString()} KZT</p>
+      <p style="font-weight:700">${tengeSumToWords(total)}</p>
+    </div>
+    <div class="miniqr">
+      <img src="/kaspi-qr.png" alt="Kaspi QR"/>
+      <p>Kaspi QR — оплата</p>
+    </div>
+    <div class="signcols">
+      <div class="sign"><p>Отпустил <span class="signline">&nbsp;</span>/</p></div>
+      <div class="sign"><p>Получил <span class="signline">&nbsp;</span>/</p></div>
     </div>`;
 }
 
@@ -3397,6 +3457,17 @@ const WAYBILL_STYLE = `
     .printScope .headrow .miniqr p{margin:0; font-size:8px; color:#444; line-height:1.2;}
     .printScope .totals{margin-top:8px; font-size:11px;}
     .printScope .totals p{margin:6px 0;}
+    /* "Расходная накладная" (см. buildExpenseWaybillInnerHtml) — простой
+       бланк без таблицы-"шапки" формы З-2: заголовок + список полей
+       label/value + отдельный (не вложенный в .headrow) блок QR. */
+    .printScope .exphead{font-size:17px; font-weight:800; border-bottom:2px solid #333; padding-bottom:8px; margin-bottom:12px;}
+    .printScope table.expfields{width:auto; border:none; margin:0 0 14px;}
+    .printScope table.expfields td{border:none; padding:3px 0; font-size:12px;}
+    .printScope table.expfields td.expfields-label{color:#444; padding-right:24px; white-space:nowrap; vertical-align:top;}
+    .printScope table.expfields td.expfields-value{font-weight:700;}
+    .printScope .miniqr{display:flex; flex-direction:column; align-items:center; text-align:center; margin:12px 0;}
+    .printScope .miniqr img{width:70px; height:70px; display:block; margin:0 0 4px;}
+    .printScope .miniqr p{margin:0; font-size:10px; color:#444;}
     .printScope .signcols{display:flex; gap:16px;}
     .printScope .signcols .sign{flex:1; min-width:0;}
     .printScope .sign{margin-top:24px;}
@@ -3431,6 +3502,15 @@ const WAYBILL_PAIR_STYLE = WAYBILL_STYLE + `
     .printScope .waybillSlot .headrow .miniqr img{width:38px; height:38px;}
     .printScope .waybillSlot .headrow .miniqr p{font-size:6px;}
     .printScope .cutline{text-align:center; font-size:10px; color:#888; margin:8px 0; border-top:1px dashed #999; position:relative; top:-1px;}
+    /* Уменьшенный "Расходной накладной" (см. buildExpenseWaybillInnerHtml)
+       при печати парой на лист — та же логика уменьшения, что и у формы
+       З-2 выше, только для собственных классов этого бланка. */
+    .printScope .waybillSlot .exphead{font-size:11px; padding-bottom:5px; margin-bottom:8px;}
+    .printScope .waybillSlot table.expfields td{font-size:8px; padding:1px 0;}
+    .printScope .waybillSlot table.expfields td.expfields-label{padding-right:12px;}
+    .printScope .waybillSlot .miniqr{margin:6px 0;}
+    .printScope .waybillSlot .miniqr img{width:36px; height:36px;}
+    .printScope .waybillSlot .miniqr p{font-size:6px;}
     @media print { .printScope .waybillSheet{page-break-after:always;} .printScope .waybillSheet:last-child{page-break-after:auto;} }`;
 
 // Загрузочный лист — экран для склада/водителя, обычно открывается на
@@ -3521,22 +3601,26 @@ function openPrintOverlay(bodyHtml, styleText, showPrintButton) {
   document.body.appendChild(host);
   return cleanup;
 }
+
+// Договорники — форма З-2 (официальный бланк на отпуск запасов, приказ
+// Минфина №562), но без Kaspi QR: рассчитываются по договору, а не
+// переводом на месте (см. buildWaybillInnerHtml). Все остальные — простая
+// "Расходная накладная" (см. buildExpenseWaybillInnerHtml), но ВСЕГДА с
+// Kaspi QR — для них это основной способ принять оплату у клиента.
 function printWaybill(order, isDogovornik) {
-  openPrintOverlay(buildWaybillInnerHtml(order, {
-    hideQr: isDogovornik
-  }), WAYBILL_STYLE, true);
+  const html = isDogovornik ? buildWaybillInnerHtml(order, {
+    hideQr: true
+  }) : buildExpenseWaybillInnerHtml(order);
+  openPrintOverlay(html, WAYBILL_STYLE, true);
 }
 
 // Пачка накладных сразу по нескольким заявкам (например, по всем заявкам
-// одного водителя за день, после отбора по водителю в списке заявок) — та
-// же накладная, что печатается по одной (buildWaybillInnerHtml), но по 2
-// на лист A4 (уменьшенный шрифт, см. WAYBILL_PAIR_STYLE) — разрыв
-// страницы после каждой ПАРЫ, а не после каждой накладной, чтобы не
-// расходовать бумагу впустую.
-// Исключение — клиенты из группы "Договорники" (см. dogovornikCodes в
-// AdminCabinet): у них накладная печатается отдельно, по одной на лист
-// (без пары рядом), и без блока Kaspi QR — они рассчитываются по
-// договору, а не переводом по QR на месте.
+// одного водителя за день, после отбора по водителю в списке заявок).
+// Договорники — форма З-2, каждая одна на полном листе, обычным (не
+// уменьшенным) размером, без Kaspi QR (см. printWaybill выше). Остальные —
+// "Расходная накладная" с QR, по 2 на лист A4 (уменьшенный шрифт, см.
+// WAYBILL_PAIR_STYLE) — разрыв страницы после каждой ПАРЫ, а не после
+// каждой накладной, чтобы не расходовать бумагу впустую.
 function printWaybillsBatch(orders, dogovornikCodes) {
   if (!orders.length) {
     alert('Нет заявок для печати');
@@ -3586,8 +3670,8 @@ function printWaybillsBatch(orders, dogovornikCodes) {
       b = regularOrders[i + 1];
     sheets.push(`
       <div class="waybillSheet" style="margin-bottom:32px;">
-        <div class="waybillSlot">${buildWaybillInnerHtml(a)}</div>
-        ${b ? `<div class="cutline">✂ линия отреза</div><div class="waybillSlot">${buildWaybillInnerHtml(b)}</div>` : ''}
+        <div class="waybillSlot">${buildExpenseWaybillInnerHtml(a)}</div>
+        ${b ? `<div class="cutline">✂ линия отреза</div><div class="waybillSlot">${buildExpenseWaybillInnerHtml(b)}</div>` : ''}
       </div>`);
   }
   openPrintOverlay(sheets.join(''), WAYBILL_PAIR_STYLE, true);
@@ -3710,9 +3794,9 @@ async function shareWaybillPdf(order, isDogovornik) {
   styleTag.textContent = WAYBILL_STYLE;
   container.appendChild(styleTag);
   const contentDiv = document.createElement('div');
-  contentDiv.innerHTML = buildWaybillInnerHtml(order, {
-    hideQr: isDogovornik
-  });
+  contentDiv.innerHTML = isDogovornik ? buildWaybillInnerHtml(order, {
+    hideQr: true
+  }) : buildExpenseWaybillInnerHtml(order);
   container.appendChild(contentDiv);
   overlay.appendChild(label);
   overlay.appendChild(container);
@@ -11831,7 +11915,14 @@ function AdminCabinet({
   const [filter, setFilter] = useState("all");
   const [driverFilter, setDriverFilter] = useState("");
   const [salesFilter, setSalesFilter] = useState("");
-  const [dogovornikOnly, setDogovornikOnly] = useState(false);
+  // "all" — все заявки, "dogovornik" — только договорники, "regular" — без
+  // договора (остальные). Раньше был просто вкл/выкл фильтр "только
+  // договорники" — этого хватало, пока обеим группам печаталась одна и та
+  // же форма накладной; теперь у них РАЗНЫЕ формы печати (см.
+  // printWaybillsBatch/buildExpenseWaybillInnerHtml), и часто нужно
+  // отобрать именно "без договора" отдельным списком — не только
+  // "договорники" или "все".
+  const [dogovornikFilter, setDogovornikFilter] = useState("all");
   const [pickupOnly, setPickupOnly] = useState(false);
   // Отбор по времени доставки (см. TIME_SLOTS) внутри отбора "Заявки" за
   // конкретный день — доступен только при orderDatePreset==="day", иначе
@@ -12620,7 +12711,7 @@ function AdminCabinet({
   // по client_code с уже загруженным списком клиентов.
   const dogovornikCodes = useMemo(() => new Set(clients.filter(c => c.is_dogovornik).map(c => c.code)), [clients]);
   const q = orderSearch.trim().toLowerCase();
-  const filtered = useMemo(() => orders.filter(o => filter === "all" || o.status === filter).filter(o => !driverFilter || String(o.driver_id) === driverFilter).filter(o => !salesFilter || String(o.sales_id) === salesFilter).filter(o => !dogovornikOnly || dogovornikCodes.has(o.client_code)).filter(o => !pickupOnly || o.time_slot === PICKUP_SLOT).filter(o => orderDatePreset === "all" || o.date >= orderDateFrom && o.date <= orderDateTo).filter(o => orderDatePreset !== "day" || !timeSlotFilter || o.time_slot === timeSlotFilter).filter(o => !q || String(o.id).includes(q) || (o.client_name || '').toLowerCase().includes(q) || (o.sales_name || '').toLowerCase().includes(q) || (o.driver_name || '').toLowerCase().includes(q) || (o.address || '').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, pickupOnly, orderDatePreset, orderDateFrom, orderDateTo, timeSlotFilter, q]);
+  const filtered = useMemo(() => orders.filter(o => filter === "all" || o.status === filter).filter(o => !driverFilter || String(o.driver_id) === driverFilter).filter(o => !salesFilter || String(o.sales_id) === salesFilter).filter(o => dogovornikFilter === "all" || (dogovornikFilter === "dogovornik" ? dogovornikCodes.has(o.client_code) : !dogovornikCodes.has(o.client_code))).filter(o => !pickupOnly || o.time_slot === PICKUP_SLOT).filter(o => orderDatePreset === "all" || o.date >= orderDateFrom && o.date <= orderDateTo).filter(o => orderDatePreset !== "day" || !timeSlotFilter || o.time_slot === timeSlotFilter).filter(o => !q || String(o.id).includes(q) || (o.client_name || '').toLowerCase().includes(q) || (o.sales_name || '').toLowerCase().includes(q) || (o.driver_name || '').toLowerCase().includes(q) || (o.address || '').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikFilter, dogovornikCodes, pickupOnly, orderDatePreset, orderDateFrom, orderDateTo, timeSlotFilter, q]);
   const {
     stats,
     repList,
@@ -13230,31 +13321,20 @@ function AdminCabinet({
       color: C.textFaint,
       fontWeight: 600
     }
-  }, "\u0414\u043E\u0433\u043E\u0432\u043E\u0440\u043D\u0438\u043A\u0438:"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setDogovornikOnly(false),
+  }, "\u0414\u043E\u0433\u043E\u0432\u043E\u0440\u043D\u0438\u043A\u0438:"), [["all", "Все"], ["dogovornik", "🏷 Договорники"], ["regular", "Без договора"]].map(([k, label]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    onClick: () => setDogovornikFilter(k),
     style: {
       padding: "6px 13px",
       borderRadius: 99,
-      border: `1px solid ${!dogovornikOnly ? C.navy : C.border}`,
+      border: `1px solid ${dogovornikFilter === k ? C.navy : C.border}`,
       cursor: "pointer",
       fontSize: 14,
       fontWeight: 600,
-      background: !dogovornikOnly ? C.navy : C.white,
-      color: !dogovornikOnly ? C.white : C.textMid
+      background: dogovornikFilter === k ? C.navy : C.white,
+      color: dogovornikFilter === k ? C.white : C.textMid
     }
-  }, "\u0412\u0441\u0435"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setDogovornikOnly(true),
-    style: {
-      padding: "6px 13px",
-      borderRadius: 99,
-      border: `1px solid ${dogovornikOnly ? C.navy : C.border}`,
-      cursor: "pointer",
-      fontSize: 14,
-      fontWeight: 600,
-      background: dogovornikOnly ? C.navy : C.white,
-      color: dogovornikOnly ? C.white : C.textMid
-    }
-  }, "\uD83C\uDFF7 \u0422\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u0433\u043E\u0432\u043E\u0440\u043D\u0438\u043A\u0438"), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
+  }, label)), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowDogovornikModal(true),
     style: {
       padding: "6px 13px",
