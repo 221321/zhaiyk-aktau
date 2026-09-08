@@ -1139,6 +1139,18 @@ app.delete('/api/orders/:id', authMiddleware, (req, res) => {
   const orderId = parseInt(req.params.id);
   const order = db.get('orders').find({ id: orderId }).value();
   if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+  // Доставленная заявка уже списала остаток напрямую (см. PUT
+  // /api/orders/:id/status) и на неё уже могут ссылаться долг (POST
+  // /api/debts/settle по order_id), сдача нала (cash_handover order_ids)
+  // и итемизированные возвраты (POST /api/returns, order_id) — простое
+  // remove() молча их не тронет: остаток так и останется списанным без
+  // всякого следа в заявках, а эти ссылки осиротеют. Опасно удалять
+  // такую заявку вслепую — для отмены/исправления есть "Оформить
+  // возврат" (статус) и правка кол-ва задним числом (см.
+  // PUT /api/orders/:id/delivered-items), которые не рвут эти связи.
+  if (order.status === 'delivered') {
+    return res.status(400).json({ error: 'Доставленную заявку удалять нельзя — остаток на складе и связанные долги/сдачи не были бы пересчитаны. Используйте "Оформить возврат" или правку доставленного количества.' });
+  }
   db.get('orders').remove({ id: orderId }).write();
   res.json({ success: true });
 });

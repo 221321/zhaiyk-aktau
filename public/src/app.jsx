@@ -2234,7 +2234,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
             )}
           </div>
         )}
-        {currentUser.role==="admin" && onDeleteOrder && (
+        {currentUser.role==="admin" && onDeleteOrder && order.status!=="delivered" && (
           <div style={{marginTop:20,paddingTop:16,borderTop:`1px dashed ${C.border}`}}>
             <button style={{...S.btnDanger,width:"100%",opacity:0.85}} onClick={()=>{
               if (window.confirm(`Удалить заявку №${order.id} без возможности восстановления?`)) onDeleteOrder(order.id);
