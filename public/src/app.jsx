@@ -6092,9 +6092,15 @@ function AdminCabinet({ user, onLogout, desktop }) {
   // должникам (POST /api/debts/settle) и WhatsApp — тем ничего на сервере
   // не требуется вовсе.
   const readOnlyOp = user.role==="operator";
+  // "Сотрудники" — логины/пароли и назначение ролей, это уровень доступа
+  // владельца (admin), менеджеру эта вкладка не нужна и не должна быть
+  // видна вовсе (просьба владельца), в отличие от operator, которому и так
+  // урезан весь список вкладок выше.
   const TABS = readOnlyOp
     ? [["all","📋","Заявки"],["cashbox","💵","Касса"]]
-    : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотрудники"]];
+    : user.role==="manager"
+      ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"]]
+      : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотрудники"]];
   const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",employees:"Сотрудники"};
 
   const dateRangeInputs = (
