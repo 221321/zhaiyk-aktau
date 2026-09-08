@@ -788,6 +788,158 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   }
 });
 
+// Правка состава уже ДОСТАВЛЕННОЙ заявки — только для admin. До появления
+// частичной доставки (см. PUT /api/orders/:id/status выше) водитель мог
+// довезти заявку только целиком: если клиент на месте забирал не всё
+// (пол-короба вместо короба и т.п.), это никак не фиксировалось — заявка
+// оставалась "доставлена в полном объёме", хотя сумма, списанный остаток
+// и комиссия торгового не соответствуют факту. Это единственный способ
+// задним числом поправить такие старые заявки, не трогая новые (у них
+// правильное кол-во сразу проставляет сам водитель).
+//
+// Доступ — только admin (не manager): это меняет то, что уже списано со
+// склада и уже вошло в отчёты о прибыли/комиссии за прошлые периоды —
+// обычный уровень доступа менеджера для такой правки задним числом
+// слишком широк (просьба владельца).
+app.put('/api/orders/:id/delivered-items', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Редактировать доставленную заявку может только администратор' });
+  }
+  const orderId = parseInt(req.params.id);
+  const order = db.get('orders').find({ id: orderId }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+  if (order.status !== 'delivered') {
+    return res.status(400).json({ error: 'Редактирование доступно только для заявок в статусе "Доставлено"' });
+  }
+  const { items: editedItemsInput, reason } = req.body;
+  if (!Array.isArray(editedItemsInput) || editedItemsInput.length === 0) {
+    return res.status(400).json({ error: 'Не переданы позиции для правки' });
+  }
+
+  const currentItems = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+  // Эталон — исходный состав заявки ДО каких-либо правок (частичная
+  // доставка водителем или более ранняя правка админа этим же эндпоинтом):
+  // относительно него нельзя указать "доставлено больше" — физически
+  // больше и не привозили. Если заявку ещё никто не сокращал, эталоном
+  // служит её текущий (единственный) состав — записываем его в
+  // items_ordered здесь же, при первой правке.
+  const referenceItems = order.items_ordered
+    ? (typeof order.items_ordered === 'string' ? JSON.parse(order.items_ordered || '[]') : order.items_ordered)
+    : currentItems;
+  const refByCode = {};
+  referenceItems.forEach(it => { if (it.code) refByCode[it.code] = it; });
+  const currentByCode = {};
+  currentItems.forEach(it => { if (it.code) currentByCode[it.code] = it; });
+
+  const overrideMap = {};
+  for (const it of editedItemsInput) {
+    if (!it || !it.code) continue;
+    if (!refByCode[it.code]) {
+      return res.status(400).json({ error: `Позиция с кодом "${it.code}" не относится к этой заявке` });
+    }
+    overrideMap[it.code] = Number(it.qty);
+  }
+
+  // Сначала считаем и валидируем ВСЁ, ничего не трогая на складе — иначе
+  // при ошибке на второй позиции первая уже была бы списана/приходована.
+  const plan = [];
+  for (const ref of referenceItems) {
+    if (!ref.code) continue; // без кода товара — списывать/приходовать на складе нечего, такую позицию не трогаем
+    const refQty = Number(ref.qty) || 0;
+    const cur = currentByCode[ref.code] || null;
+    const curQty = cur ? (Number(cur.qty) || 0) : 0;
+    const hasOverride = Object.prototype.hasOwnProperty.call(overrideMap, ref.code);
+    if (!hasOverride) {
+      if (curQty > 1e-9) plan.push({ ref, cur, curQty, newQty: curQty, changed: false });
+      continue;
+    }
+    let newQty = overrideMap[ref.code];
+    if (!Number.isFinite(newQty) || newQty < 0) newQty = 0;
+    if (newQty > refQty + 1e-9) {
+      return res.status(400).json({ error: `"${ref.name}": нельзя указать больше, чем было в заявке изначально (${refQty})` });
+    }
+    plan.push({ ref, cur, curQty, newQty, changed: Math.abs(newQty - curQty) > 1e-9 });
+  }
+  if (!plan.some(p => p.newQty > 1e-9)) {
+    return res.status(400).json({ error: 'После правки в заявке не останется ни одной позиции — для этого поменяйте статус заявки на "Возврат", а не обнуляйте состав' });
+  }
+
+  const stockCol = db.get('stock');
+  const newItems = [];
+  plan.forEach(({ ref, cur, curQty, newQty, changed }) => {
+    const base = cur || ref;
+    if (changed) {
+      const refQty = Number(ref.qty) || 0;
+      const refBoxes = Number(ref.boxes) || 0;
+      const curBoxes = cur ? (Number(cur.boxes) || 0) : 0;
+      const ratio = refQty > 0 ? newQty / refQty : 0;
+      const newBoxes = ref.is_weight_item ? refBoxes * ratio : undefined;
+      const rec = stockCol.find({ code: ref.code }).value();
+      if (rec) {
+        // Та же формула, что и при первоначальном списании в PUT
+        // /api/orders/:id/status: для весового товара короба́-пул
+        // (stock.qty) двигает boxes, а не qty (qty там уже в кг).
+        const boxesDelta = ref.is_weight_item ? (newBoxes - curBoxes) : (newQty - curQty);
+        stockCol.find({ code: ref.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - boxesDelta) }).write();
+        if (ref.is_weight_item && ref.weight_confirmed && rec.weight_kg != null) {
+          const kgDelta = newQty - curQty;
+          stockCol.find({ code: ref.code }).assign({ weight_kg: Math.max(0, (Number(rec.weight_kg) || 0) - kgDelta) }).write();
+        }
+      }
+      if (newQty > 1e-9) {
+        newItems.push({ ...base, qty: newQty, boxes: ref.is_weight_item ? newBoxes : base.boxes });
+      }
+    } else if (newQty > 1e-9) {
+      newItems.push(base);
+    }
+  });
+
+  const newTotal = newItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+  const newCommissionTotal = newItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.commission) || 0), 0);
+  const wasFullyMatching = referenceItems.every(ref => {
+    const found = newItems.find(it => it.code === ref.code);
+    return found && Math.abs((Number(found.qty) || 0) - (Number(ref.qty) || 0)) < 1e-9;
+  });
+
+  const paidSum = (Number(order.payment_cash) || 0) + (Number(order.payment_qr) || 0) + (Number(order.payment_debt) || 0);
+  const patch = {
+    items: newItems,
+    total: newTotal,
+    commission_total: newCommissionTotal,
+    items_ordered: referenceItems,
+    partial_delivery: !wasFullyMatching,
+    // Кто и когда правил задним числом — отдельно от items_edits (полная
+    // история ниже), чтобы было видно сразу в самой заявке, не открывая лог.
+    items_last_edited_by_id: req.user.id,
+    items_last_edited_by_name: req.user.name,
+    items_last_edited_at: new Date().toISOString(),
+  };
+  const edits = Array.isArray(order.items_edits) ? order.items_edits.slice() : [];
+  edits.push({
+    at: patch.items_last_edited_at,
+    by_id: req.user.id,
+    by_name: req.user.name,
+    reason: (reason || '').trim(),
+    before_items: currentItems,
+    before_total: order.total || 0,
+    after_items: newItems,
+    after_total: newTotal,
+  });
+  patch.items_edits = edits;
+
+  db.get('orders').find({ id: orderId }).assign(patch).write();
+  const updated = db.get('orders').find({ id: orderId }).value();
+  res.json({
+    ...updated,
+    // Оплата (нал/QR/долг) этой правкой не трогается — заявку уже
+    // закрыли, и правка кол-ва задним числом не должна тихо переписывать
+    // кассу/долги. Если после правки сумма перестала совпадать с уже
+    // принятой оплатой, фронт покажет предупреждение по этому полю, а
+    // сверяет оплату отдельно (сдача нала, погашение долга) уже сам админ.
+    payment_mismatch: Math.abs(paidSum - newTotal) > 1,
+  });
+});
+
 // Ручная правка закупочной цены ОДНОЙ позиции в уже оформленной заявке —
 // нужна для позиций без кода товара (см. POST /api/orders): такую позицию
 // вписали в заявку свободным текстом мимо каталога (это теперь запрещено
