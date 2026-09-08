@@ -1300,7 +1300,8 @@ function tengeSumToWords(amount) {
   return `${words.charAt(0).toUpperCase()}${words.slice(1)} тенге ${String(tiyn).padStart(2,'0')} тиын`;
 }
 
-function buildWaybillInnerHtml(order) {
+function buildWaybillInnerHtml(order, opts) {
+  const hideQr = !!(opts && opts.hideQr);
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   // Единица измерения на самой заявке не хранится (см. POST /api/orders) —
   // единственный надёжный признак на позиции это is_weight_item (кг у
@@ -1341,7 +1342,7 @@ function buildWaybillInnerHtml(order) {
     </div>
     <div class="headrow row2">
       <div><div class="label">ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)</div>${order.driver_name||''}${order.driver_name?'<br>':''}${COMPANY_INFO.responsiblePhone}</div>
-      <div class="miniqr"><img src="/kaspi-qr.png" alt="Kaspi QR"/><p>Kaspi QR — оплата</p></div>
+      ${hideQr ? '' : '<div class="miniqr"><img src="/kaspi-qr.png" alt="Kaspi QR"/><p>Kaspi QR — оплата</p></div>'}
       <div><div class="label">АДРЕС ДОСТАВКИ</div>${order.address||''}${order.contact_phone?('<br>Тел: '+order.contact_phone):''}</div>
     </div>
     <table>
@@ -1589,8 +1590,8 @@ function openPrintOverlay(bodyHtml, styleText, showPrintButton) {
   return cleanup;
 }
 
-function printWaybill(order) {
-  openPrintOverlay(buildWaybillInnerHtml(order), WAYBILL_STYLE, true);
+function printWaybill(order, isDogovornik) {
+  openPrintOverlay(buildWaybillInnerHtml(order, { hideQr: isDogovornik }), WAYBILL_STYLE, true);
 }
 
 // Пачка накладных сразу по нескольким заявкам (например, по всем заявкам
@@ -1599,7 +1600,11 @@ function printWaybill(order) {
 // на лист A4 (уменьшенный шрифт, см. WAYBILL_PAIR_STYLE) — разрыв
 // страницы после каждой ПАРЫ, а не после каждой накладной, чтобы не
 // расходовать бумагу впустую.
-function printWaybillsBatch(orders) {
+// Исключение — клиенты из группы "Договорники" (см. dogovornikCodes в
+// AdminCabinet): у них накладная печатается отдельно, по одной на лист
+// (без пары рядом), и без блока Kaspi QR — они рассчитываются по
+// договору, а не переводом по QR на месте.
+function printWaybillsBatch(orders, dogovornikCodes) {
   if (!orders.length) { alert('Нет заявок для печати'); return; }
   // Заявка с неподтверждённым весом (is_weight_item && !weight_confirmed) —
   // её qty всё ещё ОЦЕНКА торгового (см. POST /api/orders), а не факт.
@@ -1620,15 +1625,26 @@ function printWaybillsBatch(orders) {
   }
   if (pendingOrders.length > 0) {
     if (!window.confirm(`По ${pendingOrders.length} ${pendingOrders.length===1?'заявке':'заявкам'} (№${pendingOrders.map(o=>o.id).join(', №')}) вес ещё не подтверждён складом — ${pendingOrders.length===1?'она':'они'} не будет напечатана.\n\nНапечатать накладные по остальным ${readyOrders.length} из ${orders.length}?`)) return;
-  } else if (!window.confirm(`Напечатать накладные по ${readyOrders.length} ${readyOrders.length===1?'заявке':'заявкам'} (по 2 на лист A4)?`)) {
+  } else if (!window.confirm(`Напечатать накладные по ${readyOrders.length} ${readyOrders.length===1?'заявке':'заявкам'}?`)) {
     return;
   }
+  const dogSet = dogovornikCodes || new Set();
+  const dogovornikOrders = readyOrders.filter(o => dogSet.has(o.client_code));
+  const regularOrders = readyOrders.filter(o => !dogSet.has(o.client_code));
   // margin-bottom — только видимый на экране зазор между листами в
   // превью; на печать не влияет (там разрыв страницы делает page-break-after,
   // см. .waybillSheet в WAYBILL_PAIR_STYLE).
   const sheets = [];
-  for (let i = 0; i < readyOrders.length; i += 2) {
-    const a = readyOrders[i], b = readyOrders[i + 1];
+  // Договорники — каждая накладная одна на полном листе, обычным (не
+  // уменьшенным) размером, и без Kaspi QR (см. комментарий выше).
+  dogovornikOrders.forEach(o => {
+    sheets.push(`
+      <div class="waybillSheet" style="margin-bottom:32px;">
+        ${buildWaybillInnerHtml(o, { hideQr: true })}
+      </div>`);
+  });
+  for (let i = 0; i < regularOrders.length; i += 2) {
+    const a = regularOrders[i], b = regularOrders[i + 1];
     sheets.push(`
       <div class="waybillSheet" style="margin-bottom:32px;">
         <div class="waybillSlot">${buildWaybillInnerHtml(a)}</div>
@@ -1716,7 +1732,7 @@ function printLoadingList(orders, driverName, productByCode) {
   openPrintOverlay(buildLoadingListHtml(orders, driverName, productByCode), LOADING_LIST_STYLE, false);
 }
 
-async function shareWaybillPdf(order) {
+async function shareWaybillPdf(order, isDogovornik) {
   if (!window.jspdf || !window.html2canvas) {
     alert('Модуль печати ещё загружается, попробуйте через пару секунд');
     return;
@@ -1751,7 +1767,7 @@ async function shareWaybillPdf(order) {
   styleTag.textContent = WAYBILL_STYLE;
   container.appendChild(styleTag);
   const contentDiv = document.createElement('div');
-  contentDiv.innerHTML = buildWaybillInnerHtml(order);
+  contentDiv.innerHTML = buildWaybillInnerHtml(order, { hideQr: isDogovornik });
   container.appendChild(contentDiv);
 
   overlay.appendChild(label);
@@ -1813,6 +1829,21 @@ async function shareWaybillPdf(order) {
   }
 }
 
+// Просмотр фото (накладной/наличности/чека QR) оверлеем поверх текущего
+// окна вместо <a target="_blank"> — та же причина, что и у openPrintOverlay
+// выше: в установленном как PWA приложении новая вкладка на некоторых
+// моделях телефонов открывается без системной панели (без кнопки "Назад"/
+// "Закрыть"), и её нечем закрыть, кроме как убить всё приложение целиком и
+// открыть заново. Оверлей в том же окне всегда даёт видимую кнопку ✕.
+function PhotoViewerOverlay({ src, onClose }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(17,17,17,0.92)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={onClose}>
+      <button style={{position:"absolute",top:14,right:14,width:40,height:40,borderRadius:20,border:"none",background:"#fff",color:"#111",fontSize:20,fontWeight:700,cursor:"pointer"}} onClick={onClose}>✕</button>
+      <img src={src} style={{maxWidth:"92%",maxHeight:"88%",objectFit:"contain",borderRadius:6}} onClick={e=>e.stopPropagation()}/>
+    </div>
+  );
+}
+
 function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, currentUser, drivers }) {
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [fixingCostIndex, setFixingCostIndex] = useState(null);
@@ -1821,6 +1852,19 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
   const [fixingWeightIndex, setFixingWeightIndex] = useState(null);
   const [weightInput, setWeightInput] = useState("");
   const [savingWeight, setSavingWeight] = useState(false);
+  const [viewPhoto, setViewPhoto] = useState(null);
+  // Договорник ли клиент заявки (см. DogovornikModal/is_dogovornik) — влияет
+  // на печать накладной: см. printWaybill/buildWaybillInnerHtml (hideQr).
+  const [isDogovornik, setIsDogovornik] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    apiCall('GET', '/api/clients').then(list => {
+      if (cancelled) return;
+      const c = list.find(x => x.code === order.client_code);
+      setIsDogovornik(!!(c && c.is_dogovornik));
+    }).catch(()=>{});
+    return () => { cancelled = true; };
+  }, [order.client_code]);
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment||'{}') : (order.payment||{cash:order.payment_cash||0,qr:order.payment_qr||0,debt:order.payment_debt||0});
   // Весовые позиции, вес которых ещё не подтверждён складом (см.
@@ -1862,8 +1906,8 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
         )}
         {currentUser.role!=="driver" && (
           <div style={{display:"flex",gap:8,marginBottom:14}}>
-            <button style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:pendingWeightItems.length>0?"not-allowed":"pointer",opacity:pendingWeightItems.length>0?0.5:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>confirmPrintIfPending(()=>printWaybill(order))}>🖨 Печать накладной</button>
-            <button style={{flex:1,padding:"11px",background:"#25D366",color:C.white,border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:pendingWeightItems.length>0?"not-allowed":"pointer",opacity:pendingWeightItems.length>0?0.5:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>confirmPrintIfPending(()=>shareWaybillPdf(order))}>📲 Отправить PDF</button>
+            <button style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:pendingWeightItems.length>0?"not-allowed":"pointer",opacity:pendingWeightItems.length>0?0.5:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>confirmPrintIfPending(()=>printWaybill(order,isDogovornik))}>🖨 Печать накладной</button>
+            <button style={{flex:1,padding:"11px",background:"#25D366",color:C.white,border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:pendingWeightItems.length>0?"not-allowed":"pointer",opacity:pendingWeightItems.length>0?0.5:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>confirmPrintIfPending(()=>shareWaybillPdf(order,isDogovornik))}>📲 Отправить PDF</button>
           </div>
         )}
         <hr style={S.divider}/>
@@ -1930,27 +1974,22 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
         {order.delivery_photo && !(currentUser.role==="driver" && order.status==="in_transit") && (
           <div style={{marginTop:14}}>
             <p style={{margin:"0 0 8px",fontSize:14,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>Фото накладной</p>
-            <a href={order.delivery_photo} target="_blank" rel="noopener noreferrer">
-              <img src={order.delivery_photo} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`}}/>
-            </a>
+            <img src={order.delivery_photo} onClick={()=>setViewPhoto(order.delivery_photo)} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`,cursor:"pointer"}}/>
           </div>
         )}
         {order.cash_photo && !(currentUser.role==="driver" && order.status==="in_transit") && (
           <div style={{marginTop:14}}>
             <p style={{margin:"0 0 8px",fontSize:14,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>Фото наличности</p>
-            <a href={order.cash_photo} target="_blank" rel="noopener noreferrer">
-              <img src={order.cash_photo} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`}}/>
-            </a>
+            <img src={order.cash_photo} onClick={()=>setViewPhoto(order.cash_photo)} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`,cursor:"pointer"}}/>
           </div>
         )}
         {order.qr_photo && !(currentUser.role==="driver" && order.status==="in_transit") && (
           <div style={{marginTop:14}}>
             <p style={{margin:"0 0 8px",fontSize:14,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>Фото чека QR</p>
-            <a href={order.qr_photo} target="_blank" rel="noopener noreferrer">
-              <img src={order.qr_photo} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`}}/>
-            </a>
+            <img src={order.qr_photo} onClick={()=>setViewPhoto(order.qr_photo)} style={{width:"100%",maxHeight:220,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`,cursor:"pointer"}}/>
           </div>
         )}
+        {viewPhoto && <PhotoViewerOverlay src={viewPhoto} onClose={()=>setViewPhoto(null)}/>}
         {(currentUser.role==="driver"||currentUser.role==="warehouse") && order.status==="in_transit" && order.driver_id===currentUser.id && (
           <DriverPaymentBlock order={order} onUpdateStatus={onUpdateStatus}/>
         )}
@@ -6104,7 +6143,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {dogovornikFilterChip}
         {pickupFilterChip}
         {!loading&&filtered.length>0&&(
-          <button onClick={()=>printWaybillsBatch(filtered)} style={{...S.btnOutline,width:"auto",marginTop:0,marginBottom:16,padding:"9px 16px",fontSize:14}}>🖨 Печать накладных ({filtered.length})</button>
+          <button onClick={()=>printWaybillsBatch(filtered,dogovornikCodes)} style={{...S.btnOutline,width:"auto",marginTop:0,marginBottom:16,padding:"9px 16px",fontSize:14}}>🖨 Печать накладных ({filtered.length})</button>
         )}
         {loading?<div style={S.loadingWrap}>Загрузка...</div>
           :desktop
