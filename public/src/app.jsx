@@ -5196,6 +5196,12 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [salesFilter, setSalesFilter] = useState("");
   const [dogovornikOnly, setDogovornikOnly] = useState(false);
   const [pickupOnly, setPickupOnly] = useState(false);
+  // Отбор по времени доставки (см. TIME_SLOTS) внутри отбора "Заявки" за
+  // конкретный день — доступен только при orderDatePreset==="day", иначе
+  // "До обеда"/"После обеда" пришлось бы сравнивать заявки за недели/месяц
+  // без даты рядом, что бессмысленно. Сбрасывается при уходе с "День" (см.
+  // applyOrderDatePreset), чтобы скрытый чип не продолжал молча фильтровать.
+  const [timeSlotFilter, setTimeSlotFilter] = useState("");
   const [showDogovornikModal, setShowDogovornikModal] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
@@ -5325,6 +5331,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
       setOrderDateFrom(from.toISOString().slice(0,10));
       setOrderDateTo(todayStr);
     }
+    if (preset !== "day") setTimeSlotFilter("");
   };
 
   const [employees, setEmployees] = useState([]);
@@ -5761,12 +5768,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
     .filter(o=>!dogovornikOnly||dogovornikCodes.has(o.client_code))
     .filter(o=>!pickupOnly||o.time_slot===PICKUP_SLOT)
     .filter(o=>orderDatePreset==="all"||(o.date>=orderDateFrom&&o.date<=orderDateTo))
+    .filter(o=>orderDatePreset!=="day"||!timeSlotFilter||o.time_slot===timeSlotFilter)
     .filter(o=>!q
       || String(o.id).includes(q)
       || (o.client_name||'').toLowerCase().includes(q)
       || (o.sales_name||'').toLowerCase().includes(q)
       || (o.driver_name||'').toLowerCase().includes(q)
-      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, pickupOnly, orderDatePreset, orderDateFrom, orderDateTo, q]);
+      || (o.address||'').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikOnly, dogovornikCodes, pickupOnly, orderDatePreset, orderDateFrom, orderDateTo, timeSlotFilter, q]);
 
   const { stats, repList, storeList, driverCashList, repCashList, posReport, returnsInfo, totalCommission } = useMemo(() => {
     // Погашение долга нал/QR "перетекает" из долга в наличку/QR того же
@@ -6032,11 +6040,17 @@ function AdminCabinet({ user, onLogout, desktop }) {
 
   const orderDateFilterUI = (
     <div style={{marginBottom:16}}>
-      <div style={{display:"flex",gap:6,marginBottom:orderDatePreset==="custom"?10:0,flexWrap:"wrap"}}>
+      <div style={{display:"flex",gap:6,marginBottom:(orderDatePreset==="custom"||orderDatePreset==="day")?10:0,flexWrap:"wrap"}}>
         {[["all","Все"],["day","День"],["week","Неделя"],["month","Месяц"],["custom","Свободный отбор"]].map(([k,lb])=>(
           <button key={k} onClick={()=>applyOrderDatePreset(k)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${orderDatePreset===k?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:orderDatePreset===k?C.navy:C.white,color:orderDatePreset===k?C.white:C.textMid}}>{lb}</button>
         ))}
       </div>
+      {orderDatePreset==="day"&&(
+        <div style={{maxWidth:200}}>
+          <label style={{...S.label,marginBottom:4}}>Дата</label>
+          <input type="date" style={{...S.input,padding:"8px 10px",fontSize:15}} value={orderDateFrom} onChange={e=>{setOrderDateFrom(e.target.value);setOrderDateTo(e.target.value);}}/>
+        </div>
+      )}
       {orderDatePreset==="custom"&&(
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",maxWidth:420}}>
           <div style={{flex:1,minWidth:120}}>
@@ -6049,6 +6063,19 @@ function AdminCabinet({ user, onLogout, desktop }) {
           </div>
         </div>
       )}
+    </div>
+  );
+
+  // Показывается только при отборе за конкретный день (orderDatePreset==="day")
+  // — по просьбе владельца: за день заявки удобно разом видеть отдельно "до
+  // обеда" и "после обеда" (см. TIME_SLOTS), а не одним общим списком.
+  const timeSlotFilterChip = orderDatePreset==="day" && (
+    <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+      <span style={{fontSize:14,color:C.textFaint,fontWeight:600}}>Время доставки:</span>
+      <button onClick={()=>setTimeSlotFilter("")} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${timeSlotFilter===""?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:timeSlotFilter===""?C.navy:C.white,color:timeSlotFilter===""?C.white:C.textMid}}>Все</button>
+      {TIME_SLOTS.map(slot=>(
+        <button key={slot} onClick={()=>setTimeSlotFilter(slot)} style={{padding:"6px 13px",borderRadius:99,border:`1px solid ${timeSlotFilter===slot?C.navy:C.border}`,cursor:"pointer",fontSize:14,fontWeight:600,background:timeSlotFilter===slot?C.navy:C.white,color:timeSlotFilter===slot?C.white:C.textMid}}>{slot}</button>
+      ))}
     </div>
   );
 
@@ -6146,6 +6173,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {!readOnlyOp&&<button onClick={()=>setShowNewOrderModal(true)} style={{...S.btnPrimary,width:"auto",marginBottom:16,padding:"9px 16px",fontSize:14}}>📝 Новая заявка</button>}
         {searchInput}
         {orderDateFilterUI}
+        {timeSlotFilterChip}
         {filterChips}
         {driverFilterChips}
         {salesFilterChips}
