@@ -4048,7 +4048,17 @@ function OrderDetail({
       setFixingCostIndex(i);
       setCostInput("");
     }
-  }, "\u0443\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E"))), onFixItemWeight && item.is_weight_item && item.weight_confirmed && (fixingWeightIndex === i ? /*#__PURE__*/React.createElement("div", {
+  }, "\u0443\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E"))), item.is_weight_item && item.weight_confirmed && (
+  // Правка веса доступна только пока заявка не доставлена — после
+  // доставки остаток по позиции уже списан напрямую (см. PUT
+  // /api/orders/:id/status и проверку статуса в POST
+  // /api/orders/weights на сервере, который эту же правку и
+  // отклонит). Для уже доставленной заявки количество (в т.ч.
+  // весовой позиции) правит только admin через "Исправить
+  // доставленное количество" ниже — здесь для delivered
+  // остаётся только информация, кто и когда взвесил, без ссылки
+  // на правку, которая всё равно вернёт ошибку с сервера.
+  onFixItemWeight && ["new", "in_transit"].includes(order.status) && fixingWeightIndex === i ? /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 6,
@@ -4107,7 +4117,7 @@ function OrderDetail({
       fontSize: 13,
       color: C.textFaint
     }
-  }, "\u0412\u0437\u0432\u0435\u0441\u0438\u043B: ", item.weighed_by_name || '—', item.weighed_at ? ', ' + fmtDT(item.weighed_at) : '', " \u2014 ", /*#__PURE__*/React.createElement("span", {
+  }, "\u0412\u0437\u0432\u0435\u0441\u0438\u043B: ", item.weighed_by_name || '—', item.weighed_at ? ', ' + fmtDT(item.weighed_at) : '', onFixItemWeight && ["new", "in_transit"].includes(order.status) && /*#__PURE__*/React.createElement(React.Fragment, null, " \u2014 ", /*#__PURE__*/React.createElement("span", {
     style: {
       color: C.navy,
       fontWeight: 600,
@@ -4118,7 +4128,7 @@ function OrderDetail({
       setFixingWeightIndex(i);
       setWeightInput(String(item.qty));
     }
-  }, "\u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u043E\u0448\u0438\u0431\u043A\u0443 \u0432\u0435\u0441\u0430"))))), /*#__PURE__*/React.createElement("hr", {
+  }, "\u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u043E\u0448\u0438\u0431\u043A\u0443 \u0432\u0435\u0441\u0430")))))), /*#__PURE__*/React.createElement("hr", {
     style: S.divider
   }), /*#__PURE__*/React.createElement("div", {
     style: {
