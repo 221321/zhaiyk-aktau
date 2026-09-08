@@ -1751,7 +1751,7 @@ function buildLoadingListHtml(orders, driverName, productByCode) {
       // если позиция весовая и по ВСЕМ заявкам партии уже подтверждена,
       // считаем её взвешенной. Без привязки к конкретному имени — это общая
       // отметка склада, а не подпись того, кто именно нажал "Сохранить вес"
-      // (им мог быть и менеджер/админ, исправлявший ошибку веса).
+      // (им мог быть и admin, исправлявший ошибку веса).
       if (isWeight) {
         totals[key].isWeight = true;
         if (!it.weight_confirmed) totals[key].allWeighed = false;
@@ -7232,7 +7232,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return (
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
         <AutofillDecoy/>
-        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         {showNewOrderModal&&<NewOrderModal products={products} clients={clients} onClose={()=>setShowNewOrderModal(false)} onCreated={()=>{ setShowNewOrderModal(false); loadOrders(); }} isAdmin={user.role==="admin"}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
@@ -7263,7 +7263,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   return (
     <div style={{paddingBottom:72}}>
       <AutofillDecoy/>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role!=="operator"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
       {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
@@ -7480,7 +7480,7 @@ function WarehouseCabinet({ user, onLogout }) {
     if (entries.length === 0) { alert('Введите хотя бы одно значение веса'); return; }
     // Проверка веса перед сохранением важна вдвойне: после подтверждения
     // склад сам исправить его уже не сможет (см. canOverride на сервере) —
-    // только менеджер/админ через карточку заявки.
+    // только admin через карточку заявки.
     if (!window.confirm(`Проверьте вес ещё раз — сохранить нельзя будет изменить.\n\nСохранить фактический вес по ${entries.length} ${entries.length===1?'позиции':'позициям'}? Суммы заявок пересчитаются.`)) return;
     setSavingWeights(true);
     try {

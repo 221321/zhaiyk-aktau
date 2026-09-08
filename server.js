@@ -985,7 +985,13 @@ app.put('/api/orders/:orderId/items/:itemIndex/cost', authMiddleware, (req, res)
 db.defaults({ weighLog: [], nextWeighLogId: 1 }).write();
 
 app.post('/api/orders/weights', authMiddleware, (req, res) => {
-  if (!['warehouse', 'admin', 'manager'].includes(req.user.role)) {
+  // manager сюда раньше тоже допускался — но его единственный реальный
+  // сценарий здесь был именно canOverride ниже (исправить уже
+  // подтверждённый вес), а его у него забрали (просьба владельца: правку
+  // веса задним числом делает только admin). Первичное взвешивание
+  // (Загрузочный лист) — только warehouse, у manager для него и отдельного
+  // экрана-то нет.
+  if (!['warehouse', 'admin'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const { entries } = req.body;
@@ -1045,12 +1051,13 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     // Вес фиксируется один раз: после первого сохранения (weight_confirmed)
     // склад (человеческий фактор при взвешивании — ошибся, неправильно
     // сохранил) больше не может его перезаписать молча. Но ошибка — не
-    // редкость, и должна быть возможность её исправить: менеджер/админ
-    // может скорректировать уже подтверждённый вес, склад — нет.
+    // редкость, и должна быть возможность её исправить — только admin
+    // (раньше могло и manager, но правку задним числом решили оставить
+    // исключительно за admin, см. и PUT /api/orders/:id/delivered-items).
     const wasConfirmed = !!item.weight_confirmed;
-    const canOverride = wasConfirmed && ['admin', 'manager'].includes(req.user.role);
+    const canOverride = wasConfirmed && req.user.role === 'admin';
     if (wasConfirmed && !canOverride) {
-      errors.push(`"${item.name}" в заявке №${orderId}: вес уже сохранён и изменению не подлежит (может исправить только менеджер/админ)`);
+      errors.push(`"${item.name}" в заявке №${orderId}: вес уже сохранён и изменению не подлежит (может исправить только администратор)`);
       return;
     }
     const newWeight = Number(weight);

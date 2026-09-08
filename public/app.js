@@ -3477,7 +3477,7 @@ function buildLoadingListHtml(orders, driverName, productByCode) {
       // если позиция весовая и по ВСЕМ заявкам партии уже подтверждена,
       // считаем её взвешенной. Без привязки к конкретному имени — это общая
       // отметка склада, а не подпись того, кто именно нажал "Сохранить вес"
-      // (им мог быть и менеджер/админ, исправлявший ошибку веса).
+      // (им мог быть и admin, исправлявший ошибку веса).
       if (isWeight) {
         totals[key].isWeight = true;
         if (!it.weight_confirmed) totals[key].allWeighed = false;
@@ -15393,7 +15393,7 @@ function AdminCabinet({
       onUpdateStatus: handleUpdate,
       onDeleteOrder: handleDelete,
       onFixItemCost: user.role !== "operator" ? fixItemCost : undefined,
-      onFixItemWeight: user.role !== "operator" ? fixItemWeight : undefined,
+      onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
       onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
       currentUser: user,
       drivers: users.filter(u => u.role === "driver" && u.active !== false)
@@ -15485,7 +15485,7 @@ function AdminCabinet({
     onUpdateStatus: handleUpdate,
     onDeleteOrder: handleDelete,
     onFixItemCost: user.role !== "operator" ? fixItemCost : undefined,
-    onFixItemWeight: user.role !== "operator" ? fixItemWeight : undefined,
+    onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
     onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
     currentUser: user,
     drivers: users.filter(u => u.role === "driver" && u.active !== false)
@@ -15763,7 +15763,7 @@ function WarehouseCabinet({
     }
     // Проверка веса перед сохранением важна вдвойне: после подтверждения
     // склад сам исправить его уже не сможет (см. canOverride на сервере) —
-    // только менеджер/админ через карточку заявки.
+    // только admin через карточку заявки.
     if (!window.confirm(`Проверьте вес ещё раз — сохранить нельзя будет изменить.\n\nСохранить фактический вес по ${entries.length} ${entries.length === 1 ? 'позиции' : 'позициям'}? Суммы заявок пересчитаются.`)) return;
     setSavingWeights(true);
     try {
