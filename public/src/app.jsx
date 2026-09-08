@@ -1575,7 +1575,7 @@ function buildExpenseWaybillInnerHtml(order) {
       <p>Kaspi QR — оплата</p>
     </div>
     <div class="signcols">
-      <div class="sign"><p>Отпустил <span class="signline">&nbsp;</span>/</p></div>
+      <div class="sign"><p>Отпустил <span class="signline">${esc(COMPANY_INFO.releaseAuthorizedBy)}</span>/</p></div>
       <div class="sign"><p>Получил <span class="signline">&nbsp;</span>/</p></div>
     </div>`;
 }
@@ -1692,12 +1692,15 @@ const WAYBILL_STYLE = `
     .printScope .btnbar button{padding:12px 24px; font-size:15px; font-weight:700; cursor:pointer; border-radius:8px; border:none; color:#fff;}
     @media print { .printScope .btnbar{display:none;} }`;
 
-// Печать по 2 накладные на лист A4 (см. printWaybillsBatch) — та же
-// вёрстка накладной, но со уменьшенными шрифтами/отступами, чтобы обе
-// вошли на одну страницу, и с разрывом страницы после каждой ПАРЫ, а не
-// после каждой накладной. Для заявки с необычно большим числом позиций
-// пара всё равно может не влезть на одну физическую страницу — тогда
-// браузер просто перенесёт остаток на следующую, без потери содержимого.
+// Печать по несколько накладных на лист A4 (см. printWaybillsBatch) — та
+// же вёрстка накладной, но со уменьшенными шрифтами/отступами, и с
+// разрывом страницы после каждой ГРУППЫ, а не после каждой накладной.
+// Форма З-2 (договорники) при этом масштабе не используется — только
+// компактная "Расходная накладная", которая по 3 штуки с запасом
+// умещается на A4 (проверено: ~258px каждая против ~1000-1046px печатной
+// области). Для заявки с необычно большим числом позиций группа всё
+// равно может не влезть на одну физическую страницу — тогда браузер
+// просто перенесёт остаток на следующую, без потери содержимого.
 const WAYBILL_PAIR_STYLE = WAYBILL_STYLE + `
     .printScope .waybillSheet{margin-bottom:0;}
     .printScope .waybillSlot{font-size:9px; padding:10px 14px;}
@@ -1837,9 +1840,9 @@ function printWaybill(order, isDogovornik) {
 // одного водителя за день, после отбора по водителю в списке заявок).
 // Договорники — форма З-2, каждая одна на полном листе, обычным (не
 // уменьшенным) размером, без Kaspi QR (см. printWaybill выше). Остальные —
-// "Расходная накладная" с QR, по 2 на лист A4 (уменьшенный шрифт, см.
-// WAYBILL_PAIR_STYLE) — разрыв страницы после каждой ПАРЫ, а не после
-// каждой накладной, чтобы не расходовать бумагу впустую.
+// "Расходная накладная" с QR, по 3 на лист A4 (уменьшенный шрифт, см.
+// WAYBILL_PAIR_STYLE) — разрыв страницы после каждой ГРУППЫ из трёх, а не
+// после каждой накладной, чтобы не расходовать бумагу впустую.
 function printWaybillsBatch(orders, dogovornikCodes) {
   if (!orders.length) { alert('Нет заявок для печати'); return; }
   // Заявка с неподтверждённым весом (is_weight_item && !weight_confirmed) —
@@ -1879,13 +1882,17 @@ function printWaybillsBatch(orders, dogovornikCodes) {
         ${buildWaybillInnerHtml(o, { hideQr: true })}
       </div>`);
   });
-  for (let i = 0; i < regularOrders.length; i += 2) {
-    const a = regularOrders[i], b = regularOrders[i + 1];
-    sheets.push(`
-      <div class="waybillSheet" style="margin-bottom:32px;">
-        <div class="waybillSlot">${buildExpenseWaybillInnerHtml(a)}</div>
-        ${b ? `<div class="cutline">✂ линия отреза</div><div class="waybillSlot">${buildExpenseWaybillInnerHtml(b)}</div>` : ''}
-      </div>`);
+  // "Расходная накладная" заметно компактнее формы З-2 — на уменьшенном
+  // масштабе WAYBILL_PAIR_STYLE три штуки с запасом умещаются на одном
+  // листе A4 (проверено: ~258px каждая, 850px на три с линиями отреза
+  // против ~1000-1046px печатной области), поэтому режем по 3, а не по 2.
+  for (let i = 0; i < regularOrders.length; i += 3) {
+    const group = regularOrders.slice(i, i + 3);
+    const slots = group.map((o, idx) =>
+      (idx > 0 ? '<div class="cutline">✂ линия отреза</div>' : '') +
+      `<div class="waybillSlot">${buildExpenseWaybillInnerHtml(o)}</div>`
+    ).join('');
+    sheets.push(`<div class="waybillSheet" style="margin-bottom:32px;">${slots}</div>`);
   }
   openPrintOverlay(sheets.join(''), WAYBILL_PAIR_STYLE, true);
 }
