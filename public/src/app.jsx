@@ -318,8 +318,12 @@ function Brand({light, size}) {
   );
 }
 
-function StatusBadge({status}) {
-  return <span style={S.badge(status)}>{SL[status]||status}</span>;
+function StatusBadge({status, partial}) {
+  // partial (order.partial_delivery) — заявка доставлена, но клиент принял
+  // не всё (см. частичная доставка в DriverPaymentBlock/PUT
+  // /api/orders/:id/status) — статус в системе остаётся "delivered", но
+  // ярлык должен сразу показывать, что это не полная доставка.
+  return <span style={S.badge(status)}>{partial && status==='delivered' ? 'Частично' : (SL[status]||status)}</span>;
 }
 
 function PaymentTags({payment}) {
@@ -362,7 +366,7 @@ function OrderCard({order, onOpen, onEdit}) {
             {order.driver_name&&order.in_transit_at?` · в работе с ${fmtDT(order.in_transit_at)}`:''}
           </p>
         </div>
-        <StatusBadge status={order.status}/>
+        <StatusBadge status={order.status} partial={order.partial_delivery}/>
       </div>
       <p style={{margin:"8px 0 4px",fontSize:15,color:C.textSub}}>Позиций: <b style={{color:C.text}}>{items.length}</b> · Сумма: <b style={{color:C.text,fontFamily:FH,fontVariantNumeric:"tabular-nums"}}>{(order.total||0).toLocaleString()} ₸</b></p>
       <PaymentTags payment={payment}/>
@@ -393,12 +397,6 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
   const [qrPhotoUploading, setQrPhotoUploading] = useState(false);
   const [qrPhotoError, setQrPhotoError] = useState("");
   const [statusBusy, setStatusBusy] = useState(false);
-  const total = order.total || 0;
-  const cashPaid = payType.cash ? Number(payAmounts.cash)||0 : 0;
-  const qrPaid   = payType.qr   ? Number(payAmounts.qr)  ||0 : 0;
-  const remainder = Math.max(0, total - cashPaid - qrPaid);
-  const debtAmount = payType.debt ? remainder : 0;
-  const hasSelection = payType.cash || payType.qr || payType.debt;
   // Пока склад не подтвердил факт. вес весовой позиции (см. POST
   // /api/orders/weights), сумма заявки — ещё оценка, а не факт: довезти
   // такую заявку нельзя, иначе оценка навсегда останется финальной (сервер
@@ -406,7 +404,34 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
   // чтобы водитель видел причину сразу, не отправляя запрос).
   const orderItems = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const pendingWeightItems = orderItems.filter(it=>it.is_weight_item && !it.weight_confirmed);
-  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl && (!payType.cash || !!cashPhotoUrl) && (!payType.qr || !!qrPhotoUrl) && pendingWeightItems.length===0;
+  // Частичная приёмка на месте: клиент не оценил свои возможности и на
+  // месте берёт не всё — вплоть до конкретной позиции (пол-короба вместо
+  // короба и т.п.). По умолчанию принято "как заказано"; водитель может
+  // уменьшить любую позицию вплоть до нуля, сумма и оплата пересчитываются
+  // сами (см. acceptedTotal/canConfirm ниже и PUT /api/orders/:id/status
+  // на сервере, куда эти количества уходят как items).
+  const qtyKey = (it, i) => it.code || `i${i}`;
+  const [acceptedQty, setAcceptedQty] = useState(() => {
+    const init = {};
+    orderItems.forEach((it, i) => { init[qtyKey(it, i)] = String(it.qty); });
+    return init;
+  });
+  const acceptedFor = (it, i) => {
+    const orderedQty = Number(it.qty) || 0;
+    const raw = Number(acceptedQty[qtyKey(it, i)]);
+    if (!Number.isFinite(raw) || raw < 0) return 0;
+    return Math.min(raw, orderedQty);
+  };
+  const hasShortfall = orderItems.some((it, i) => acceptedFor(it, i) + 1e-9 < (Number(it.qty) || 0));
+  const originalTotal = order.total || 0;
+  const total = orderItems.reduce((s, it, i) => s + acceptedFor(it, i) * (Number(it.price) || 0), 0);
+  const cashPaid = payType.cash ? Number(payAmounts.cash)||0 : 0;
+  const qrPaid   = payType.qr   ? Number(payAmounts.qr)  ||0 : 0;
+  const remainder = Math.max(0, total - cashPaid - qrPaid);
+  const debtAmount = payType.debt ? remainder : 0;
+  const hasSelection = payType.cash || payType.qr || payType.debt;
+  const hasAcceptedItem = orderItems.some((it, i) => acceptedFor(it, i) > 1e-9);
+  const canConfirm = hasSelection && (payType.debt || remainder === 0) && !!photoUrl && (!payType.cash || !!cashPhotoUrl) && (!payType.qr || !!qrPhotoUrl) && pendingWeightItems.length===0 && hasAcceptedItem;
 
   const toggleCashQr = (key) => {
     const turningOn = !payType[key];
@@ -486,12 +511,12 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
     setQrPhotoUploading(false);
   };
 
-  const changeStatus = async (status, payment, confirmMsg) => {
+  const changeStatus = async (status, payment, confirmMsg, items) => {
     if (statusBusy) return;
     if (confirmMsg && !window.confirm(confirmMsg)) return;
     setStatusBusy(true);
     try {
-      await onUpdateStatus(order.id, status, payment);
+      await onUpdateStatus(order.id, status, payment, undefined, items);
     } finally {
       setStatusBusy(false);
     }
@@ -502,6 +527,36 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
       {pendingWeightItems.length>0&&(
         <div style={{background:"#FEF3C7",border:"1px solid #FDE68A",borderRadius:10,padding:"10px 12px",marginBottom:14,fontSize:14,color:"#92400E",fontWeight:600}}>
           ⚖️ Склад ещё не подтвердил факт. вес: {pendingWeightItems.map(it=>it.name).join(', ')}. Доставка недоступна, пока склад не введёт вес.
+        </div>
+      )}
+      {pendingWeightItems.length===0&&(
+        <div style={{marginBottom:14}}>
+          <p style={{margin:"0 0 8px",fontSize:15,fontWeight:700,color:C.navy}}>Что реально забрал клиент{hasShortfall&&<span style={{color:"#7C3AED",fontWeight:400}}> — сумма пересчитана</span>}</p>
+          {orderItems.map((it,i)=>{
+            const key = qtyKey(it,i);
+            const unit = it.is_weight_item?"кг":"шт";
+            const orderedQty = Number(it.qty)||0;
+            const accepted = acceptedFor(it,i);
+            const short = accepted + 1e-9 < orderedQty;
+            return (
+              <div key={key} style={{padding:"10px 12px",borderRadius:10,background:short?"#F5F3FF":C.surface,border:`1px solid ${short?"#DDD6FE":C.border}`,marginBottom:8}}>
+                <div style={{...S.row,marginBottom:8}}>
+                  <span style={{fontSize:14,fontWeight:600,color:C.text}}>{it.name}</span>
+                  <span style={{fontSize:13,color:C.textFaint,whiteSpace:"nowrap"}}>заказано {orderedQty} {unit}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <input type="number" min="0" max={orderedQty} step={it.is_weight_item?"0.1":"0.5"} value={acceptedQty[key]} onFocus={e=>e.target.select()}
+                    onChange={e=>setAcceptedQty(a=>({...a,[key]:e.target.value}))}
+                    style={{...S.input,width:88,padding:"7px 8px",fontSize:15,fontWeight:700,textAlign:"right"}}/>
+                  <span style={{fontSize:14,color:C.textFaint}}>{unit}</span>
+                  <button type="button" onClick={()=>setAcceptedQty(a=>({...a,[key]:String(orderedQty)}))} style={{...S.btnOutline,padding:"6px 10px",fontSize:13,width:"auto"}}>Весь</button>
+                  <button type="button" onClick={()=>setAcceptedQty(a=>({...a,[key]:String(Math.round(orderedQty/2*100)/100)}))} style={{...S.btnOutline,padding:"6px 10px",fontSize:13,width:"auto"}}>Половину</button>
+                  <button type="button" onClick={()=>setAcceptedQty(a=>({...a,[key]:"0"}))} style={{...S.btnOutline,padding:"6px 10px",fontSize:13,width:"auto",borderColor:C.red,color:C.red}}>Ничего</button>
+                </div>
+              </div>
+            );
+          })}
+          {!hasAcceptedItem&&<p style={{margin:"4px 0 0",fontSize:14,color:C.red}}>Клиент не принял ни одной позиции — это отказ, оформите возврат по всей заявке кнопкой ниже, а не доставку.</p>}
         </div>
       )}
       <p style={{margin:"0 0 12px",fontSize:15,fontWeight:700,color:C.navy}}>Способ оплаты: {!hasSelection&&<span style={{color:C.red,fontWeight:400}}>(выберите хотя бы один)</span>}</p>
@@ -525,7 +580,13 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
         </div>
       </div>
       <div style={{padding:"12px 14px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,marginBottom:14}}>
-        <div style={{...S.row,marginBottom:6}}><span style={{fontSize:14,color:C.textSub}}>Сумма заявки</span><span style={{fontWeight:700,fontFamily:FH}}>{total.toLocaleString()} ₸</span></div>
+        <div style={{...S.row,marginBottom:6}}>
+          <span style={{fontSize:14,color:C.textSub}}>Сумма заявки</span>
+          <span style={{fontWeight:700,fontFamily:FH}}>
+            {hasShortfall&&<span style={{textDecoration:"line-through",color:C.textFaint,marginRight:6,fontWeight:400}}>{originalTotal.toLocaleString()} ₸</span>}
+            {total.toLocaleString()} ₸
+          </span>
+        </div>
         <div style={{...S.row,paddingTop:6,borderTop:`1px solid ${C.border}`}}>
           <span style={{fontSize:15,fontWeight:700,color:debtAmount>0?"#92400E":(remainder>0?C.red:C.green)}}>{debtAmount>0?"📋 Долг":(remainder>0?"⚠️ Не хватает суммы":"✅ Полностью оплачено")}</span>
           {(debtAmount>0||remainder>0)&&<span style={{fontWeight:800,fontSize:17,fontFamily:FH,color:debtAmount>0?"#92400E":C.red}}>{(debtAmount>0?debtAmount:remainder).toLocaleString()} ₸</span>}
@@ -580,7 +641,12 @@ function DriverPaymentBlock({ order, onUpdateStatus }) {
           {qrPhotoError&&<p style={{margin:"6px 0 0",fontSize:14,color:C.red}}>{qrPhotoError}</p>}
         </div>
       )}
-      <button style={{...S.btnSuccess,opacity:(canConfirm&&!statusBusy)?1:0.4,cursor:(canConfirm&&!statusBusy)?"pointer":"not-allowed"}} disabled={!canConfirm||statusBusy} onClick={()=>changeStatus("delivered",{cash:cashPaid,qr:qrPaid,debt:debtAmount},`Подтвердить доставку заявки № ${order.id} на ${total.toLocaleString()} ₸? Остаток на складе спишется, оплату потом не изменить.`)}>{statusBusy?"Сохранение...":"✅ Подтвердить доставку"}</button>
+      <button style={{...S.btnSuccess,opacity:(canConfirm&&!statusBusy)?1:0.4,cursor:(canConfirm&&!statusBusy)?"pointer":"not-allowed"}} disabled={!canConfirm||statusBusy} onClick={()=>changeStatus("delivered",{cash:cashPaid,qr:qrPaid,debt:debtAmount},
+        hasShortfall
+          ? `Подтвердить ЧАСТИЧНУЮ доставку заявки № ${order.id} на ${total.toLocaleString()} ₸ (из ${originalTotal.toLocaleString()} ₸)? Непринятое клиентом останется на складе, оплату потом не изменить.`
+          : `Подтвердить доставку заявки № ${order.id} на ${total.toLocaleString()} ₸? Остаток на складе спишется, оплату потом не изменить.`,
+        orderItems.map((it,i)=>({code: it.code, qty: acceptedFor(it,i)}))
+      )}>{statusBusy?"Сохранение...":(hasShortfall?"✅ Подтвердить частичную доставку":"✅ Подтвердить доставку")}</button>
       <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",marginTop:8,opacity:statusBusy?0.5:1,cursor:statusBusy?"not-allowed":"pointer"}} disabled={statusBusy} onClick={()=>changeStatus("returned",null,`Оформить возврат по заявке № ${order.id}? Действие нельзя отменить.`)}>↩️ Оформить возврат</button>
     </div>
   );
@@ -1876,6 +1942,10 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
   }, [order.client_code]);
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const payment = typeof order.payment === 'string' ? JSON.parse(order.payment||'{}') : (order.payment||{cash:order.payment_cash||0,qr:order.payment_qr||0,debt:order.payment_debt||0});
+  // Исходный состав заявки на момент оформления — пишется на заявку только
+  // при частичной доставке (см. PUT /api/orders/:id/status, patch.items_ordered),
+  // чтобы было видно, что именно клиент не принял целиком/частично.
+  const itemsOrdered = order.items_ordered ? (typeof order.items_ordered === 'string' ? JSON.parse(order.items_ordered||'[]') : order.items_ordered) : [];
   // Весовые позиции, вес которых ещё не подтверждён складом (см.
   // POST /api/orders/weights) — до этого кол-во в заявке условное, и
   // накладная/PDF с текущей суммой могут оказаться неточными. Печать
@@ -1904,13 +1974,25 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
             <p style={{margin:0,fontSize:20,fontWeight:800,fontFamily:FH,color:C.navy}}>№ {order.id}</p>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <StatusBadge status={order.status}/>
+            <StatusBadge status={order.status} partial={order.partial_delivery}/>
             <button style={S.btnSecondary} onClick={onClose}>✕</button>
           </div>
         </div>
         {pendingWeightItems.length>0&&(
           <div style={{background:"#FEF3C7",border:"1px solid #FDE68A",borderRadius:10,padding:"10px 12px",marginBottom:12,fontSize:14,color:"#92400E",fontWeight:600}}>
             ⚖️ Вес не подтверждён складом: {pendingWeightItems.map(it=>it.name).join(', ')}. Сумма заявки может измениться.
+          </div>
+        )}
+        {order.partial_delivery&&itemsOrdered.length>0&&(
+          <div style={{background:"#F5F3FF",border:"1px solid #DDD6FE",borderRadius:10,padding:"10px 12px",marginBottom:12,fontSize:14,color:"#5B21B6",fontWeight:600}}>
+            ↩️ Клиент принял не всё: {itemsOrdered.map(oi=>{
+              const delivered = items.find(it=>it.code===oi.code);
+              const deliveredQty = delivered ? (Number(delivered.qty)||0) : 0;
+              const orderedQty = Number(oi.qty)||0;
+              if (deliveredQty + 1e-9 >= orderedQty) return null;
+              const unit = oi.is_weight_item ? 'кг' : 'шт';
+              return `${oi.name} (заказано ${orderedQty} ${unit}, принято ${deliveredQty} ${unit})`;
+            }).filter(Boolean).join('; ')}
           </div>
         )}
         {currentUser.role!=="driver" && (
@@ -2818,7 +2900,7 @@ function StoreCabinet({ user, onLogout, desktop }) {
                   <td style={{...S.td,fontFamily:FH,fontWeight:800,whiteSpace:"nowrap"}}>{(o.total||0).toLocaleString()} ₸</td>
                   <td style={S.td}><PaymentTags payment={payment}/></td>
                   <td style={S.td}>{o.driver_name || <span style={{color:C.textSub,fontStyle:"italic",fontSize:15}}>—</span>}</td>
-                  <td style={S.td}><StatusBadge status={o.status}/></td>
+                  <td style={S.td}><StatusBadge status={o.status} partial={o.partial_delivery}/></td>
                 </tr>
               );
             })}
@@ -3169,9 +3251,9 @@ function DriverCabinet({ user, onLogout }) {
   useEffect(() => { loadOrders(); }, []);
   useRefetchOnVisible(loadOrders);
 
-  const handleUpdate = async (id, status, payment) => {
+  const handleUpdate = async (id, status, payment, driverId, items) => {
     try {
-      await apiCall('PUT', `/api/orders/${id}/status`, { status, payment });
+      await apiCall('PUT', `/api/orders/${id}/status`, { status, payment, items });
       setSelectedOrder(null); loadOrders();
     } catch(e) { alert(e.message); }
   };
@@ -3299,7 +3381,7 @@ function DriverCabinet({ user, onLogout }) {
                       {o.in_transit_at?` · в работе с ${fmtDT(o.in_transit_at)}`:''}
                     </p>
                   </div>
-                  <StatusBadge status={o.status}/>
+                  <StatusBadge status={o.status} partial={o.partial_delivery}/>
                 </div>
                 <p style={{margin:"8px 0 4px",fontSize:15,color:C.textSub}}>Сумма: <b style={{color:C.text,fontFamily:FH}}>{(o.total||0).toLocaleString()} ₸</b></p>
                 {o.status==="new"&&<button onClick={e=>{e.stopPropagation();handleUpdate(o.id,"in_transit",null);}} style={{marginTop:10,width:"100%",padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:"pointer"}}>🚚 Взять в доставку</button>}
@@ -5695,9 +5777,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
     await loadProducts();
   }, [loadProducts]);
 
-  const handleUpdate = async (id, status, payment, driverId) => {
+  const handleUpdate = async (id, status, payment, driverId, items) => {
     try {
-      await apiCall('PUT', `/api/orders/${id}/status`, { status, payment, driverId });
+      await apiCall('PUT', `/api/orders/${id}/status`, { status, payment, driverId, items });
       setSelectedOrder(null); loadOrders();
     } catch(e) { alert(e.message); }
   };
@@ -6010,9 +6092,15 @@ function AdminCabinet({ user, onLogout, desktop }) {
   // должникам (POST /api/debts/settle) и WhatsApp — тем ничего на сервере
   // не требуется вовсе.
   const readOnlyOp = user.role==="operator";
+  // "Сотрудники" — логины/пароли и назначение ролей, это уровень доступа
+  // владельца (admin), менеджеру эта вкладка не нужна и не должна быть
+  // видна вовсе (просьба владельца), в отличие от operator, которому и так
+  // урезан весь список вкладок выше.
   const TABS = readOnlyOp
     ? [["all","📋","Заявки"],["cashbox","💵","Касса"]]
-    : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотрудники"]];
+    : user.role==="manager"
+      ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"]]
+      : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотрудники"]];
   const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",employees:"Сотрудники"};
 
   const dateRangeInputs = (
@@ -6160,7 +6248,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   </td>
                   <td style={{...S.td,fontFamily:FH,fontWeight:800,whiteSpace:"nowrap"}}>{(o.total||0).toLocaleString()} ₸</td>
                   <td style={S.td}><PaymentTags payment={payment}/></td>
-                  <td style={S.td}><StatusBadge status={o.status}/></td>
+                  <td style={S.td}><StatusBadge status={o.status} partial={o.partial_delivery}/></td>
                 </tr>
               );
             })}
@@ -7160,9 +7248,9 @@ function WarehouseCabinet({ user, onLogout }) {
 
   // Взять в работу и закрыть заявку самовывоза (см. canWarehousePickup в
   // OrderDetail) — единственные переходы статуса, доступные зав. складу.
-  const handleUpdate = async (id, status, payment) => {
+  const handleUpdate = async (id, status, payment, driverId, items) => {
     try {
-      await apiCall('PUT', `/api/orders/${id}/status`, { status, payment });
+      await apiCall('PUT', `/api/orders/${id}/status`, { status, payment, items });
       setSelectedOrder(null); loadOrders();
     } catch(e) { alert(e.message); }
   };
