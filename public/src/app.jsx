@@ -2078,8 +2078,17 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
                 </p>
               )
             )}
-            {onFixItemWeight && item.is_weight_item && item.weight_confirmed && (
-              fixingWeightIndex===i ? (
+            {item.is_weight_item && item.weight_confirmed && (
+              // Правка веса доступна только пока заявка не доставлена — после
+              // доставки остаток по позиции уже списан напрямую (см. PUT
+              // /api/orders/:id/status и проверку статуса в POST
+              // /api/orders/weights на сервере, который эту же правку и
+              // отклонит). Для уже доставленной заявки количество (в т.ч.
+              // весовой позиции) правит только admin через "Исправить
+              // доставленное количество" ниже — здесь для delivered
+              // остаётся только информация, кто и когда взвесил, без ссылки
+              // на правку, которая всё равно вернёт ошибку с сервера.
+              onFixItemWeight && ["new","in_transit"].includes(order.status) && fixingWeightIndex===i ? (
                 <div style={{display:"flex",gap:6,marginTop:6}}>
                   <input type="number" autoFocus style={{...S.input,padding:"6px 8px",fontSize:14}} placeholder="Правильный вес, кг" value={weightInput} onChange={e=>setWeightInput(e.target.value)} onFocus={e=>e.target.select()}/>
                   <button disabled={savingWeight||!weightInput} style={{...S.btnPrimary,width:"auto",marginTop:0,padding:"6px 14px",fontSize:14,opacity:(savingWeight||!weightInput)?0.5:1}} onClick={async()=>{
@@ -2093,7 +2102,10 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
                 </div>
               ) : (
                 <p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>
-                  Взвесил: {item.weighed_by_name||'—'}{item.weighed_at?', '+fmtDT(item.weighed_at):''} — <span style={{color:C.navy,fontWeight:600,cursor:"pointer",textDecoration:"underline"}} onClick={()=>{setFixingWeightIndex(i);setWeightInput(String(item.qty));}}>исправить ошибку веса</span>
+                  Взвесил: {item.weighed_by_name||'—'}{item.weighed_at?', '+fmtDT(item.weighed_at):''}
+                  {onFixItemWeight && ["new","in_transit"].includes(order.status) && (
+                    <> — <span style={{color:C.navy,fontWeight:600,cursor:"pointer",textDecoration:"underline"}} onClick={()=>{setFixingWeightIndex(i);setWeightInput(String(item.qty));}}>исправить ошибку веса</span></>
+                  )}
                 </p>
               )
             )}
