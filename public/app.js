@@ -3265,13 +3265,17 @@ function buildWaybillInnerHtml(order, opts) {
   // единственный надёжный признак на позиции это is_weight_item (кг у
   // весового товара), для остального берём "шт" по умолчанию.
   const unitOf = it => it.is_weight_item ? 'кг' : 'шт';
-  // НДС 16% сверху от суммы позиции — чисто информационная графа в
-  // накладной (order.total, от которого зависят касса/долги/прибыль,
-  // нигде не меняем и не пересчитываем).
+  // НДС 16% "в том числе" — sum (Number(it.qty)*Number(it.price)) это уже
+  // фактическая отпускная цена клиенту, т.е. с учётом налога, а не база без
+  // него, поэтому налог выделяется из суммы (sum*16/116), а не начисляется
+  // сверху (sum*0.16) — иначе НДС считался бы от заведомо большей базы и
+  // выходил бы завышенным. Чисто информационная графа в накладной
+  // (order.total, от которого зависят касса/долги/прибыль, нигде не меняем
+  // и не пересчитываем).
   let totalNds = 0;
   const rows = items.map((it, i) => {
     const sum = Number(it.qty) * Number(it.price);
-    const nds = Math.round(sum * 0.16);
+    const nds = Math.round(sum * 16 / 116);
     totalNds += nds;
     return `
     <tr>
@@ -3384,10 +3388,13 @@ function buildExpenseWaybillInnerHtml(order) {
 function buildReturnWaybillInnerHtml(ret) {
   const items = ret.items || [];
   const unitOf = it => it.is_weight_item ? 'кг' : 'шт';
+  // НДС 16% "в том числе" — см. тот же расчёт и объяснение в
+  // buildWaybillInnerHtml выше: sum здесь уже цена с учётом налога, налог
+  // выделяется из неё (sum*16/116), а не начисляется сверху.
   let totalNds = 0;
   const rows = items.map((it, i) => {
     const sum = Number(it.qty) * Number(it.price);
-    const nds = Math.round(sum * 0.16);
+    const nds = Math.round(sum * 16 / 116);
     totalNds += nds;
     return `
     <tr>
