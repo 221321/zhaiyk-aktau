@@ -3260,6 +3260,15 @@ function esc(s) {
 }
 function buildWaybillInnerHtml(order, opts) {
   const hideQr = !!(opts && opts.hideQr);
+  // Позиция заявки хранит название, которое торговый видел при оформлении —
+  // это псевдоним с "Товаров" (p.display_name), если он задан, а не
+  // название из 1С (см. addToCart/name: p.display_name||p.name на фронте).
+  // В официальной накладной должно быть название из 1С, поэтому здесь
+  // подменяем его по коду через productNameByCode (см. вызовы printWaybill/
+  // shareWaybillPdf/printWaybillsBatch) — если код не нашёлся в каталоге
+  // (например, товар давно снят с продажи), молча остаёмся на сохранённом
+  // названии, лучше так, чем пустая графа.
+  const nameByCode = opts && opts.productNameByCode || {};
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : order.items || [];
   // Единица измерения на самой заявке не хранится (см. POST /api/orders) —
   // единственный надёжный признак на позиции это is_weight_item (кг у
@@ -3280,7 +3289,7 @@ function buildWaybillInnerHtml(order, opts) {
     return `
     <tr>
       <td style="text-align:center">${i + 1}</td>
-      <td>${esc(it.name)}</td>
+      <td>${esc(nameByCode[it.code] || it.name)}</td>
       <td style="text-align:center">${esc(it.code)}</td>
       <td style="text-align:center">${unitOf(it)}</td>
       <td style="text-align:center">${it.qty}</td>
@@ -3337,14 +3346,17 @@ function buildWaybillInnerHtml(order, opts) {
 // это основной способ оплаты на месте — бланк проще, но всегда с QR.
 // "Основание" повторяет "Покупателя" — так печатает и сам 1С в этой форме,
 // когда конкретный договор/документ-основание не указан отдельно.
-function buildExpenseWaybillInnerHtml(order) {
+function buildExpenseWaybillInnerHtml(order, productNameByCode) {
+  // См. комментарий в buildWaybillInnerHtml — то же самое: заявка хранит
+  // псевдоним, накладная должна печатать название из 1С.
+  const nameByCode = productNameByCode || {};
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : order.items || [];
   const unitOf = it => it.is_weight_item ? 'кг' : 'шт';
   const rows = items.map((it, i) => `
     <tr>
       <td style="text-align:center">${i + 1}</td>
       <td style="text-align:center">${esc(it.code)}</td>
-      <td>${esc(it.name)}</td>
+      <td>${esc(nameByCode[it.code] || it.name)}</td>
       <td style="text-align:right">${it.qty}&nbsp;${unitOf(it)}</td>
       <td style="text-align:right">${Number(it.price).toLocaleString()}</td>
       <td style="text-align:right">${(Number(it.qty) * Number(it.price)).toLocaleString()}</td>
@@ -3385,7 +3397,11 @@ function buildExpenseWaybillInnerHtml(order) {
 // Печатается только после того, как зав. склад подтвердил возврат (см.
 // WarehouseCabinet), а не сразу при оформлении водителем — до подтверждения
 // возврат ещё не приходован в остаток, печатать по нему рано.
-function buildReturnWaybillInnerHtml(ret) {
+function buildReturnWaybillInnerHtml(ret, productNameByCode) {
+  // См. комментарий в buildWaybillInnerHtml — то же самое: позиция возврата
+  // унаследовала название от позиции заявки (псевдоним), накладная должна
+  // печатать название из 1С.
+  const nameByCode = productNameByCode || {};
   const items = ret.items || [];
   const unitOf = it => it.is_weight_item ? 'кг' : 'шт';
   // НДС 16% "в том числе" — см. тот же расчёт и объяснение в
@@ -3399,7 +3415,7 @@ function buildReturnWaybillInnerHtml(ret) {
     return `
     <tr>
       <td style="text-align:center">${i + 1}</td>
-      <td>${esc(it.name)}</td>
+      <td>${esc(nameByCode[it.code] || it.name)}</td>
       <td style="text-align:center">${esc(it.code)}</td>
       <td style="text-align:center">${unitOf(it)}</td>
       <td style="text-align:center">${it.qty}</td>
@@ -3444,8 +3460,8 @@ function buildReturnWaybillInnerHtml(ret) {
       </div>
     </div>`;
 }
-function printReturnWaybill(ret) {
-  openPrintOverlay(buildReturnWaybillInnerHtml(ret), WAYBILL_STYLE, true);
+function printReturnWaybill(ret, productNameByCode) {
+  openPrintOverlay(buildReturnWaybillInnerHtml(ret, productNameByCode), WAYBILL_STYLE, true);
 }
 
 // Стили печатных форм (накладная/загрузочный лист) — селекторы намеренно
@@ -3629,10 +3645,11 @@ function openPrintOverlay(bodyHtml, styleText, showPrintButton) {
 // переводом на месте (см. buildWaybillInnerHtml). Все остальные — простая
 // "Расходная накладная" (см. buildExpenseWaybillInnerHtml), но ВСЕГДА с
 // Kaspi QR — для них это основной способ принять оплату у клиента.
-function printWaybill(order, isDogovornik) {
+function printWaybill(order, isDogovornik, productNameByCode) {
   const html = isDogovornik ? buildWaybillInnerHtml(order, {
-    hideQr: true
-  }) : buildExpenseWaybillInnerHtml(order);
+    hideQr: true,
+    productNameByCode
+  }) : buildExpenseWaybillInnerHtml(order, productNameByCode);
   openPrintOverlay(html, WAYBILL_STYLE, true);
 }
 
@@ -3643,7 +3660,7 @@ function printWaybill(order, isDogovornik) {
 // "Расходная накладная" с QR, по 3 на лист A4 (уменьшенный шрифт, см.
 // WAYBILL_PAIR_STYLE) — разрыв страницы после каждой ГРУППЫ из трёх, а не
 // после каждой накладной, чтобы не расходовать бумагу впустую.
-function printWaybillsBatch(orders, dogovornikCodes) {
+function printWaybillsBatch(orders, dogovornikCodes, productNameByCode) {
   if (!orders.length) {
     alert('Нет заявок для печати');
     return;
@@ -3683,7 +3700,8 @@ function printWaybillsBatch(orders, dogovornikCodes) {
     sheets.push(`
       <div class="waybillSheet" style="margin-bottom:32px;">
         ${buildWaybillInnerHtml(o, {
-      hideQr: true
+      hideQr: true,
+      productNameByCode
     })}
       </div>`);
   });
@@ -3693,7 +3711,7 @@ function printWaybillsBatch(orders, dogovornikCodes) {
   // против ~1000-1046px печатной области), поэтому режем по 3, а не по 2.
   for (let i = 0; i < regularOrders.length; i += 3) {
     const group = regularOrders.slice(i, i + 3);
-    const slots = group.map((o, idx) => (idx > 0 ? '<div class="cutline">✂ линия отреза</div>' : '') + `<div class="waybillSlot">${buildExpenseWaybillInnerHtml(o)}</div>`).join('');
+    const slots = group.map((o, idx) => (idx > 0 ? '<div class="cutline">✂ линия отреза</div>' : '') + `<div class="waybillSlot">${buildExpenseWaybillInnerHtml(o, productNameByCode)}</div>`).join('');
     sheets.push(`<div class="waybillSheet" style="margin-bottom:32px;">${slots}</div>`);
   }
   openPrintOverlay(sheets.join(''), WAYBILL_PAIR_STYLE, true);
@@ -3783,7 +3801,7 @@ function printLoadingList(orders, driverName, productByCode) {
   }
   openPrintOverlay(buildLoadingListHtml(orders, driverName, productByCode), LOADING_LIST_STYLE, false);
 }
-async function shareWaybillPdf(order, isDogovornik) {
+async function shareWaybillPdf(order, isDogovornik, productNameByCode) {
   if (!window.jspdf || !window.html2canvas) {
     alert('Модуль печати ещё загружается, попробуйте через пару секунд');
     return;
@@ -3817,8 +3835,9 @@ async function shareWaybillPdf(order, isDogovornik) {
   container.appendChild(styleTag);
   const contentDiv = document.createElement('div');
   contentDiv.innerHTML = isDogovornik ? buildWaybillInnerHtml(order, {
-    hideQr: true
-  }) : buildExpenseWaybillInnerHtml(order);
+    hideQr: true,
+    productNameByCode
+  }) : buildExpenseWaybillInnerHtml(order, productNameByCode);
   container.appendChild(contentDiv);
   overlay.appendChild(label);
   overlay.appendChild(container);
@@ -3947,8 +3966,20 @@ function OrderDetail({
   onFixItemWeight,
   onEditDeliveredItems,
   currentUser,
-  drivers
+  drivers,
+  products
 }) {
+  // Позиции заявки хранят псевдоним товара (см. addToCart), а в накладной
+  // должно быть название из 1С (см. buildWaybillInnerHtml) — карта код->
+  // название из уже загруженного в кабинете каталога (products), которую
+  // передаём в printWaybill/shareWaybillPdf ниже.
+  const productNameByCode = useMemo(() => {
+    const map = {};
+    (products || []).forEach(p => {
+      map[p.code] = p.name;
+    });
+    return map;
+  }, [products]);
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [fixingCostIndex, setFixingCostIndex] = useState(null);
   const [costInput, setCostInput] = useState("");
@@ -4153,7 +4184,7 @@ function OrderDetail({
       justifyContent: "center",
       gap: 6
     },
-    onClick: () => confirmPrintIfPending(() => printWaybill(order, isDogovornik))
+    onClick: () => confirmPrintIfPending(() => printWaybill(order, isDogovornik, productNameByCode))
   }, "\uD83D\uDDA8 \u041F\u0435\u0447\u0430\u0442\u044C \u043D\u0430\u043A\u043B\u0430\u0434\u043D\u043E\u0439"), /*#__PURE__*/React.createElement("button", {
     style: {
       flex: 1,
@@ -4171,7 +4202,7 @@ function OrderDetail({
       justifyContent: "center",
       gap: 6
     },
-    onClick: () => confirmPrintIfPending(() => shareWaybillPdf(order, isDogovornik))
+    onClick: () => confirmPrintIfPending(() => shareWaybillPdf(order, isDogovornik, productNameByCode))
   }, "\uD83D\uDCF2 \u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C PDF")), /*#__PURE__*/React.createElement("hr", {
     style: S.divider
   }), [["Клиент", order.client_name || order.clientName], ["Адрес", order.address], ["Торговый", order.sales_name || order.salesName], ["Дата", order.date], ["Доставка", order.time_slot || order.timeSlot], ...(order.created_at ? [["Создана", fmtDT(order.created_at)]] : []), ...(order.driver_name ? [["Водитель", order.driver_name]] : []), ...(order.driver_name && order.in_transit_at ? [["В работе с", fmtDT(order.in_transit_at)]] : []), ...(order.contact_name ? [["Контакт", order.contact_name]] : []), ...(order.contact_phone ? [["Телефон", order.contact_phone]] : []), ...(order.comment ? [["Комментарий", order.comment]] : [])].map(([k, v]) => /*#__PURE__*/React.createElement("div", {
@@ -5067,7 +5098,8 @@ function SalesCabinet({
     order: selectedOrder,
     onClose: () => setSelectedOrder(null),
     onUpdateStatus: handleUpdateStatus,
-    currentUser: user
+    currentUser: user,
+    products: products
   }), editOrder && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "fixed",
@@ -7122,7 +7154,8 @@ function StoreCabinet({
       order: selectedOrder,
       onClose: () => setSelectedOrder(null),
       onUpdateStatus: handleUpdateStatus,
-      currentUser: user
+      currentUser: user,
+      products: products
     }), /*#__PURE__*/React.createElement("aside", {
       style: S.side
     }, /*#__PURE__*/React.createElement("div", {
@@ -7196,7 +7229,8 @@ function StoreCabinet({
     order: selectedOrder,
     onClose: () => setSelectedOrder(null),
     onUpdateStatus: handleUpdateStatus,
-    currentUser: user
+    currentUser: user,
+    products: products
   }), /*#__PURE__*/React.createElement("div", {
     style: S.page
   }, content), /*#__PURE__*/React.createElement("div", {
@@ -12732,6 +12766,16 @@ function AdminCabinet({
   // хранит (это свойство контрагента, а не разовой заявки), поэтому сверяем
   // по client_code с уже загруженным списком клиентов.
   const dogovornikCodes = useMemo(() => new Set(clients.filter(c => c.is_dogovornik).map(c => c.code)), [clients]);
+  // Код->название из 1С для печати накладных (см. OrderDetail выше и
+  // printWaybillsBatch) — позиция заявки хранит псевдоним, а не название
+  // из 1С.
+  const productNameByCode = useMemo(() => {
+    const map = {};
+    products.forEach(p => {
+      map[p.code] = p.name;
+    });
+    return map;
+  }, [products]);
   const q = orderSearch.trim().toLowerCase();
   const filtered = useMemo(() => orders.filter(o => filter === "all" || o.status === filter).filter(o => !driverFilter || String(o.driver_id) === driverFilter).filter(o => !salesFilter || String(o.sales_id) === salesFilter).filter(o => dogovornikFilter === "all" || (dogovornikFilter === "dogovornik" ? dogovornikCodes.has(o.client_code) : !dogovornikCodes.has(o.client_code))).filter(o => !pickupOnly || o.time_slot === PICKUP_SLOT).filter(o => orderDatePreset === "all" || o.date >= orderDateFrom && o.date <= orderDateTo).filter(o => orderDatePreset !== "day" || !timeSlotFilter || o.time_slot === timeSlotFilter).filter(o => !q || String(o.id).includes(q) || (o.client_name || '').toLowerCase().includes(q) || (o.sales_name || '').toLowerCase().includes(q) || (o.driver_name || '').toLowerCase().includes(q) || (o.address || '').toLowerCase().includes(q)), [orders, filter, driverFilter, salesFilter, dogovornikFilter, dogovornikCodes, pickupOnly, orderDatePreset, orderDateFrom, orderDateTo, timeSlotFilter, q]);
   const {
@@ -13535,7 +13579,7 @@ function AdminCabinet({
       fontSize: 14
     }
   }, "\uD83D\uDCDD \u041D\u043E\u0432\u0430\u044F \u0437\u0430\u044F\u0432\u043A\u0430"), searchInput, orderDateFilterUI, timeSlotFilterChip, filterChips, driverFilterChips, salesFilterChips, dogovornikFilterChip, pickupFilterChip, !loading && filtered.length > 0 && /*#__PURE__*/React.createElement("button", {
-    onClick: () => printWaybillsBatch(filtered, dogovornikCodes),
+    onClick: () => printWaybillsBatch(filtered, dogovornikCodes, productNameByCode),
     style: {
       ...S.btnOutline,
       width: "auto",
@@ -15641,7 +15685,8 @@ function AdminCabinet({
       onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
       onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
       currentUser: user,
-      drivers: users.filter(u => u.role === "driver" && u.active !== false)
+      drivers: users.filter(u => u.role === "driver" && u.active !== false),
+      products: products
     }), showPosModal && /*#__PURE__*/React.createElement(PosSaleModal, {
       products: products,
       clients: clients,
@@ -15733,7 +15778,8 @@ function AdminCabinet({
     onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
     onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
     currentUser: user,
-    drivers: users.filter(u => u.role === "driver" && u.active !== false)
+    drivers: users.filter(u => u.role === "driver" && u.active !== false),
+    products: products
   }), showPosModal && /*#__PURE__*/React.createElement(PosSaleModal, {
     products: products,
     clients: clients,
@@ -15989,6 +16035,16 @@ function WarehouseCabinet({
     return m;
   }, [products]);
   const isWeightItem = it => !!(it.is_weight_item || productByCode[it.code] && productByCode[it.code].priced_by_weight);
+  // Код->название из 1С для печати накладной на возврат (см.
+  // buildReturnWaybillInnerHtml) — позиция возврата хранит псевдоним,
+  // унаследованный от позиции заявки, а не название из 1С.
+  const productNameByCode = useMemo(() => {
+    const m = {};
+    products.forEach(p => {
+      m[p.code] = p.name;
+    });
+    return m;
+  }, [products]);
   const saveWeights = async group => {
     const entries = [];
     group.orders.forEach(o => {
@@ -16792,7 +16848,7 @@ function WarehouseCabinet({
       color: C.textSub
     }
   }, r.items.map(it => `${it.name} × ${it.qty}`).join(', ')), /*#__PURE__*/React.createElement("button", {
-    onClick: () => printReturnWaybill(r),
+    onClick: () => printReturnWaybill(r, productNameByCode),
     style: {
       ...S.btnOutline,
       marginTop: 10,
@@ -16804,7 +16860,8 @@ function WarehouseCabinet({
     order: selectedOrder,
     onClose: () => setSelectedOrder(null),
     onUpdateStatus: handleUpdate,
-    currentUser: user
+    currentUser: user,
+    products: products
   }), /*#__PURE__*/React.createElement("div", {
     style: S.nav
   }, [["stock", "📦", "Остатки"], ["orders", "📋", "Заявки"], ["shipping", "🚚", "Отгрузка"], ["cash", "💰", "Инкассация"], ["returns", "↩️", "Возвраты"]].map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
