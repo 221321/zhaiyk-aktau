@@ -689,17 +689,25 @@ function daysWord(n) {
 function stockAmount(p) {
   return p.priced_by_weight ? p.stock_weight_kg : p.stock;
 }
+// Остатки копятся многолетней арифметикой +/- на сервере (см. round2 в
+// server.js) — округляем и на выводе, на случай уже накопленной в базе
+// погрешности вида 230.92000000000002, чтобы персонал не путал её с
+// реальным остатком.
+function round2(n) {
+  return n == null ? n : Math.round(Number(n) * 100) / 100;
+}
 // Общая формула для обоих мест, где кг-остаток весового товара показывается
 // персоналу в виде "≈ N кор (W кг)" (stockLabel ниже и строка товара в
 // SalesCabinet, у которой поля называются иначе, чем в карточке товара) —
 // один разошедшийся дубль формулы уже приводил к рассинхрону округления.
 function formatWeightStock(amountKg, avgBoxWeight) {
   if (amountKg == null) return null;
+  const kg = round2(amountKg);
   if (avgBoxWeight > 0) {
-    const boxes = Math.floor(amountKg / avgBoxWeight);
-    return `≈ ${boxes} кор (${amountKg} кг)`;
+    const boxes = Math.floor(kg / avgBoxWeight);
+    return `≈ ${boxes} кор (${kg} кг)`;
   }
-  return `${amountKg} кг`;
+  return `${kg} кг`;
 }
 function stockLabel(p) {
   const amt = stockAmount(p);
@@ -2755,7 +2763,7 @@ function SalesCabinet({ user, token, onLogout }) {
                   >×</button>
                 )}
                 {showClientDrop&&(()=>{
-                  const matched=clientSearchText.length>0?clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())):clients.slice(0,50);
+                  const matched=clientSearchText.length>0?clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())):clients;
                   return matched.length>0&&(
                     <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:220,overflowY:"auto"}}>
                       {matched.map(c=>(
@@ -4306,8 +4314,8 @@ function StockPanel() {
                   {!p.priced_by_weight&&<p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>{p.stock_unit||''}</p>}
                 </div>
               </div>
-              {p.stock_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_raw} · в заявках: {p.stock_reserved} · доступно: {p.stock}</p>}
-              {p.stock_weight_kg_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_weight_kg} кг · в заявках: {p.stock_weight_kg_reserved} кг · доступно: {Math.max(0,p.stock_weight_kg-p.stock_weight_kg_reserved)} кг</p>}
+              {p.stock_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {round2(p.stock_raw)} · в заявках: {round2(p.stock_reserved)} · доступно: {round2(p.stock)}</p>}
+              {p.stock_weight_kg_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {round2(p.stock_weight_kg)} кг · в заявках: {round2(p.stock_weight_kg_reserved)} кг · доступно: {round2(Math.max(0,p.stock_weight_kg-p.stock_weight_kg_reserved))} кг</p>}
               <ProductHistoryToggle code={p.code}/>
             </div>
           );
@@ -4744,7 +4752,7 @@ function PosSaleModal({ products, clients, onClose, onCompleted }) {
               onBlur={()=>setTimeout(()=>setShowClientDrop(false),180)}
             />
             {showClientDrop&&(()=>{
-              const matched = clientSearchText.length>0 ? clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients.slice(0,50);
+              const matched = clientSearchText.length>0 ? clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients;
               return matched.length>0&&(
                 <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:200,overflowY:"auto"}}>
                   {matched.map(c=>(
@@ -4904,7 +4912,7 @@ function NewOrderModal({ products, clients, onClose, onCreated, isAdmin }) {
                 >×</button>
               )}
               {showClientDrop&&(()=>{
-                const matched=clientSearchText.length>0?clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())):clients.slice(0,50);
+                const matched=clientSearchText.length>0?clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())):clients;
                 return matched.length>0&&(
                   <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:220,overflowY:"auto"}}>
                     {matched.map(c=>(
@@ -5512,7 +5520,7 @@ function CashierCabinet({ user, onLogout }) {
                 onBlur={()=>setTimeout(()=>setShowClientDrop(false),180)}
               />
               {showClientDrop&&(()=>{
-                const matched = clientSearchText.length>0 ? clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients.slice(0,50);
+                const matched = clientSearchText.length>0 ? clients.filter(c=>c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients;
                 return matched.length>0&&(
                   <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:200,overflowY:"auto"}}>
                     {matched.map(c=>(
@@ -7730,8 +7738,8 @@ function WarehouseCabinet({ user, onLogout }) {
                       {!p.priced_by_weight&&<p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>{p.stock_unit||''}</p>}
                     </div>
                   </div>
-                  {p.stock_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_raw} · в заявках: {p.stock_reserved} · доступно: {p.stock}</p>}
-                  {p.stock_weight_kg_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {p.stock_weight_kg} кг · в заявках: {p.stock_weight_kg_reserved} кг · доступно: {Math.max(0,p.stock_weight_kg-p.stock_weight_kg_reserved)} кг</p>}
+                  {p.stock_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {round2(p.stock_raw)} · в заявках: {round2(p.stock_reserved)} · доступно: {round2(p.stock)}</p>}
+                  {p.stock_weight_kg_reserved>0&&<p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Из 1С: {round2(p.stock_weight_kg)} кг · в заявках: {round2(p.stock_weight_kg_reserved)} кг · доступно: {round2(Math.max(0,p.stock_weight_kg-p.stock_weight_kg_reserved))} кг</p>}
                   <ProductHistoryToggle code={p.code}/>
                 </div>
               );

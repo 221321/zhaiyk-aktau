@@ -1704,17 +1704,25 @@ function daysWord(n) {
 function stockAmount(p) {
   return p.priced_by_weight ? p.stock_weight_kg : p.stock;
 }
+// Остатки копятся многолетней арифметикой +/- на сервере (см. round2 в
+// server.js) — округляем и на выводе, на случай уже накопленной в базе
+// погрешности вида 230.92000000000002, чтобы персонал не путал её с
+// реальным остатком.
+function round2(n) {
+  return n == null ? n : Math.round(Number(n) * 100) / 100;
+}
 // Общая формула для обоих мест, где кг-остаток весового товара показывается
 // персоналу в виде "≈ N кор (W кг)" (stockLabel ниже и строка товара в
 // SalesCabinet, у которой поля называются иначе, чем в карточке товара) —
 // один разошедшийся дубль формулы уже приводил к рассинхрону округления.
 function formatWeightStock(amountKg, avgBoxWeight) {
   if (amountKg == null) return null;
+  const kg = round2(amountKg);
   if (avgBoxWeight > 0) {
-    const boxes = Math.floor(amountKg / avgBoxWeight);
-    return `≈ ${boxes} кор (${amountKg} кг)`;
+    const boxes = Math.floor(kg / avgBoxWeight);
+    return `≈ ${boxes} кор (${kg} кг)`;
   }
-  return `${amountKg} кг`;
+  return `${kg} кг`;
 }
 function stockLabel(p) {
   const amt = stockAmount(p);
@@ -5490,7 +5498,7 @@ function SalesCabinet({
       lineHeight: 1
     }
   }, "\xD7"), showClientDrop && (() => {
-    const matched = clientSearchText.length > 0 ? clients.filter(c => c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients.slice(0, 50);
+    const matched = clientSearchText.length > 0 ? clients.filter(c => c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients;
     return matched.length > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         position: "absolute",
@@ -8890,13 +8898,13 @@ function StockPanel() {
         fontSize: 13,
         color: C.textFaint
       }
-    }, "\u0418\u0437 1\u0421: ", p.stock_raw, " \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", p.stock_reserved, " \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", p.stock), p.stock_weight_kg_reserved > 0 && /*#__PURE__*/React.createElement("p", {
+    }, "\u0418\u0437 1\u0421: ", round2(p.stock_raw), " \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", round2(p.stock_reserved), " \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", round2(p.stock)), p.stock_weight_kg_reserved > 0 && /*#__PURE__*/React.createElement("p", {
       style: {
         margin: "6px 0 0",
         fontSize: 13,
         color: C.textFaint
       }
-    }, "\u0418\u0437 1\u0421: ", p.stock_weight_kg, " \u043A\u0433 \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", p.stock_weight_kg_reserved, " \u043A\u0433 \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", Math.max(0, p.stock_weight_kg - p.stock_weight_kg_reserved), " \u043A\u0433"), /*#__PURE__*/React.createElement(ProductHistoryToggle, {
+    }, "\u0418\u0437 1\u0421: ", round2(p.stock_weight_kg), " \u043A\u0433 \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", round2(p.stock_weight_kg_reserved), " \u043A\u0433 \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", round2(Math.max(0, p.stock_weight_kg - p.stock_weight_kg_reserved)), " \u043A\u0433"), /*#__PURE__*/React.createElement(ProductHistoryToggle, {
       code: p.code
     }));
   }));
@@ -9877,7 +9885,7 @@ function PosSaleModal({
     onFocus: () => setShowClientDrop(true),
     onBlur: () => setTimeout(() => setShowClientDrop(false), 180)
   }), showClientDrop && (() => {
-    const matched = clientSearchText.length > 0 ? clients.filter(c => c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients.slice(0, 50);
+    const matched = clientSearchText.length > 0 ? clients.filter(c => c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients;
     return matched.length > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         position: "absolute",
@@ -10272,7 +10280,7 @@ function NewOrderModal({
       lineHeight: 1
     }
   }, "\xD7"), showClientDrop && (() => {
-    const matched = clientSearchText.length > 0 ? clients.filter(c => c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients.slice(0, 50);
+    const matched = clientSearchText.length > 0 ? clients.filter(c => c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients;
     return matched.length > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         position: "absolute",
@@ -11744,7 +11752,7 @@ function CashierCabinet({
     onFocus: () => setShowClientDrop(true),
     onBlur: () => setTimeout(() => setShowClientDrop(false), 180)
   }), showClientDrop && (() => {
-    const matched = clientSearchText.length > 0 ? clients.filter(c => c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients.slice(0, 50);
+    const matched = clientSearchText.length > 0 ? clients.filter(c => c.name.toLowerCase().includes(clientSearchText.toLowerCase())) : clients;
     return matched.length > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         position: "absolute",
@@ -16203,13 +16211,13 @@ function WarehouseCabinet({
         fontSize: 13,
         color: C.textFaint
       }
-    }, "\u0418\u0437 1\u0421: ", p.stock_raw, " \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", p.stock_reserved, " \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", p.stock), p.stock_weight_kg_reserved > 0 && /*#__PURE__*/React.createElement("p", {
+    }, "\u0418\u0437 1\u0421: ", round2(p.stock_raw), " \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", round2(p.stock_reserved), " \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", round2(p.stock)), p.stock_weight_kg_reserved > 0 && /*#__PURE__*/React.createElement("p", {
       style: {
         margin: "6px 0 0",
         fontSize: 13,
         color: C.textFaint
       }
-    }, "\u0418\u0437 1\u0421: ", p.stock_weight_kg, " \u043A\u0433 \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", p.stock_weight_kg_reserved, " \u043A\u0433 \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", Math.max(0, p.stock_weight_kg - p.stock_weight_kg_reserved), " \u043A\u0433"), /*#__PURE__*/React.createElement(ProductHistoryToggle, {
+    }, "\u0418\u0437 1\u0421: ", round2(p.stock_weight_kg), " \u043A\u0433 \xB7 \u0432 \u0437\u0430\u044F\u0432\u043A\u0430\u0445: ", round2(p.stock_weight_kg_reserved), " \u043A\u0433 \xB7 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ", round2(Math.max(0, p.stock_weight_kg - p.stock_weight_kg_reserved)), " \u043A\u0433"), /*#__PURE__*/React.createElement(ProductHistoryToggle, {
       code: p.code
     }));
   })), tab === "orders" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
