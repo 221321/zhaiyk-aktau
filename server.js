@@ -2792,9 +2792,14 @@ function creditReturnStock(items) {
 // приходовался в остаток сразу при оформлении водителем, без проверки
 // склада. Теперь остаток зачисляется только здесь, после того как зав.
 // склад физически принял товар (та же модель, что и подтверждение сдачи
-// налички, см. PUT /api/cash-handovers/:id/confirm).
+// налички, см. PUT /api/cash-handovers/:id/confirm). Принимать возврат —
+// исключительно функция склада: раньше сюда же пускали admin/manager,
+// хотя кнопки для них нет ни в одном кабинете (только просмотр) — через
+// прямой запрос к API они всё равно могли подтвердить возврат в обход
+// склада. Админу/менеджеру достаточно видеть, что возврат принят, а не
+// принимать его самим.
 app.put('/api/returns/:id/confirm', authMiddleware, (req, res) => {
-  if (!['warehouse', 'admin', 'manager'].includes(req.user.role)) {
+  if (req.user.role !== 'warehouse') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   const id = parseInt(req.params.id);
