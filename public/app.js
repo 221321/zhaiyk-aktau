@@ -3348,12 +3348,18 @@ function buildExpenseWaybillInnerHtml(order) {
   const total = order.total || 0;
   return `
     <div class="exphead">Расходная накладная № ${order.id} от ${formatDateWordsRu(order.date)}</div>
-    <table class="expfields">
-      <tr><td class="expfields-label">Поставщик</td><td class="expfields-value">${esc(COMPANY_INFO.name)}</td></tr>
-      <tr><td class="expfields-label">Покупатель</td><td class="expfields-value">${esc(order.client_name)}</td></tr>
-      <tr><td class="expfields-label">Основание</td><td class="expfields-value">${esc(order.client_name)}</td></tr>
-      <tr><td class="expfields-label">Склад</td><td class="expfields-value">Основной склад</td></tr>
-    </table>
+    <div class="exptop">
+      <table class="expfields">
+        <tr><td class="expfields-label">Поставщик</td><td class="expfields-value">${esc(COMPANY_INFO.name)}</td></tr>
+        <tr><td class="expfields-label">Покупатель</td><td class="expfields-value">${esc(order.client_name)}</td></tr>
+        <tr><td class="expfields-label">Основание</td><td class="expfields-value">${esc(order.client_name)}</td></tr>
+        <tr><td class="expfields-label">Склад</td><td class="expfields-value">Основной склад</td></tr>
+      </table>
+      <div class="miniqr">
+        <img src="/kaspi-qr.png" alt="Kaspi QR"/>
+        <p>Kaspi QR — оплата</p>
+      </div>
+    </div>
     <table>
       <tr><th>№ п/п</th><th>Код</th><th>Товар</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr>
       ${rows}
@@ -3362,10 +3368,6 @@ function buildExpenseWaybillInnerHtml(order) {
     <div class="totals">
       <p style="text-decoration:underline">Всего наименований ${items.length}, на сумму ${total.toLocaleString()} KZT</p>
       <p style="font-weight:700">${tengeSumToWords(total)}</p>
-    </div>
-    <div class="miniqr">
-      <img src="/kaspi-qr.png" alt="Kaspi QR"/>
-      <p>Kaspi QR — оплата</p>
     </div>
     <div class="signcols">
       <div class="sign"><p>Отпустил <span class="signline">${esc(COMPANY_INFO.releaseAuthorizedBy)}</span>/</p></div>
@@ -3466,14 +3468,16 @@ const WAYBILL_STYLE = `
     .printScope .totals{margin-top:8px; font-size:11px;}
     .printScope .totals p{margin:6px 0;}
     /* "Расходная накладная" (см. buildExpenseWaybillInnerHtml) — простой
-       бланк без таблицы-"шапки" формы З-2: заголовок + список полей
-       label/value + отдельный (не вложенный в .headrow) блок QR. */
+       бланк без таблицы-"шапки" формы З-2: заголовок + строка .exptop
+       (список полей label/value слева, QR справа — клиент попросил именно
+       в правый верхний угол бланка, а не отдельным блоком по центру). */
     .printScope .exphead{font-size:17px; font-weight:800; border-bottom:2px solid #333; padding-bottom:8px; margin-bottom:12px;}
-    .printScope table.expfields{width:auto; border:none; margin:0 0 14px;}
+    .printScope .exptop{display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:14px;}
+    .printScope table.expfields{width:auto; border:none; margin:0;}
     .printScope table.expfields td{border:none; padding:3px 0; font-size:12px;}
     .printScope table.expfields td.expfields-label{color:#444; padding-right:24px; white-space:nowrap; vertical-align:top;}
     .printScope table.expfields td.expfields-value{font-weight:700;}
-    .printScope .miniqr{display:flex; flex-direction:column; align-items:center; text-align:center; margin:12px 0;}
+    .printScope .miniqr{display:flex; flex-direction:column; align-items:center; text-align:center; flex-shrink:0; margin:0;}
     .printScope .miniqr img{width:70px; height:70px; display:block; margin:0 0 4px;}
     .printScope .miniqr p{margin:0; font-size:10px; color:#444;}
     .printScope .signcols{display:flex; gap:16px;}
@@ -3517,9 +3521,9 @@ const WAYBILL_PAIR_STYLE = WAYBILL_STYLE + `
        при печати парой на лист — та же логика уменьшения, что и у формы
        З-2 выше, только для собственных классов этого бланка. */
     .printScope .waybillSlot .exphead{font-size:11px; padding-bottom:5px; margin-bottom:8px;}
+    .printScope .waybillSlot .exptop{margin-bottom:8px;}
     .printScope .waybillSlot table.expfields td{font-size:8px; padding:1px 0;}
     .printScope .waybillSlot table.expfields td.expfields-label{padding-right:12px;}
-    .printScope .waybillSlot .miniqr{margin:6px 0;}
     .printScope .waybillSlot .miniqr img{width:36px; height:36px;}
     .printScope .waybillSlot .miniqr p{font-size:6px;}
     @media print { .printScope .waybillSheet{page-break-after:always;} .printScope .waybillSheet:last-child{page-break-after:auto;} }`;
