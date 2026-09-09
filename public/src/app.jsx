@@ -1569,6 +1569,10 @@ function buildExpenseWaybillInnerHtml(order) {
       <tr><td class="expfields-label">Основание</td><td class="expfields-value">${esc(order.client_name)}</td></tr>
       <tr><td class="expfields-label">Склад</td><td class="expfields-value">Основной склад</td></tr>
     </table>
+    <div class="miniqr">
+      <img src="/kaspi-qr.png" alt="Kaspi QR"/>
+      <p>Kaspi QR — оплата</p>
+    </div>
     <table>
       <tr><th>№ п/п</th><th>Код</th><th>Товар</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr>
       ${rows}
@@ -1577,10 +1581,6 @@ function buildExpenseWaybillInnerHtml(order) {
     <div class="totals">
       <p style="text-decoration:underline">Всего наименований ${items.length}, на сумму ${total.toLocaleString()} KZT</p>
       <p style="font-weight:700">${tengeSumToWords(total)}</p>
-    </div>
-    <div class="miniqr">
-      <img src="/kaspi-qr.png" alt="Kaspi QR"/>
-      <p>Kaspi QR — оплата</p>
     </div>
     <div class="signcols">
       <div class="sign"><p>Отпустил <span class="signline">${esc(COMPANY_INFO.releaseAuthorizedBy)}</span>/</p></div>
