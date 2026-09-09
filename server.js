@@ -32,6 +32,17 @@ if (IS_PRODUCTION && (JWT_SECRET === DEFAULT_JWT_SECRET || SYNC_SECRET === DEFAU
   process.exit(1);
 }
 
+// stock.weight_kg — плавающий кг-пул, который на каждой заявке/возврате не
+// перезаписывается целиком (в отличие от /api/stock/sync), а двигается
+// +/- относительно текущего значения — двоичная арифметика с плавающей
+// точкой копит погрешность на каждой такой операции (0.1 в IEEE754 не
+// представимо точно), и через десятки заявок остаток показывается персоналу
+// как 230.92000000000002 кг вместо 230.92. Округляем до граммов на каждой
+// записи, чтобы погрешность не накапливалась дальше по цепочке операций.
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
 // ===== НКТ (nct.gov.kz) — поиск кода НКТ (NTIN) по GTIN/названию =====
 const NKT_OFD_BASE_URL = process.env.NKT_OFD_BASE_URL || 'https://nct.gov.kz/api/integration/ofd';
 const NKT_OFD_JWT = process.env.NKT_OFD_JWT || '';
@@ -658,7 +669,7 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
       // /api/orders/weights) отдельно списываем и кг-пул — qty позиции
       // теперь хранит именно кг (см. computeAvailableWeightKg).
       if (it.is_weight_item && it.weight_confirmed && rec.weight_kg != null) {
-        stockCol.find({ code: it.code }).assign({ weight_kg: Math.max(0, (Number(rec.weight_kg) || 0) - (Number(it.qty) || 0)) }).write();
+        stockCol.find({ code: it.code }).assign({ weight_kg: round2(Math.max(0, (Number(rec.weight_kg) || 0) - (Number(it.qty) || 0))) }).write();
       }
     });
   }
@@ -883,7 +894,7 @@ app.put('/api/orders/:id/delivered-items', authMiddleware, (req, res) => {
         stockCol.find({ code: ref.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - boxesDelta) }).write();
         if (ref.is_weight_item && ref.weight_confirmed && rec.weight_kg != null) {
           const kgDelta = newQty - curQty;
-          stockCol.find({ code: ref.code }).assign({ weight_kg: Math.max(0, (Number(rec.weight_kg) || 0) - kgDelta) }).write();
+          stockCol.find({ code: ref.code }).assign({ weight_kg: round2(Math.max(0, (Number(rec.weight_kg) || 0) - kgDelta)) }).write();
         }
       }
       if (newQty > 1e-9) {
@@ -2763,7 +2774,7 @@ function creditReturnStock(items) {
     const rec = stockCol.find({ code: it.code }).value();
     if (it.is_weight_item) {
       if (rec) {
-        stockCol.find({ code: it.code }).assign({ weight_kg: (rec.weight_kg != null ? Number(rec.weight_kg) : 0) + it.qty }).write();
+        stockCol.find({ code: it.code }).assign({ weight_kg: round2((rec.weight_kg != null ? Number(rec.weight_kg) : 0) + it.qty) }).write();
       } else {
         stockCol.push({ code: it.code, qty: 0, weight_kg: it.qty }).write();
       }
@@ -2824,7 +2835,7 @@ app.delete('/api/returns/:id', authMiddleware, (req, res) => {
         // false), и кг, зачисленные этим возвратом, так и оставались учтены
         // нигде. Считаем пустой пул нулём, как и везде в этом файле.
         const kg = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
-        stockCol.find({ code: it.code }).assign({ weight_kg: Math.max(0, kg - (Number(it.qty) || 0)) }).write();
+        stockCol.find({ code: it.code }).assign({ weight_kg: round2(Math.max(0, kg - (Number(it.qty) || 0))) }).write();
         return;
       }
       stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - (Number(it.qty) || 0)) }).write();
