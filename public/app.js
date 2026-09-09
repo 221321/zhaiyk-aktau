@@ -3243,6 +3243,20 @@ function formatDateWordsRu(dateStr) {
   if (isNaN(d.getTime())) return dateStr;
   return `${d.getUTCDate()} ${MONTHS_RU_GENITIVE[d.getUTCMonth()]} ${d.getUTCFullYear()} г.`;
 }
+// "Дата составления" в форме З-2/накладной на возврат (см. buildWaybillInnerHtml/
+// buildReturnWaybillInnerHtml) печаталась как есть — "YYYY-MM-DD" (order.date/
+// ret.date из POST /api/orders). Для казахстанского/русского читателя это
+// читается день-и-месяц наоборот: "2026-09-08" глаз цепляет как "09.08" (9
+// августа), а не как 8 сентября — те же самые цифры, но не в том порядке,
+// к которому все привыкли (ДД.ММ.ГГГГ). Сами данные были верны всегда, но
+// формат вводил в заблуждение — приводим к привычному ДД.ММ.ГГГГ.
+function formatDateDMY(dateStr) {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${dd}.${mm}.${d.getUTCFullYear()}`;
+}
 
 // Экранирование свободного текста (имя клиента/водителя, адрес, название
 // товара и т.п.) перед вставкой в HTML-шаблоны печати ниже — без него,
@@ -3304,7 +3318,7 @@ function buildWaybillInnerHtml(order, opts) {
     <div class="toprow"><span>Организация (индивидуальный предприниматель) <b>${esc(COMPANY_INFO.name)}</b></span><span>ИИН/БИН <b>${esc(COMPANY_INFO.bin)}</b></span></div>
     <table class="docnumtable">
       <tr><th>Номер документа</th><th>Дата составления</th></tr>
-      <tr><td>${order.id}</td><td>${order.date}</td></tr>
+      <tr><td>${order.id}</td><td>${formatDateDMY(order.date)}</td></tr>
     </table>
     <h1>НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ<br><span style="font-weight:400;font-size:12px">Форма З-2</span></h1>
     <div class="headrow">
@@ -3429,7 +3443,7 @@ function buildReturnWaybillInnerHtml(ret, productNameByCode) {
     <div class="toprow"><span>Организация (индивидуальный предприниматель) <b>${esc(COMPANY_INFO.name)}</b></span><span>ИИН/БИН <b>${esc(COMPANY_INFO.bin)}</b></span></div>
     <table class="docnumtable">
       <tr><th>Номер документа</th><th>Дата составления</th></tr>
-      <tr><td>Возврат №${ret.id}</td><td>${ret.date}</td></tr>
+      <tr><td>Возврат №${ret.id}</td><td>${formatDateDMY(ret.date)}</td></tr>
     </table>
     <h1>НАКЛАДНАЯ НА ВОЗВРАТ ЗАПАСОВ<br><span style="font-weight:400;font-size:12px">${ret.order_id ? `по заявке № ${ret.order_id}` : 'без привязки к заявке'}</span></h1>
     <div class="headrow">
