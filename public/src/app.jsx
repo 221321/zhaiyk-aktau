@@ -4542,6 +4542,119 @@ function StockMovementsReport({ onClose }) {
   );
 }
 
+// Отчёт "Ведомость" — по просьбе владельца: приход/расход/остаток за период
+// по товару, без контрагентов/торговых, как материальная ведомость в 1С
+// (тот же формат, каким 1С сам выгружает остатки — владелец сверял именно
+// такую выгрузку с сайтом). В отличие от StockMovementsReport выше (только
+// списание по доставленным заявкам) здесь виден и приход — синк из 1С,
+// возвраты, отмена продажи кассы — не только расход. См. GET
+// /api/reports/material-statement — лента, по которой строится этот отчёт,
+// копится только вперёд с момента, как её завели, поэтому за периоды до
+// этого приход/расход будут нулями, даже если остаток на самом деле менялся.
+function MaterialStatementReport({ onClose }) {
+  const todayStr = new Date().toISOString().slice(0,10);
+  const [from, setFrom] = useState(todayStr);
+  const [to, setTo] = useState(todayStr);
+  const [search, setSearch] = useState('');
+  const [hideEmpty, setHideEmpty] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiCall('GET', `/api/reports/material-statement?from=${from}&to=${to}`);
+      setRows(data);
+    } catch(e) { setRows([]); }
+    setLoading(false);
+  }, [from, to]);
+  useEffect(() => { load(); }, [load]);
+
+  const q = search.trim().toLowerCase();
+  const filtered = rows
+    .filter(r => !q || (r.name||'').toLowerCase().includes(q) || (r.code||'').includes(q))
+    .filter(r => !hideEmpty || r.opening || r.income || r.outcome || r.closing);
+
+  const numLabel = (v, unit) => `${v}${unit?' '+unit:''}`;
+
+  const exportCsv = () => downloadCsv(
+    `vedomost_${from}_${to}.csv`,
+    filtered,
+    [
+      { label: 'Код', get: r => r.code },
+      { label: 'Товар', get: r => r.name },
+      { label: 'Ед.', get: r => r.unit || 'кор' },
+      { label: 'Начальный остаток', get: r => r.opening },
+      { label: 'Приход', get: r => r.income },
+      { label: 'Расход', get: r => r.outcome },
+      { label: 'Конечный остаток', get: r => r.closing },
+    ]
+  );
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
+      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:1000,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
+        <div style={{...S.row,marginBottom:6}}>
+          <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>📋 Ведомость по товару</p>
+          <button style={S.btnSecondary} onClick={onClose}>✕</button>
+        </div>
+        <p style={{margin:"0 0 14px",fontSize:13,color:C.textFaint}}>
+          Начальный остаток / приход / расход / конечный остаток за период — как материальная ведомость в 1С, без контрагентов и торговых. Копится с момента, как эту ленту завели на сайте — за более ранние периоды приход/расход будут нулями (виден только текущий остаток).
+        </p>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10,alignItems:"flex-end"}}>
+          <div>
+            <label style={S.label}>С</label>
+            <input type="date" style={S.input} value={from} onChange={e=>setFrom(e.target.value)}/>
+          </div>
+          <div>
+            <label style={S.label}>По</label>
+            <input type="date" style={S.input} value={to} onChange={e=>setTo(e.target.value)}/>
+          </div>
+          <div style={{flex:1,minWidth:180}}>
+            <label style={S.label}>Товар (название/код)</label>
+            <input style={S.input} placeholder="Поиск..." value={search} onChange={e=>setSearch(e.target.value)}/>
+          </div>
+          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,color:C.textSub,paddingBottom:9}}>
+            <input type="checkbox" checked={hideEmpty} onChange={e=>setHideEmpty(e.target.checked)}/>
+            Скрыть без движения
+          </label>
+        </div>
+        <div style={{...S.row,marginBottom:10}}>
+          <p style={{margin:0,fontSize:14,color:C.textSub}}>Строк: {filtered.length}</p>
+          <button style={{...S.btnPrimary,width:"auto",padding:"9px 16px",fontSize:14}} onClick={exportCsv} disabled={filtered.length===0}>⬇ Скачать в Excel</button>
+        </div>
+        {loading?<div style={S.loadingWrap}>Загрузка...</div>
+          :filtered.length===0?<div style={{textAlign:"center",padding:"30px 0",color:C.textFaint}}>Ничего не найдено</div>
+          :<div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead>
+                <tr style={{borderBottom:`2px solid ${C.border}`,textAlign:"left"}}>
+                  <th style={{padding:"6px 8px"}}>Товар</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Начальный остаток</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Приход</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Расход</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Конечный остаток</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(r=>(
+                  <tr key={r.code} style={{borderBottom:`1px solid ${C.border}`}}>
+                    <td style={{padding:"6px 8px"}}>{r.name}<div style={{color:C.textFaint,fontSize:11}}>{r.code}</div></td>
+                    <td style={{padding:"6px 8px",textAlign:"right"}}>{numLabel(r.opening,r.unit)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",color:C.green,fontWeight:700}}>{r.income?`+${numLabel(r.income,r.unit)}`:numLabel(0,r.unit)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",color:C.red,fontWeight:700}}>{r.outcome?`−${numLabel(r.outcome,r.unit)}`:numLabel(0,r.unit)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700}}>{numLabel(r.closing,r.unit)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        }
+      </div>
+    </div>
+  );
+}
+
 // Экран "Остатки на складе" — тот же, что у зав. склада (см.
 // WarehouseCabinet), вынесен в отдельный самодостаточный компонент по
 // той же причине, что и ProductAliasesPanel выше: старшему торговому
@@ -4593,6 +4706,7 @@ function StockPanel() {
   const [stockCategory, setStockCategory] = useState("");
   const [hideEmpty, setHideEmpty] = useState(false);
   const [showMovements, setShowMovements] = useState(false);
+  const [showStatement, setShowStatement] = useState(false);
 
   const loadProducts = useCallback(async () => {
     try { setProducts(await fetch('/api/products').then(r => r.json())); } catch(e) {}
@@ -4630,9 +4744,13 @@ function StockPanel() {
   return (
     <>
       {showMovements&&<StockMovementsReport onClose={()=>setShowMovements(false)}/>}
+      {showStatement&&<MaterialStatementReport onClose={()=>setShowStatement(false)}/>}
       <div style={{...S.row,marginBottom:4}}>
         <p style={{...S.sectionTitle,margin:0}}>Остатки на складе <span style={{fontWeight:400,fontSize:13,color:C.textFaint}}>(только из 1С)</span></p>
-        <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowMovements(true)}>📊 Отчёт по движению</button>
+        <div style={{display:"flex",gap:8}}>
+          <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowMovements(true)}>📊 Отчёт по движению</button>
+          <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowStatement(true)}>📋 Ведомость</button>
+        </div>
       </div>
       {!loadingProducts && products.length>0 && (
         <div style={S.statsRow}>
@@ -7860,6 +7978,7 @@ function WarehouseCabinet({ user, onLogout }) {
   const [stockCategory, setStockCategory] = useState("");
   const [hideEmpty, setHideEmpty] = useState(false);
   const [showMovements, setShowMovements] = useState(false);
+  const [showStatement, setShowStatement] = useState(false);
 
   // Приём налички от водителей (инкассация) — см. POST/PUT /api/cash-handovers.
   const [cashHandovers, setCashHandovers] = useState([]);
@@ -8079,9 +8198,13 @@ function WarehouseCabinet({ user, onLogout }) {
       <div style={S.page}>
         {tab==="stock"&&<>
           {showMovements&&<StockMovementsReport onClose={()=>setShowMovements(false)}/>}
+          {showStatement&&<MaterialStatementReport onClose={()=>setShowStatement(false)}/>}
           <div style={{...S.row,marginBottom:4}}>
             <p style={{...S.sectionTitle,margin:0}}>Остатки на складе</p>
-            <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowMovements(true)}>📊 Отчёт по движению</button>
+            <div style={{display:"flex",gap:8}}>
+              <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowMovements(true)}>📊 Отчёт по движению</button>
+              <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowStatement(true)}>📋 Ведомость</button>
+            </div>
           </div>
           {!loadingProducts && products.length>0 && (
             <div style={S.statsRow}>

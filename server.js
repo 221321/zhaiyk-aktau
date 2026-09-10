@@ -789,12 +789,18 @@ app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
       const rec = stockCol.find({ code: it.code }).value();
       if (!rec) return;
       const boxesDelta = it.is_weight_item ? (Number(it.boxes) || 0) : (Number(it.qty) || 0);
-      stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - boxesDelta) }).write();
+      const qtyBefore = Number(rec.qty) || 0;
+      const qtyAfter = Math.max(0, qtyBefore - boxesDelta);
+      stockCol.find({ code: it.code }).assign({ qty: qtyAfter }).write();
+      logStockMovement(it.code, 'qty', qtyAfter - qtyBefore, qtyAfter, 'delivery', { order_id: orderId });
       // Для весового товара после подтверждения факт. веса (см. POST
       // /api/orders/weights) отдельно списываем и кг-пул — qty позиции
       // теперь хранит именно кг (см. computeAvailableWeightKg).
       if (it.is_weight_item && it.weight_confirmed && rec.weight_kg != null) {
-        stockCol.find({ code: it.code }).assign({ weight_kg: round2(Math.max(0, (Number(rec.weight_kg) || 0) - (Number(it.qty) || 0))) }).write();
+        const kgBefore = Number(rec.weight_kg) || 0;
+        const kgAfter = round2(Math.max(0, kgBefore - (Number(it.qty) || 0)));
+        stockCol.find({ code: it.code }).assign({ weight_kg: kgAfter }).write();
+        logStockMovement(it.code, 'weight_kg', kgAfter - kgBefore, kgAfter, 'delivery', { order_id: orderId });
       }
     });
   }
@@ -1027,10 +1033,16 @@ app.put('/api/orders/:id/delivered-items', authMiddleware, (req, res) => {
         // /api/orders/:id/status: для весового товара короба́-пул
         // (stock.qty) двигает boxes, а не qty (qty там уже в кг).
         const boxesDelta = ref.is_weight_item ? (newBoxes - curBoxes) : (newQty - curQty);
-        stockCol.find({ code: ref.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - boxesDelta) }).write();
+        const qtyBefore = Number(rec.qty) || 0;
+        const qtyAfter = Math.max(0, qtyBefore - boxesDelta);
+        stockCol.find({ code: ref.code }).assign({ qty: qtyAfter }).write();
+        logStockMovement(ref.code, 'qty', qtyAfter - qtyBefore, qtyAfter, 'delivery_correction', { order_id: orderId });
         if (ref.is_weight_item && ref.weight_confirmed && rec.weight_kg != null) {
           const kgDelta = newQty - curQty;
-          stockCol.find({ code: ref.code }).assign({ weight_kg: round2(Math.max(0, (Number(rec.weight_kg) || 0) - kgDelta)) }).write();
+          const kgBefore = Number(rec.weight_kg) || 0;
+          const kgAfter = round2(Math.max(0, kgBefore - kgDelta));
+          stockCol.find({ code: ref.code }).assign({ weight_kg: kgAfter }).write();
+          logStockMovement(ref.code, 'weight_kg', kgAfter - kgBefore, kgAfter, 'delivery_correction', { order_id: orderId });
         }
       }
       if (newQty > 1e-9) {
@@ -1735,6 +1747,8 @@ app.post('/api/products/sync', (req, res) => {
     const removedSet = new Set(removedCodes);
     db.get('stock').value().forEach(rec => {
       if (removedSet.has(rec.code) && (rec.qty || rec.weight_kg)) {
+        if (rec.qty) pushLedgerEntry(rec.code, 'qty', -rec.qty, 0, 'removed', {});
+        if (rec.weight_kg) pushLedgerEntry(rec.code, 'weight_kg', -rec.weight_kg, 0, 'removed', {});
         rec.qty = 0;
         rec.weight_kg = null;
       }
@@ -2516,6 +2530,48 @@ app.put('/api/debt-settlements/:id', authMiddleware, (req, res) => {
 // см. соответствующие эндпоинты) =====
 db.defaults({ stock: [] }).write();
 
+// Лента движения остатка — по просьбе владельца: нужен отчёт "приход/расход/
+// остаток за период по товару", как материальная ведомость в 1С (см. GET
+// /api/reports/material-statement ниже), а текущий stock.qty/weight_kg хранит
+// только "здесь и сейчас", без истории. Каждое место, которое двигает
+// stock.qty/weight_kg (приход из 1С, доставка, продажа кассы, возврат — все
+// перечислены в шапке этого раздела), рядом со своим .assign() пишет сюда
+// одну строку через logStockMovement/pushLedgerEntry. Копится только ВПЕРЁД
+// с момента, как это добавили, — за более ранние периоды приход/расход не
+// восстановить, только текущий остаток.
+db.defaults({ stockLedger: [] }).write();
+
+// balanceAfter обязателен — это остаток ПОСЛЕ движения (в том же пуле, что
+// и delta), нужен для отчёта, чтобы восстановить "остаток на начало/конец
+// периода" не пересчётом задним числом, а прямо по ленте. Порядок записей
+// в массиве и есть хронологический порядок (пишем строго по мере того, как
+// движения происходят) — отдельный id/счётчик не нужен, отчёт читает ленту
+// как есть, по порядку.
+//
+// Низкоуровневая запись в ленту БЕЗ db.write() — для мест, которые уже сами
+// батчат много кодов за один запрос (products/sync, stock/sync) и пишут на
+// диск один раз в конце (см. комментарий у POST /api/stock/sync — почему
+// важно не писать файл на каждый код). db.get('stockLedger').value() даёт
+// прямую ссылку на массив в памяти (тот же приём, что и stock.push(...)
+// в /api/stock/sync ниже), поэтому push() сюда виден следующему db.write(),
+// даже если он вызван позже, в другом месте того же запроса.
+function pushLedgerEntry(code, pool, delta, balanceAfter, type, meta) {
+  if (!code || !delta) return;
+  db.get('stockLedger').value().push({
+    code, pool, delta, balance_after: balanceAfter, type,
+    date: new Date().toISOString().slice(0, 10),
+    created_at: new Date().toISOString(),
+    ...(meta || {}),
+  });
+}
+
+// То же самое, но сама сбрасывает на диск — для мест, где движение
+// единичное (одна заявка/продажа/возврат за запрос), а не пакет из 1С.
+function logStockMovement(code, pool, delta, balanceAfter, type, meta) {
+  pushLedgerEntry(code, pool, delta, balanceAfter, type, meta);
+  db.write();
+}
+
 // 1С — снова источник остатков (решение владельца отменено). ПО УМОЛЧАНИЮ
 // это upsert, не полная замена: 1С может присылать не полный снимок, а
 // только изменившиеся коды — обновляем/добавляем только присланные, а
@@ -2569,12 +2625,20 @@ app.post('/api/stock/sync', (req, res) => {
       // а не только пишем актуальное. Обратное (qty у весового товара)
       // умышленно не трогаем — короба́ весового товара 1С не считает вовсе,
       // это отдельное поле, которое не имеет отношения к синку.
-      if (isWeightItem) rec.weight_kg = qty;
-      else { rec.qty = qty; rec.weight_kg = null; }
+      if (isWeightItem) {
+        const before = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
+        rec.weight_kg = qty;
+        pushLedgerEntry(it.code, 'weight_kg', qty - before, qty, 'sync', {});
+      } else {
+        const before = Number(rec.qty) || 0;
+        rec.qty = qty; rec.weight_kg = null;
+        pushLedgerEntry(it.code, 'qty', qty - before, qty, 'sync', {});
+      }
     } else {
       const newRec = isWeightItem ? { code: it.code, qty: 0, weight_kg: qty } : { code: it.code, qty };
       stock.push(newRec);
       stockByCode[it.code] = newRec;
+      pushLedgerEntry(it.code, isWeightItem ? 'weight_kg' : 'qty', qty, qty, 'sync', {});
     }
     count++;
   });
@@ -2586,9 +2650,9 @@ app.post('/api/stock/sync', (req, res) => {
       if (sentCodes.has(rec.code)) return;
       const isWeightItem = !!(aliasMap[rec.code] && aliasMap[rec.code].priced_by_weight);
       if (isWeightItem) {
-        if (rec.weight_kg) { rec.weight_kg = 0; zeroed++; }
+        if (rec.weight_kg) { pushLedgerEntry(rec.code, 'weight_kg', -rec.weight_kg, 0, 'sync', {}); rec.weight_kg = 0; zeroed++; }
       } else {
-        if (rec.qty) { rec.qty = 0; rec.weight_kg = null; zeroed++; }
+        if (rec.qty) { pushLedgerEntry(rec.code, 'qty', -rec.qty, 0, 'sync', {}); rec.qty = 0; rec.weight_kg = null; zeroed++; }
       }
     });
   }
@@ -2743,6 +2807,85 @@ app.get('/api/stock-movements', authMiddleware, (req, res) => {
   });
 
   rows.sort((a, b) => (b.order_id || 0) - (a.order_id || 0));
+  res.json(rows);
+});
+
+// Отчёт "Ведомость" — приход/расход/остаток за период по товару, без
+// контрагентов/торговых, как материальная ведомость в 1С (просьба
+// владельца — тот же формат, каким 1С сам выгружает остатки). В отличие
+// от /api/stock-movements выше (который показывает только списание по
+// доставленным заявкам), здесь приход тоже участвует — синхронизация из
+// 1С, возвраты, отмены продаж, а расход — доставки, продажи кассы, отмена
+// возврата. Строится по stockLedger (см. logStockMovement/pushLedgerEntry
+// у каждого места, что двигает stock.qty/weight_kg) — лента копится только
+// ВПЕРЁД с момента, как её завели, поэтому за периоды до этого приход и
+// расход не восстановить, только текущий остаток (тогда opening===closing
+// и приход/расход будут 0, даже если движение реально было).
+app.get('/api/reports/material-statement', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'warehouse', 'operator'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const from = req.query.from || today;
+  const to = req.query.to || today;
+
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+  const productNameMap = {};
+  db.get('products').value().forEach(p => { productNameMap[p.code] = p.name; });
+  const stockMap = {};
+  db.get('stock').value().forEach(s => { stockMap[s.code] = s; });
+  const ledger = db.get('stockLedger').value();
+
+  // Товар считаем весовым/обычным по ТЕКУЩЕЙ карточке (aliasMap) — та же
+  // логика, что и stockAmount на фронте и весь остальной stock-код в этом
+  // файле; движения, записанные в другом пуле (см. комментарий у
+  // /api/stock/sync про "осиротевшее" поле после смены галочки), в отчёт
+  // по этому коду просто не попадут — такой же компромисс, как и везде.
+  const codes = new Set();
+  ledger.forEach(e => codes.add(e.code));
+  Object.keys(stockMap).forEach(c => codes.add(c));
+  db.get('products').value().forEach(p => { if (p.code) codes.add(p.code); });
+
+  const rows = [];
+  codes.forEach(code => {
+    const isWeight = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+    const pool = isWeight ? 'weight_kg' : 'qty';
+    const entries = ledger.filter(e => e.code === code && e.pool === pool);
+
+    const currentBalance = isWeight
+      ? (stockMap[code] && stockMap[code].weight_kg != null ? Number(stockMap[code].weight_kg) : 0)
+      : (stockMap[code] ? Number(stockMap[code].qty) || 0 : 0);
+
+    const uptoTo = entries.filter(e => e.date <= to);
+    const beforeFrom = entries.filter(e => e.date < from);
+    const inPeriod = entries.filter(e => e.date >= from && e.date <= to);
+
+    const income = inPeriod.filter(e => e.delta > 0).reduce((s, e) => s + e.delta, 0);
+    const outcome = inPeriod.filter(e => e.delta < 0).reduce((s, e) => s - e.delta, 0);
+
+    // closing — остаток на конец периода: последняя запись ленты с датой
+    // не позже `to`, если она есть, иначе текущий остаток (значит, лента
+    // за этот код вообще не двигалась в пределах видимой истории).
+    const closing = uptoTo.length > 0 ? uptoTo[uptoTo.length - 1].balance_after : currentBalance;
+    // opening — остаток на начало периода: последняя запись СТРОГО до
+    // `from`, если есть; иначе выводим его из closing за вычетом того, что
+    // сам отчёт насчитал за период (для товара, у которого лента началась
+    // только внутри периода или не начиналась вовсе).
+    const opening = beforeFrom.length > 0 ? beforeFrom[beforeFrom.length - 1].balance_after : (closing - income + outcome);
+
+    rows.push({
+      code,
+      name: (aliasMap[code] && aliasMap[code].alias) || productNameMap[code] || code,
+      unit: isWeight ? 'кг' : '',
+      opening: round2(opening),
+      income: round2(income),
+      outcome: round2(outcome),
+      closing: round2(closing),
+    });
+  });
+
+  rows.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
   res.json(rows);
 });
 
@@ -3071,23 +3214,29 @@ app.post('/api/returns', authMiddleware, (req, res) => {
 // сколько именно коробов физически вернулось (частичный по весу возврат
 // необязательно кратен целому коробу), так что короба́ трогать нечем; их
 // при необходимости поправит склад вручную через "Остатки".
-function creditReturnStock(items) {
+function creditReturnStock(items, returnId) {
   const stockCol = db.get('stock');
   items.forEach(it => {
     if (!it.code) return;
     const rec = stockCol.find({ code: it.code }).value();
     if (it.is_weight_item) {
       if (rec) {
-        stockCol.find({ code: it.code }).assign({ weight_kg: round2((rec.weight_kg != null ? Number(rec.weight_kg) : 0) + it.qty) }).write();
+        const kgAfter = round2((rec.weight_kg != null ? Number(rec.weight_kg) : 0) + it.qty);
+        stockCol.find({ code: it.code }).assign({ weight_kg: kgAfter }).write();
+        logStockMovement(it.code, 'weight_kg', it.qty, kgAfter, 'return', { return_id: returnId });
       } else {
         stockCol.push({ code: it.code, qty: 0, weight_kg: it.qty }).write();
+        logStockMovement(it.code, 'weight_kg', it.qty, it.qty, 'return', { return_id: returnId });
       }
       return;
     }
     if (rec) {
-      stockCol.find({ code: it.code }).assign({ qty: (Number(rec.qty) || 0) + it.qty }).write();
+      const qtyAfter = (Number(rec.qty) || 0) + it.qty;
+      stockCol.find({ code: it.code }).assign({ qty: qtyAfter }).write();
+      logStockMovement(it.code, 'qty', it.qty, qtyAfter, 'return', { return_id: returnId });
     } else {
       stockCol.push({ code: it.code, qty: it.qty }).write();
+      logStockMovement(it.code, 'qty', it.qty, it.qty, 'return', { return_id: returnId });
     }
   });
 }
@@ -3111,7 +3260,7 @@ app.put('/api/returns/:id/confirm', authMiddleware, (req, res) => {
   if (!ret) return res.status(404).json({ error: 'Возврат не найден' });
   if (ret.status === 'confirmed') return res.status(400).json({ error: 'Этот возврат уже подтверждён' });
 
-  creditReturnStock(ret.items || []);
+  creditReturnStock(ret.items || [], id);
 
   db.get('returns').find({ id }).assign({
     status: 'confirmed',
@@ -3144,10 +3293,15 @@ app.delete('/api/returns/:id', authMiddleware, (req, res) => {
         // false), и кг, зачисленные этим возвратом, так и оставались учтены
         // нигде. Считаем пустой пул нулём, как и везде в этом файле.
         const kg = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
-        stockCol.find({ code: it.code }).assign({ weight_kg: round2(Math.max(0, kg - (Number(it.qty) || 0))) }).write();
+        const kgAfter = round2(Math.max(0, kg - (Number(it.qty) || 0)));
+        stockCol.find({ code: it.code }).assign({ weight_kg: kgAfter }).write();
+        logStockMovement(it.code, 'weight_kg', kgAfter - kg, kgAfter, 'return_rollback', { return_id: id });
         return;
       }
-      stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - (Number(it.qty) || 0)) }).write();
+      const qtyBefore = Number(rec.qty) || 0;
+      const qtyAfter = Math.max(0, qtyBefore - (Number(it.qty) || 0));
+      stockCol.find({ code: it.code }).assign({ qty: qtyAfter }).write();
+      logStockMovement(it.code, 'qty', qtyAfter - qtyBefore, qtyAfter, 'return_rollback', { return_id: id });
     });
   }
   db.get('returns').remove({ id }).write();
@@ -3439,7 +3593,12 @@ app.post('/api/sales', authMiddleware, (req, res) => {
   cleanItems.forEach(it => {
     if (!it.code) return;
     const rec = stockCol.find({ code: it.code }).value();
-    if (rec) stockCol.find({ code: it.code }).assign({ qty: Math.max(0, (Number(rec.qty) || 0) - it.qty) }).write();
+    if (rec) {
+      const qtyBefore = Number(rec.qty) || 0;
+      const qtyAfter = Math.max(0, qtyBefore - it.qty);
+      stockCol.find({ code: it.code }).assign({ qty: qtyAfter }).write();
+      logStockMovement(it.code, 'qty', qtyAfter - qtyBefore, qtyAfter, 'sale', { sale_id: id });
+    }
   });
 
   res.json(sale);
@@ -3479,7 +3638,12 @@ app.post('/api/sales/:id/void', authMiddleware, (req, res) => {
   (sale.items || []).forEach(it => {
     if (!it.code) return;
     const rec = stockCol.find({ code: it.code }).value();
-    if (rec) stockCol.find({ code: it.code }).assign({ qty: (Number(rec.qty) || 0) + (Number(it.qty) || 0) }).write();
+    if (rec) {
+      const qtyBefore = Number(rec.qty) || 0;
+      const qtyAfter = qtyBefore + (Number(it.qty) || 0);
+      stockCol.find({ code: it.code }).assign({ qty: qtyAfter }).write();
+      logStockMovement(it.code, 'qty', qtyAfter - qtyBefore, qtyAfter, 'sale_void', { sale_id: id });
+    }
   });
 
   res.json({ success: true });

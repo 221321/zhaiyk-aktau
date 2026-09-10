@@ -9335,6 +9335,260 @@ function StockMovementsReport({
   }, r.balance_after == null ? '—' : numLabel(r.balance_after, r.unit)))))))));
 }
 
+// Отчёт "Ведомость" — по просьбе владельца: приход/расход/остаток за период
+// по товару, без контрагентов/торговых, как материальная ведомость в 1С
+// (тот же формат, каким 1С сам выгружает остатки — владелец сверял именно
+// такую выгрузку с сайтом). В отличие от StockMovementsReport выше (только
+// списание по доставленным заявкам) здесь виден и приход — синк из 1С,
+// возвраты, отмена продажи кассы — не только расход. См. GET
+// /api/reports/material-statement — лента, по которой строится этот отчёт,
+// копится только вперёд с момента, как её завели, поэтому за периоды до
+// этого приход/расход будут нулями, даже если остаток на самом деле менялся.
+function MaterialStatementReport({
+  onClose
+}) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [from, setFrom] = useState(todayStr);
+  const [to, setTo] = useState(todayStr);
+  const [search, setSearch] = useState('');
+  const [hideEmpty, setHideEmpty] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiCall('GET', `/api/reports/material-statement?from=${from}&to=${to}`);
+      setRows(data);
+    } catch (e) {
+      setRows([]);
+    }
+    setLoading(false);
+  }, [from, to]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const q = search.trim().toLowerCase();
+  const filtered = rows.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.code || '').includes(q)).filter(r => !hideEmpty || r.opening || r.income || r.outcome || r.closing);
+  const numLabel = (v, unit) => `${v}${unit ? ' ' + unit : ''}`;
+  const exportCsv = () => downloadCsv(`vedomost_${from}_${to}.csv`, filtered, [{
+    label: 'Код',
+    get: r => r.code
+  }, {
+    label: 'Товар',
+    get: r => r.name
+  }, {
+    label: 'Ед.',
+    get: r => r.unit || 'кор'
+  }, {
+    label: 'Начальный остаток',
+    get: r => r.opening
+  }, {
+    label: 'Приход',
+    get: r => r.income
+  }, {
+    label: 'Расход',
+    get: r => r.outcome
+  }, {
+    label: 'Конечный остаток',
+    get: r => r.closing
+  }]);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(28,25,23,0.45)",
+      zIndex: 200,
+      overflowY: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.white,
+      margin: "16px",
+      borderRadius: 16,
+      padding: 20,
+      maxWidth: 1000,
+      marginLeft: "auto",
+      marginRight: "auto",
+      border: `1px solid ${C.border}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.row,
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 19,
+      fontWeight: 800,
+      fontFamily: FH,
+      color: C.navy
+    }
+  }, "\uD83D\uDCCB \u0412\u0435\u0434\u043E\u043C\u043E\u0441\u0442\u044C \u043F\u043E \u0442\u043E\u0432\u0430\u0440\u0443"), /*#__PURE__*/React.createElement("button", {
+    style: S.btnSecondary,
+    onClick: onClose
+  }, "\u2715")), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 14px",
+      fontSize: 13,
+      color: C.textFaint
+    }
+  }, "\u041D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439 \u043E\u0441\u0442\u0430\u0442\u043E\u043A / \u043F\u0440\u0438\u0445\u043E\u0434 / \u0440\u0430\u0441\u0445\u043E\u0434 / \u043A\u043E\u043D\u0435\u0447\u043D\u044B\u0439 \u043E\u0441\u0442\u0430\u0442\u043E\u043A \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434 \u2014 \u043A\u0430\u043A \u043C\u0430\u0442\u0435\u0440\u0438\u0430\u043B\u044C\u043D\u0430\u044F \u0432\u0435\u0434\u043E\u043C\u043E\u0441\u0442\u044C \u0432 1\u0421, \u0431\u0435\u0437 \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u043E\u0432 \u0438 \u0442\u043E\u0440\u0433\u043E\u0432\u044B\u0445. \u041A\u043E\u043F\u0438\u0442\u0441\u044F \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430, \u043A\u0430\u043A \u044D\u0442\u0443 \u043B\u0435\u043D\u0442\u0443 \u0437\u0430\u0432\u0435\u043B\u0438 \u043D\u0430 \u0441\u0430\u0439\u0442\u0435 \u2014 \u0437\u0430 \u0431\u043E\u043B\u0435\u0435 \u0440\u0430\u043D\u043D\u0438\u0435 \u043F\u0435\u0440\u0438\u043E\u0434\u044B \u043F\u0440\u0438\u0445\u043E\u0434/\u0440\u0430\u0441\u0445\u043E\u0434 \u0431\u0443\u0434\u0443\u0442 \u043D\u0443\u043B\u044F\u043C\u0438 (\u0432\u0438\u0434\u0435\u043D \u0442\u043E\u043B\u044C\u043A\u043E \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u043E\u0441\u0442\u0430\u0442\u043E\u043A)."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      marginBottom: 10,
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0421"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    style: S.input,
+    value: from,
+    onChange: e => setFrom(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u041F\u043E"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    style: S.input,
+    value: to,
+    onChange: e => setTo(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 180
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0422\u043E\u0432\u0430\u0440 (\u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435/\u043A\u043E\u0434)"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u041F\u043E\u0438\u0441\u043A...",
+    value: search,
+    onChange: e => setSearch(e.target.value)
+  })), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 13,
+      color: C.textSub,
+      paddingBottom: 9
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: hideEmpty,
+    onChange: e => setHideEmpty(e.target.checked)
+  }), "\u0421\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0434\u0432\u0438\u0436\u0435\u043D\u0438\u044F")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.row,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 14,
+      color: C.textSub
+    }
+  }, "\u0421\u0442\u0440\u043E\u043A: ", filtered.length), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnPrimary,
+      width: "auto",
+      padding: "9px 16px",
+      fontSize: 14
+    },
+    onClick: exportCsv,
+    disabled: filtered.length === 0
+  }, "\u2B07 \u0421\u043A\u0430\u0447\u0430\u0442\u044C \u0432 Excel")), loading ? /*#__PURE__*/React.createElement("div", {
+    style: S.loadingWrap
+  }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      padding: "30px 0",
+      color: C.textFaint
+    }
+  }, "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      overflowX: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: 13
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    style: {
+      borderBottom: `2px solid ${C.border}`,
+      textAlign: "left"
+    }
+  }, /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, "\u0422\u043E\u0432\u0430\u0440"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right"
+    }
+  }, "\u041D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439 \u043E\u0441\u0442\u0430\u0442\u043E\u043A"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right"
+    }
+  }, "\u041F\u0440\u0438\u0445\u043E\u0434"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right"
+    }
+  }, "\u0420\u0430\u0441\u0445\u043E\u0434"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right"
+    }
+  }, "\u041A\u043E\u043D\u0435\u0447\u043D\u044B\u0439 \u043E\u0441\u0442\u0430\u0442\u043E\u043A"))), /*#__PURE__*/React.createElement("tbody", null, filtered.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.code,
+    style: {
+      borderBottom: `1px solid ${C.border}`
+    }
+  }, /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, r.name, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.textFaint,
+      fontSize: 11
+    }
+  }, r.code)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right"
+    }
+  }, numLabel(r.opening, r.unit)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right",
+      color: C.green,
+      fontWeight: 700
+    }
+  }, r.income ? `+${numLabel(r.income, r.unit)}` : numLabel(0, r.unit)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right",
+      color: C.red,
+      fontWeight: 700
+    }
+  }, r.outcome ? `−${numLabel(r.outcome, r.unit)}` : numLabel(0, r.unit)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right",
+      fontWeight: 700
+    }
+  }, numLabel(r.closing, r.unit)))))))));
+}
+
 // Экран "Остатки на складе" — тот же, что у зав. склада (см.
 // WarehouseCabinet), вынесен в отдельный самодостаточный компонент по
 // той же причине, что и ProductAliasesPanel выше: старшему торговому
@@ -9415,6 +9669,7 @@ function StockPanel() {
   const [stockCategory, setStockCategory] = useState("");
   const [hideEmpty, setHideEmpty] = useState(false);
   const [showMovements, setShowMovements] = useState(false);
+  const [showStatement, setShowStatement] = useState(false);
   const loadProducts = useCallback(async () => {
     try {
       setProducts(await fetch('/api/products').then(r => r.json()));
@@ -9450,6 +9705,8 @@ function StockPanel() {
   });
   return /*#__PURE__*/React.createElement(React.Fragment, null, showMovements && /*#__PURE__*/React.createElement(StockMovementsReport, {
     onClose: () => setShowMovements(false)
+  }), showStatement && /*#__PURE__*/React.createElement(MaterialStatementReport, {
+    onClose: () => setShowStatement(false)
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.row,
@@ -9466,7 +9723,12 @@ function StockPanel() {
       fontSize: 13,
       color: C.textFaint
     }
-  }, "(\u0442\u043E\u043B\u044C\u043A\u043E \u0438\u0437 1\u0421)")), /*#__PURE__*/React.createElement("button", {
+  }, "(\u0442\u043E\u043B\u044C\u043A\u043E \u0438\u0437 1\u0421)")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnOutline,
       width: "auto",
@@ -9474,7 +9736,15 @@ function StockPanel() {
       fontSize: 13
     },
     onClick: () => setShowMovements(true)
-  }, "\uD83D\uDCCA \u041E\u0442\u0447\u0451\u0442 \u043F\u043E \u0434\u0432\u0438\u0436\u0435\u043D\u0438\u044E")), !loadingProducts && products.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDCCA \u041E\u0442\u0447\u0451\u0442 \u043F\u043E \u0434\u0432\u0438\u0436\u0435\u043D\u0438\u044E"), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnOutline,
+      width: "auto",
+      padding: "6px 12px",
+      fontSize: 13
+    },
+    onClick: () => setShowStatement(true)
+  }, "\uD83D\uDCCB \u0412\u0435\u0434\u043E\u043C\u043E\u0441\u0442\u044C"))), !loadingProducts && products.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: S.statsRow
   }, /*#__PURE__*/React.createElement("div", {
     style: S.statCard()
@@ -16524,6 +16794,7 @@ function WarehouseCabinet({
   const [stockCategory, setStockCategory] = useState("");
   const [hideEmpty, setHideEmpty] = useState(false);
   const [showMovements, setShowMovements] = useState(false);
+  const [showStatement, setShowStatement] = useState(false);
 
   // Приём налички от водителей (инкассация) — см. POST/PUT /api/cash-handovers.
   const [cashHandovers, setCashHandovers] = useState([]);
@@ -16807,6 +17078,8 @@ function WarehouseCabinet({
     style: S.page
   }, tab === "stock" && /*#__PURE__*/React.createElement(React.Fragment, null, showMovements && /*#__PURE__*/React.createElement(StockMovementsReport, {
     onClose: () => setShowMovements(false)
+  }), showStatement && /*#__PURE__*/React.createElement(MaterialStatementReport, {
+    onClose: () => setShowStatement(false)
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.row,
@@ -16817,7 +17090,12 @@ function WarehouseCabinet({
       ...S.sectionTitle,
       margin: 0
     }
-  }, "\u041E\u0441\u0442\u0430\u0442\u043A\u0438 \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435"), /*#__PURE__*/React.createElement("button", {
+  }, "\u041E\u0441\u0442\u0430\u0442\u043A\u0438 \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnOutline,
       width: "auto",
@@ -16825,7 +17103,15 @@ function WarehouseCabinet({
       fontSize: 13
     },
     onClick: () => setShowMovements(true)
-  }, "\uD83D\uDCCA \u041E\u0442\u0447\u0451\u0442 \u043F\u043E \u0434\u0432\u0438\u0436\u0435\u043D\u0438\u044E")), !loadingProducts && products.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDCCA \u041E\u0442\u0447\u0451\u0442 \u043F\u043E \u0434\u0432\u0438\u0436\u0435\u043D\u0438\u044E"), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnOutline,
+      width: "auto",
+      padding: "6px 12px",
+      fontSize: 13
+    },
+    onClick: () => setShowStatement(true)
+  }, "\uD83D\uDCCB \u0412\u0435\u0434\u043E\u043C\u043E\u0441\u0442\u044C"))), !loadingProducts && products.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: S.statsRow
   }, /*#__PURE__*/React.createElement("div", {
     style: S.statCard()
