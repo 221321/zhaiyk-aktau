@@ -4695,6 +4695,166 @@ function MaterialStatementReport({ onClose }) {
   );
 }
 
+// Разбор xlsx-выгрузки "Материальная ведомость" из 1С — колонки ищем по
+// заголовкам, а не по фиксированному номеру: "Код" отмечает нужную строку
+// шапки, "Итого приход"/"Итого расход" — нужные столбцы (их "Количество"
+// лежит ровно в той же колонке, где начинается объединённая шапка — так
+// устроен сам шаблон 1С, см. разбор реальной выгрузки владельца). Если
+// шаблон в 1С когда-нибудь поменяют — тут сразу понятная ошибка, а не тихо
+// неверные цифры.
+function parse1cVedomost(workbook) {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+  let headerRow = -1;
+  for (let i = 0; i < data.length; i++) {
+    if (data[i] && String(data[i][4] || '').trim() === 'Код') { headerRow = i; break; }
+  }
+  if (headerRow === -1) {
+    throw new Error('Не нашёл колонку "Код" в файле — это не похоже на материальную ведомость 1С в привычном формате');
+  }
+  const incomeCol = data[headerRow].findIndex(v => String(v||'').trim() === 'Итого приход');
+  const outcomeCol = data[headerRow].findIndex(v => String(v||'').trim() === 'Итого расход');
+  if (incomeCol === -1 || outcomeCol === -1) {
+    throw new Error('Не нашёл колонки "Итого приход"/"Итого расход" в файле');
+  }
+  const rows = [];
+  for (let i = headerRow + 2; i < data.length; i++) {
+    const row = data[i];
+    if (!row) continue;
+    if (String(row[0] || '').trim() === 'Итого') break;
+    const code = row[4];
+    if (!code) continue;
+    rows.push({
+      code: String(code).trim(),
+      name: row[1] || '',
+      unit: (row[5] || '').toString().trim(),
+      income: Number(row[incomeCol]) || 0,
+      outcome: Number(row[outcomeCol]) || 0,
+    });
+  }
+  return rows;
+}
+
+// Сверка с 1С — по просьбе владельца: раньше это делали вручную (сюда
+// присылали выгрузку из 1С и отдельно CSV с сайта, сверка была на моей
+// стороне). Теперь сайт делает это сам: парсит xlsx из 1С прямо в браузере
+// (библиотека XLSX подключена в index.html) и шлёт на сервер уже готовый
+// массив строк — POST /api/reports/reconcile-1c сверяет их с собственной
+// версией той же ведомости (computeMaterialStatementRows в server.js — то,
+// что сайт реально доставил за период). Список — это как раз то, по каким
+// товарам в 1С не проводятся реализации ("не хватает остатка") и где
+// перепутаны единицы измерения (кг/шт).
+function Reconcile1CReport({ onClose }) {
+  const todayStr = new Date().toISOString().slice(0,10);
+  const monthAgoStr = new Date(Date.now() - 30*86400000).toISOString().slice(0,10);
+  const [from, setFrom] = useState(monthAgoStr);
+  const [to, setTo] = useState(todayStr);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState(null);
+
+  const onFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setError('');
+    setRows(null);
+    if (typeof XLSX === 'undefined') {
+      setError('Библиотека для чтения Excel не загрузилась — проверь интернет-соединение и обнови страницу');
+      return;
+    }
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const c1cRows = parse1cVedomost(wb);
+      if (c1cRows.length === 0) throw new Error('В файле не нашлось ни одной строки с товаром');
+      setLoading(true);
+      const result = await apiCall('POST', '/api/reports/reconcile-1c', { from, to, rows: c1cRows });
+      setRows(result);
+    } catch (err) {
+      setError(err.message || String(err));
+    }
+    setLoading(false);
+    e.target.value = '';
+  };
+
+  const numLabel = (v, unit) => `${v}${unit?' '+unit:''}`;
+
+  const exportCsv = () => downloadCsv(
+    `sverka_1c_${from}_${to}.csv`,
+    rows || [],
+    [
+      { label: 'Код', get: r => r.code },
+      { label: 'Товар', get: r => r.name },
+      { label: 'Ед. на сайте', get: r => r.unit_site },
+      { label: 'Ед. в 1С', get: r => r.unit_1c },
+      { label: 'Расход на сайте', get: r => r.outcome_site },
+      { label: 'Расход в 1С', get: r => r.outcome_1c },
+      { label: 'Не хватает в 1С', get: r => r.shortfall },
+    ]
+  );
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
+      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:1100,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
+        <div style={{...S.row,marginBottom:6}}>
+          <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>🔍 Сверка с 1С</p>
+          <button style={S.btnSecondary} onClick={onClose}>✕</button>
+        </div>
+        <p style={{margin:"0 0 14px",fontSize:13,color:C.textFaint}}>
+          Загрузи xlsx-выгрузку "Материальная ведомость" из 1С за период — сайт сам сравнит со своими данными и покажет, где 1С не досчиталась (обычно — непроведённые реализации, "не хватает остатка") и где перепутаны единицы измерения.
+        </p>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"flex-end"}}>
+          <div>
+            <label style={S.label}>С</label>
+            <input type="date" style={S.input} value={from} onChange={e=>setFrom(e.target.value)}/>
+          </div>
+          <div>
+            <label style={S.label}>По</label>
+            <input type="date" style={S.input} value={to} onChange={e=>setTo(e.target.value)}/>
+          </div>
+          <div style={{flex:1,minWidth:220}}>
+            <label style={S.label}>Файл из 1С (.xlsx)</label>
+            <input type="file" accept=".xlsx" style={S.input} onChange={onFile}/>
+          </div>
+        </div>
+        {error&&<div style={{...S.card,background:C.redSoft,color:C.red,padding:12,marginBottom:12,fontSize:13,fontWeight:600}}>{error}</div>}
+        {loading&&<div style={S.loadingWrap}>Сверяю...</div>}
+        {!loading&&rows&&rows.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:C.green,fontWeight:700}}>✓ Расхождений не найдено — всё сходится</div>}
+        {!loading&&rows&&rows.length>0&&<>
+          <div style={{...S.row,marginBottom:10}}>
+            <p style={{margin:0,fontSize:14,color:C.textSub}}>Расхождений: {rows.length}</p>
+            <button style={{...S.btnPrimary,width:"auto",padding:"9px 16px",fontSize:14}} onClick={exportCsv}>⬇ Скачать в Excel</button>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead>
+                <tr style={{borderBottom:`2px solid ${C.border}`,textAlign:"left"}}>
+                  <th style={{padding:"6px 8px"}}>Товар</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Расход на сайте</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Расход в 1С</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}}>Не хватает в 1С</th>
+                  <th style={{padding:"6px 8px"}}>Ед.изм.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r=>(
+                  <tr key={r.code} style={{borderBottom:`1px solid ${C.border}`}}>
+                    <td style={{padding:"6px 8px"}}>{r.name}<div style={{color:C.textFaint,fontSize:11}}>{r.code}</div></td>
+                    <td style={{padding:"6px 8px",textAlign:"right"}}>{numLabel(r.outcome_site,r.unit_site)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right"}}>{numLabel(r.outcome_1c,r.unit_1c)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:r.shortfall>0?C.red:(r.shortfall<0?C.green:C.textFaint)}}>{r.shortfall>0?'+':''}{r.shortfall}</td>
+                    <td style={{padding:"6px 8px"}}>{r.unit_mismatch?<span style={{color:"#92400E",fontWeight:700}}>⚠ {r.unit_site||'—'} / {r.unit_1c||'—'}</span>:(r.unit_site||r.unit_1c||'')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>}
+      </div>
+    </div>
+  );
+}
+
 // Экран "Остатки на складе" — тот же, что у зав. склада (см.
 // WarehouseCabinet), вынесен в отдельный самодостаточный компонент по
 // той же причине, что и ProductAliasesPanel выше: старшему торговому
@@ -4747,6 +4907,7 @@ function StockPanel() {
   const [hideEmpty, setHideEmpty] = useState(false);
   const [showMovements, setShowMovements] = useState(false);
   const [showStatement, setShowStatement] = useState(false);
+  const [showReconcile, setShowReconcile] = useState(false);
 
   const loadProducts = useCallback(async () => {
     try { setProducts(await fetch('/api/products').then(r => r.json())); } catch(e) {}
@@ -4785,11 +4946,13 @@ function StockPanel() {
     <>
       {showMovements&&<StockMovementsReport onClose={()=>setShowMovements(false)}/>}
       {showStatement&&<MaterialStatementReport onClose={()=>setShowStatement(false)}/>}
+      {showReconcile&&<Reconcile1CReport onClose={()=>setShowReconcile(false)}/>}
       <div style={{...S.row,marginBottom:4}}>
         <p style={{...S.sectionTitle,margin:0}}>Остатки на складе <span style={{fontWeight:400,fontSize:13,color:C.textFaint}}>(только из 1С)</span></p>
-        <div style={{display:"flex",gap:8}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowMovements(true)}>📊 Отчёт по движению</button>
           <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowStatement(true)}>📋 Ведомость</button>
+          <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowReconcile(true)}>🔍 Сверка с 1С</button>
         </div>
       </div>
       {!loadingProducts && products.length>0 && (
@@ -8034,6 +8197,7 @@ function WarehouseCabinet({ user, onLogout }) {
   const [hideEmpty, setHideEmpty] = useState(false);
   const [showMovements, setShowMovements] = useState(false);
   const [showStatement, setShowStatement] = useState(false);
+  const [showReconcile, setShowReconcile] = useState(false);
 
   // Приём налички от водителей (инкассация) — см. POST/PUT /api/cash-handovers.
   const [cashHandovers, setCashHandovers] = useState([]);
@@ -8254,11 +8418,13 @@ function WarehouseCabinet({ user, onLogout }) {
         {tab==="stock"&&<>
           {showMovements&&<StockMovementsReport onClose={()=>setShowMovements(false)}/>}
           {showStatement&&<MaterialStatementReport onClose={()=>setShowStatement(false)}/>}
+          {showReconcile&&<Reconcile1CReport onClose={()=>setShowReconcile(false)}/>}
           <div style={{...S.row,marginBottom:4}}>
             <p style={{...S.sectionTitle,margin:0}}>Остатки на складе</p>
-            <div style={{display:"flex",gap:8}}>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowMovements(true)}>📊 Отчёт по движению</button>
               <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowStatement(true)}>📋 Ведомость</button>
+              <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowReconcile(true)}>🔍 Сверка с 1С</button>
             </div>
           </div>
           {!loadingProducts && products.length>0 && (
