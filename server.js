@@ -1044,6 +1044,93 @@ app.put('/api/orders/:id/delivered-items', authMiddleware, (req, res) => {
   });
 });
 
+// Правка ЦЕНЫ позиций заявки — только admin, свободная цена без привязки к
+// price1/price2/price3 каталога (нужна, когда выясняется, что клиент —
+// VIP/оптовик с эксклюзивной ценой, о которой торговый не знал при
+// оформлении). Доступно до статуса "Доставлено" включительно (new/
+// in_transit/delivered) — дальше (cancelled/returned/revoked) заявка уже
+// закрыта не в пользу продажи, менять цену там смысла нет. В отличие от
+// правки количества (PUT /api/orders/:id/items и .../delivered-items) цена
+// не влияет на остаток на складе (тот списывается по кол-ву, см. PUT
+// /api/orders/:id/status) — здесь пересчитывается только total, ничего не
+// резервируется и не списывается повторно.
+app.put('/api/orders/:id/prices', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Менять цену может только администратор' });
+  }
+  const orderId = parseInt(req.params.id);
+  const order = db.get('orders').find({ id: orderId }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+  if (!['new', 'in_transit', 'delivered'].includes(order.status)) {
+    return res.status(400).json({ error: 'Менять цену можно только до статуса "Доставлено" включительно' });
+  }
+
+  const pricesInput = req.body.items;
+  if (!Array.isArray(pricesInput) || pricesInput.length === 0) {
+    return res.status(400).json({ error: 'Не переданы позиции для правки' });
+  }
+  const priceByCode = {};
+  for (const it of pricesInput) {
+    if (!it || !it.code) continue;
+    const price = Number(it.price);
+    if (!Number.isFinite(price) || price < 0) {
+      return res.status(400).json({ error: `Некорректная цена для "${it.code}"` });
+    }
+    priceByCode[it.code] = price;
+  }
+  if (Object.keys(priceByCode).length === 0) {
+    return res.status(400).json({ error: 'Не переданы позиции для правки' });
+  }
+
+  const currentItems = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+  let changed = false;
+  const newItems = currentItems.map(it => {
+    if (!it.code || !Object.prototype.hasOwnProperty.call(priceByCode, it.code)) return it;
+    const newPrice = priceByCode[it.code];
+    if (Math.abs((Number(it.price) || 0) - newPrice) < 1e-9) return it;
+    changed = true;
+    return { ...it, price: newPrice };
+  });
+  if (!changed) return res.json(order);
+
+  const newTotal = newItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+  const patch = {
+    items: newItems,
+    total: newTotal,
+    price_last_edited_by_id: req.user.id,
+    price_last_edited_by_name: req.user.name,
+    price_last_edited_at: new Date().toISOString(),
+  };
+  // Та же история правок, что и у PUT /api/orders/:id/delivered-items
+  // (items_edits) — фронт уже умеет показывать её независимо от того, что
+  // именно менялось (кол-во или цена), см. OrderDetail.
+  const edits = Array.isArray(order.items_edits) ? order.items_edits.slice() : [];
+  edits.push({
+    at: patch.price_last_edited_at,
+    by_id: req.user.id,
+    by_name: req.user.name,
+    reason: (req.body.reason || '').trim(),
+    kind: 'price',
+    before_items: currentItems,
+    before_total: order.total || 0,
+    after_items: newItems,
+    after_total: newTotal,
+  });
+  patch.items_edits = edits;
+
+  db.get('orders').find({ id: orderId }).assign(patch).write();
+  const updated = db.get('orders').find({ id: orderId }).value();
+
+  // Оплата (нал/QR/долг) уже принятой (delivered) заявки этой правкой не
+  // трогается — тот же сигнал фронту, что и в .../delivered-items, чтобы
+  // расхождение не осталось незамеченным.
+  const paidSum = (Number(order.payment_cash) || 0) + (Number(order.payment_qr) || 0) + (Number(order.payment_debt) || 0);
+  res.json({
+    ...updated,
+    payment_mismatch: order.status === 'delivered' && Math.abs(paidSum - newTotal) > 1,
+  });
+});
+
 // Ручная правка закупочной цены ОДНОЙ позиции в уже оформленной заявке —
 // нужна для позиций без кода товара (см. POST /api/orders): такую позицию
 // вписали в заявку свободным текстом мимо каталога (это теперь запрещено
