@@ -1759,6 +1759,26 @@ function DebtsPanel({
 }) {
   const [debts, setDebts] = useState([]);
   const [loadingDebts, setLoadingDebts] = useState(true);
+  // Отбор по дате возникновения долга (d.date — дата заявки/чека), тот же
+  // паттерн день/неделя/месяц/свободный, что уже используется в отчётах
+  // (см. applyAdminPreset/applyStorePreset/applySalesPreset). "Все" —
+  // дефолт: долг числится, пока не погашен, независимо от того, когда
+  // возник, так что сужать список по умолчанию до "сегодня" не нужно —
+  // иначе большинство должников молча пропадало бы из вида.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [debtDateFrom, setDebtDateFrom] = useState(todayStr);
+  const [debtDateTo, setDebtDateTo] = useState(todayStr);
+  const [debtDatePreset, setDebtDatePreset] = useState("all");
+  const applyDebtDatePreset = preset => {
+    const now = new Date();
+    let from = new Date(now);
+    if (preset === "week") from.setDate(now.getDate() - 6);else if (preset === "month") from.setDate(now.getDate() - 29);
+    setDebtDatePreset(preset);
+    if (preset !== "custom" && preset !== "all") {
+      setDebtDateFrom(from.toISOString().slice(0, 10));
+      setDebtDateTo(todayStr);
+    }
+  };
   const [settleAmounts, setSettleAmounts] = useState({});
   const [settleMethod, setSettleMethod] = useState({});
   const [savingId, setSavingId] = useState(null);
@@ -1915,6 +1935,7 @@ function DebtsPanel({
   // ни к какому торговому, поэтому остаются видны при любом фильтре, а не
   // прячутся вместе с заявками остальных торговых.
   const bySalesFilter = salesFilter ? debts.filter(d => !d.sales_id || String(d.sales_id) === salesFilter) : debts;
+  const byDateFilter = debtDatePreset === "all" ? bySalesFilter : bySalesFilter.filter(d => d.date >= debtDateFrom && d.date <= debtDateTo);
   // Поиск по контрагенту — список должников может быть длинным, искать
   // конкретного клиента прокруткой и глазами неудобно. Ищем и по имени, и
   // по коду клиента (тем же, что показан в "Всего по клиенту"), но не по
@@ -1922,7 +1943,7 @@ function DebtsPanel({
   // обычно вспоминают в первую очередь про должника.
   const [clientSearch, setClientSearch] = useState("");
   const q = clientSearch.trim().toLowerCase();
-  const visibleDebts = !q ? bySalesFilter : bySalesFilter.filter(d => (d.client_name || '').toLowerCase().includes(q) || (d.client_code || '').toLowerCase().includes(q));
+  const visibleDebts = !q ? byDateFilter : byDateFilter.filter(d => (d.client_name || '').toLowerCase().includes(q) || (d.client_code || '').toLowerCase().includes(q));
   const settle = async d => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
     const amount = Number(settleAmounts[key] ?? d.remaining);
@@ -2015,7 +2036,77 @@ function DebtsPanel({
   }, "\u0412\u0441\u0435 \u0442\u043E\u0440\u0433\u043E\u0432\u044B\u0435"), salesReps.map(r => /*#__PURE__*/React.createElement("option", {
     key: r.id,
     value: r.id
-  }, r.name)))), loadingDebts ? /*#__PURE__*/React.createElement("div", {
+  }, r.name)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16,
+      maxWidth: 420
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginBottom: 10,
+      flexWrap: "wrap"
+    }
+  }, [["all", "Все"], ["day", "День"], ["week", "Неделя"], ["month", "Месяц"], ["custom", "Свободный отбор"]].map(([k, lb]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    onClick: () => applyDebtDatePreset(k),
+    style: {
+      padding: "6px 13px",
+      borderRadius: 99,
+      border: `1px solid ${debtDatePreset === k ? C.navy : C.border}`,
+      cursor: "pointer",
+      fontSize: 14,
+      fontWeight: 600,
+      background: debtDatePreset === k ? C.navy : C.white,
+      color: debtDatePreset === k ? C.white : C.textMid
+    }
+  }, lb))), debtDatePreset === "custom" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 120
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      ...S.label,
+      marginBottom: 4
+    }
+  }, "\u0421"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    style: {
+      ...S.input,
+      padding: "8px 10px",
+      fontSize: 15
+    },
+    value: debtDateFrom,
+    onChange: e => setDebtDateFrom(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 120
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      ...S.label,
+      marginBottom: 4
+    }
+  }, "\u041F\u043E"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    style: {
+      ...S.input,
+      padding: "8px 10px",
+      fontSize: 15
+    },
+    value: debtDateTo,
+    onChange: e => setDebtDateTo(e.target.value)
+  })))), loadingDebts ? /*#__PURE__*/React.createElement("div", {
     style: S.loadingWrap
   }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : visibleDebts.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2023,7 +2114,7 @@ function DebtsPanel({
       padding: "24px 0",
       color: C.textFaint
     }
-  }, "\u0414\u043E\u043B\u0433\u043E\u0432 \u043D\u0435\u0442") : visibleDebts.map(d => {
+  }, debtDatePreset === "all" ? "Долгов нет" : "Долгов за этот период нет") : visibleDebts.map(d => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
     const gKey = groupKey(d);
     const isFirstOfGroup = !renderedGroups.has(gKey);
