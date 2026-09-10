@@ -4384,7 +4384,7 @@ function OrderDetail({
     onClick: () => confirmPrintIfPending(() => shareWaybillPdf(order, isDogovornik, productNameByCode))
   }, "\uD83D\uDCF2 \u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C PDF")), /*#__PURE__*/React.createElement("hr", {
     style: S.divider
-  }), [["Клиент", order.client_name || order.clientName], ["Адрес", order.address], ["Торговый", order.sales_name || order.salesName], ["Дата", order.date], ["Доставка", order.time_slot || order.timeSlot], ...(order.created_at ? [["Создана", fmtDT(order.created_at)]] : []), ...(order.driver_name ? [["Водитель", order.driver_name]] : []), ...(order.driver_name && order.in_transit_at ? [["В работе с", fmtDT(order.in_transit_at)]] : []), ...(order.contact_name ? [["Контакт", order.contact_name]] : []), ...(order.contact_phone ? [["Телефон", order.contact_phone]] : []), ...(order.comment ? [["Комментарий", order.comment]] : [])].map(([k, v]) => /*#__PURE__*/React.createElement("div", {
+  }), [["Клиент", order.client_name || order.clientName], ["Адрес", order.address], ["Торговый", order.sales_name || order.salesName], ["Дата", order.date], ["Доставка", order.time_slot || order.timeSlot], ...(order.created_at ? [["Создана", fmtDT(order.created_at)]] : []), ...(order.driver_name ? [["Водитель", order.driver_name]] : []), ...(order.driver_name && order.in_transit_at ? [["В работе с", fmtDT(order.in_transit_at)]] : []), ...(order.delivered_at ? [["Доставлено", fmtDT(order.delivered_at)]] : []), ...(order.contact_name ? [["Контакт", order.contact_name]] : []), ...(order.contact_phone ? [["Телефон", order.contact_phone]] : []), ...(order.comment ? [["Комментарий", order.comment]] : [])].map(([k, v]) => /*#__PURE__*/React.createElement("div", {
     key: k,
     style: {
       ...S.row,
