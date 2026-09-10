@@ -1649,8 +1649,30 @@ app.post('/api/products/sync', (req, res) => {
   if (secret !== SYNC_SECRET) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
+  // Номенклатура из 1С — ПОЛНЫЙ снимок каждый раз (см. db.set ниже — в
+  // отличие от /api/stock/sync, где 1С может присылать только изменившиеся
+  // коды, см. комментарий там же, поэтому там нельзя считать пропавший код
+  // удалённым). Здесь можно: код, который был в прошлом снимке и пропал в
+  // этом, — 1С точно его удалил (списали/сняли с учёта совсем), а не
+  // просто не успели переслать. Раньше остаток по такому коду молча висел
+  // на "Остатках" со старым числом навсегда — обнуляем его вместе с
+  // исчезновением товара из каталога (жалоба: удалили позицию в 1С,
+  // синхронизировали остатки — на сайте остаток не пропал).
+  const oldCodes = db.get('products').value().map(p => p && p.code).filter(Boolean);
+  const newCodes = new Set((items || []).map(it => it && it.code).filter(Boolean));
+  const removedCodes = oldCodes.filter(code => !newCodes.has(code));
+  if (removedCodes.length > 0) {
+    const removedSet = new Set(removedCodes);
+    db.get('stock').value().forEach(rec => {
+      if (removedSet.has(rec.code) && (rec.qty || rec.weight_kg)) {
+        rec.qty = 0;
+        rec.weight_kg = null;
+      }
+    });
+    console.log(`[products/sync] ${new Date().toISOString()} товар удалён из 1С, остаток обнулён: ${removedCodes.join(', ')}`);
+  }
   db.set('products', items).write();
-  res.json({ success: true, count: items.length });
+  res.json({ success: true, count: items.length, removed: removedCodes.length });
 });
 
 // ===== PRODUCT ALIASES (псевдонимы и цены для сайта) =====
