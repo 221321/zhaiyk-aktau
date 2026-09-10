@@ -2310,10 +2310,14 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
     setEditingDelivered(true);
   };
   const acceptedForD = (ref, i) => {
-    const refQty = Number(ref.qty) || 0;
+    // Раньше значение молча срезалось до refQty (Math.min) — если админ
+    // вписывал больше исходного (например, исправляя опечатку в весе,
+    // взвешенном раньше), кнопка "Сохранить" визуально работала, а
+    // сумма/остаток не менялись вообще, без единой ошибки — см. серверную
+    // часть (PUT /api/orders/:id/delivered-items), там тот же потолок снят.
     const raw = Number(deliveredQty[qtyKeyD(ref, i)]);
     if (!Number.isFinite(raw) || raw < 0) return 0;
-    return Math.min(raw, refQty);
+    return raw;
   };
   const saveDeliveredItems = async () => {
     if (savingDeliveredItems) return;
@@ -2574,7 +2578,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
             ) : (
               <div>
                 <p style={{margin:"0 0 8px",fontSize:15,fontWeight:700,color:C.navy}}>Реально доставленное количество</p>
-                <p style={{margin:"0 0 10px",fontSize:13,color:C.textFaint}}>Задним числом — для заявок, которые водитель довёз "целиком" ещё до появления частичной доставки, хотя клиент по факту принял не всё. Сумма, остаток на складе и комиссия торгового пересчитаются.</p>
+                <p style={{margin:"0 0 10px",fontSize:13,color:C.textFaint}}>Задним числом — можно и уменьшить (клиент по факту принял не всё, или ошиблись при взвешивании), и увеличить (например, исправить опечатку в записанном весе). Сумма, остаток на складе и комиссия торгового пересчитаются.</p>
                 {deliveredRefItems.map((ref,i)=>{
                   const key = qtyKeyD(ref,i);
                   const unit = ref.is_weight_item?"кг":"шт";
@@ -2588,7 +2592,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
                         <span style={{fontSize:13,color:C.textFaint,whiteSpace:"nowrap"}}>изначально {refQty} {unit}</span>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                        <input type="number" min="0" max={refQty} step={ref.is_weight_item?"0.1":"0.5"} value={deliveredQty[key]} onFocus={e=>e.target.select()}
+                        <input type="number" min="0" step={ref.is_weight_item?"0.1":"0.5"} value={deliveredQty[key]} onFocus={e=>e.target.select()}
                           onChange={e=>setDeliveredQty(a=>({...a,[key]:e.target.value}))}
                           style={{...S.input,width:88,padding:"7px 8px",fontSize:15,fontWeight:700,textAlign:"right"}}/>
                         <span style={{fontSize:14,color:C.textFaint}}>{unit}</span>
