@@ -54,6 +54,15 @@ function waMeLink(phone, text) {
   if (!digits) return null;
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
+// tel:-диплинк — открывает звонок в самом устройстве оператора (телефон/
+// планшет со звонилкой; на компьютере — что бы ни было там назначено
+// обработчиком tel:), а не через сайт. Оставляем "+", остальное — только
+// цифры, чтобы номер вида "+7 (700) 123-45-67" не сломал ссылку.
+function telLink(phone) {
+  const digits = String(phone || '').trim().replace(/(?!^\+)[^\d]/g, '');
+  if (!digits.replace(/\D/g, '')) return null;
+  return `tel:${digits}`;
+}
 function debtReminderText(d) {
   const sum = d.remaining.toLocaleString();
   const refRu = d.order_id ? `накладной № ${d.order_id}` : `чеку № ${d.sale_id}`;
@@ -1824,6 +1833,16 @@ function DebtsPanel({
     loadDebts();
     if (role) loadReminders();
   };
+  // Звонок должнику — номер тот же, что торговый вписал при оформлении
+  // заявки (contact_phone, см. GET /api/debts). Спрашиваем подтверждение,
+  // чтобы случайное нажатие не запускало звонок сразу, и открываем tel: —
+  // дальше сам звонок идёт с личного телефона оператора, не через сайт.
+  const callDebtor = d => {
+    const link = telLink(d.contact_phone);
+    if (!link) return;
+    if (!window.confirm(`Позвонить «${d.client_name}» по номеру ${d.contact_phone}?`)) return;
+    window.location.href = link;
+  };
   const saveCorrection = async s => {
     const amount = Number(correctAmount);
     if (!amount || amount <= 0) return;
@@ -2129,7 +2148,22 @@ function DebtsPanel({
         color: C.navy,
         textDecoration: "none"
       }
-    }, "\uD83D\uDCC4 \u041D\u0430\u043A\u043B\u0430\u0434\u043D\u0430\u044F"), waMeLink(d.contact_phone, debtReminderText(d)) && /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDCC4 \u041D\u0430\u043A\u043B\u0430\u0434\u043D\u0430\u044F"), telLink(d.contact_phone) && /*#__PURE__*/React.createElement("button", {
+      onClick: () => callDebtor(d),
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 14,
+        fontWeight: 600,
+        color: C.navy,
+        background: "none",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+        fontFamily: "inherit"
+      }
+    }, "\uD83D\uDCDE ", d.contact_phone), waMeLink(d.contact_phone, debtReminderText(d)) && /*#__PURE__*/React.createElement("button", {
       onClick: () => sendReminder(d),
       style: {
         display: "inline-flex",

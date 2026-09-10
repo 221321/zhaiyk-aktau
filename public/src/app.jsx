@@ -43,6 +43,15 @@ function waMeLink(phone, text) {
   if (!digits) return null;
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
+// tel:-диплинк — открывает звонок в самом устройстве оператора (телефон/
+// планшет со звонилкой; на компьютере — что бы ни было там назначено
+// обработчиком tel:), а не через сайт. Оставляем "+", остальное — только
+// цифры, чтобы номер вида "+7 (700) 123-45-67" не сломал ссылку.
+function telLink(phone) {
+  const digits = String(phone || '').trim().replace(/(?!^\+)[^\d]/g, '');
+  if (!digits.replace(/\D/g, '')) return null;
+  return `tel:${digits}`;
+}
 function debtReminderText(d) {
   const sum = d.remaining.toLocaleString();
   const refRu = d.order_id ? `накладной № ${d.order_id}` : `чеку № ${d.sale_id}`;
@@ -795,6 +804,16 @@ function DebtsPanel({ readOnly, role }) {
     loadDebts();
     if (role) loadReminders();
   };
+  // Звонок должнику — номер тот же, что торговый вписал при оформлении
+  // заявки (contact_phone, см. GET /api/debts). Спрашиваем подтверждение,
+  // чтобы случайное нажатие не запускало звонок сразу, и открываем tel: —
+  // дальше сам звонок идёт с личного телефона оператора, не через сайт.
+  const callDebtor = (d) => {
+    const link = telLink(d.contact_phone);
+    if (!link) return;
+    if (!window.confirm(`Позвонить «${d.client_name}» по номеру ${d.contact_phone}?`)) return;
+    window.location.href = link;
+  };
   const saveCorrection = async (s) => {
     const amount = Number(correctAmount);
     if (!amount || amount<=0) return;
@@ -956,6 +975,9 @@ function DebtsPanel({ readOnly, role }) {
               <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:8,alignItems:"center"}}>
                 {d.delivery_photo&&(
                   <a href={d.delivery_photo} target="_blank" rel="noopener noreferrer" download style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600,color:C.navy,textDecoration:"none"}}>📄 Накладная</a>
+                )}
+                {telLink(d.contact_phone)&&(
+                  <button onClick={()=>callDebtor(d)} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600,color:C.navy,background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit"}}>📞 {d.contact_phone}</button>
                 )}
                 {waMeLink(d.contact_phone,debtReminderText(d))&&(
                   <button onClick={()=>sendReminder(d)} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600,color:"#25D366",background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit"}}>💬 Написать в WhatsApp</button>
