@@ -3979,6 +3979,7 @@ function OrderDetail({
   onFixItemCost,
   onFixItemWeight,
   onEditDeliveredItems,
+  onEditPrices,
   currentUser,
   drivers,
   products
@@ -4010,6 +4011,13 @@ function OrderDetail({
   const [editReason, setEditReason] = useState("");
   const [savingDeliveredItems, setSavingDeliveredItems] = useState(false);
   const [editHistoryOpen, setEditHistoryOpen] = useState(false);
+  // Свободная правка цены — только admin, до статуса "Доставлено"
+  // включительно (см. PUT /api/orders/:id/prices на сервере и onEditPrices
+  // выше — передаётся только из AdminCabinet и только ему).
+  const [editingPrices, setEditingPrices] = useState(false);
+  const [priceInputs, setPriceInputs] = useState({});
+  const [priceReason, setPriceReason] = useState("");
+  const [savingPrices, setSavingPrices] = useState(false);
   // Договорник ли клиент заявки (см. DogovornikModal/is_dogovornik) — влияет
   // на печать накладной: см. printWaybill/buildWaybillInnerHtml (hideQr).
   const [isDogovornik, setIsDogovornik] = useState(false);
@@ -4074,6 +4082,38 @@ function OrderDetail({
       alert(e.message);
     }
     setSavingDeliveredItems(false);
+  };
+  const startEditingPrices = () => {
+    const init = {};
+    items.forEach(it => {
+      if (it.code) init[it.code] = String(it.price);
+    });
+    setPriceInputs(init);
+    setPriceReason("");
+    setEditingPrices(true);
+  };
+  const savePrices = async () => {
+    if (savingPrices) return;
+    const payloadItems = items.filter(it => it.code).map(it => ({
+      code: it.code,
+      price: Number(priceInputs[it.code])
+    }));
+    if (payloadItems.some(it => !Number.isFinite(it.price) || it.price < 0)) {
+      alert('Укажите корректную цену для всех позиций');
+      return;
+    }
+    if (!window.confirm(`Изменить цену по заявке № ${order.id}? Сумма заявки пересчитается.`)) return;
+    setSavingPrices(true);
+    try {
+      const res = await onEditPrices(order.id, payloadItems, priceReason);
+      setEditingPrices(false);
+      if (res && res.payment_mismatch) {
+        alert('Готово. Обратите внимание: сумма заявки после правки больше не совпадает с уже принятой оплатой (нал/QR/долг) — оплату сверьте отдельно.');
+      }
+    } catch (e) {
+      alert(e.message);
+    }
+    setSavingPrices(false);
   };
   // Весовые позиции, вес которых ещё не подтверждён складом (см.
   // POST /api/orders/weights) — до этого кол-во в заявке условное, и
@@ -4626,7 +4666,93 @@ function OrderDetail({
     onClick: () => {
       if (window.confirm('Оформить возврат по заявке № ' + order.id + '? Действие нельзя отменить.')) onUpdateStatus(order.id, "returned", null);
     }
-  }, "\u21A9\uFE0F \u041E\u0444\u043E\u0440\u043C\u0438\u0442\u044C \u0432\u043E\u0437\u0432\u0440\u0430\u0442")), currentUser.role === "admin" && onEditDeliveredItems && order.status === "delivered" && /*#__PURE__*/React.createElement("div", {
+  }, "\u21A9\uFE0F \u041E\u0444\u043E\u0440\u043C\u0438\u0442\u044C \u0432\u043E\u0437\u0432\u0440\u0430\u0442")), currentUser.role === "admin" && onEditPrices && ["new", "in_transit", "delivered"].includes(order.status) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 20,
+      paddingTop: 16,
+      borderTop: `1px dashed ${C.border}`
+    }
+  }, !editingPrices ? /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnOutline,
+      borderColor: "#7C3AED",
+      color: "#7C3AED",
+      width: "100%"
+    },
+    onClick: startEditingPrices
+  }, "\uD83D\uDCB0 \u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0446\u0435\u043D\u0443") : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 8px",
+      fontSize: 15,
+      fontWeight: 700,
+      color: C.navy
+    }
+  }, "\u0426\u0435\u043D\u0430 \u0437\u0430 \u0435\u0434\u0438\u043D\u0438\u0446\u0443, \u20B8"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 10px",
+      fontSize: 13,
+      color: C.textFaint
+    }
+  }, "\u0421\u0432\u043E\u0431\u043E\u0434\u043D\u0430\u044F \u0446\u0435\u043D\u0430, \u0431\u0435\u0437 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u043E\u043C \u2014 \u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u0434\u043B\u044F VIP/\u043E\u043F\u0442\u043E\u0432\u043E\u0433\u043E \u043A\u043B\u0438\u0435\u043D\u0442\u0430 \u0441 \u044D\u043A\u0441\u043A\u043B\u044E\u0437\u0438\u0432\u043D\u043E\u0439 \u0446\u0435\u043D\u043E\u0439. \u0421\u0443\u043C\u043C\u0430 \u0437\u0430\u044F\u0432\u043A\u0438 \u043F\u0435\u0440\u0435\u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F."), items.filter(it => it.code).map(it => /*#__PURE__*/React.createElement("div", {
+    key: it.code,
+    style: {
+      ...S.row,
+      marginBottom: 8,
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      color: C.text,
+      flex: 1
+    }
+  }, it.name), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "0",
+    value: priceInputs[it.code] != null ? priceInputs[it.code] : "",
+    onFocus: e => e.target.select(),
+    onChange: e => setPriceInputs(a => ({
+      ...a,
+      [it.code]: e.target.value
+    })),
+    style: {
+      ...S.input,
+      width: 100,
+      padding: "7px 8px",
+      fontSize: 15,
+      fontWeight: 700,
+      textAlign: "right"
+    }
+  }))), /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      marginBottom: 10
+    },
+    placeholder: "\u041F\u0440\u0438\u0447\u0438\u043D\u0430 \u043F\u0440\u0430\u0432\u043A\u0438 (\u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
+    value: priceReason,
+    onChange: e => setPriceReason(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    disabled: savingPrices,
+    style: {
+      ...S.btnPrimary,
+      flex: 1,
+      marginTop: 0,
+      opacity: savingPrices ? 0.5 : 1
+    },
+    onClick: savePrices
+  }, savingPrices ? "Сохранение..." : "Сохранить"), /*#__PURE__*/React.createElement("button", {
+    disabled: savingPrices,
+    style: {
+      ...S.btnSecondary,
+      flex: 1
+    },
+    onClick: () => setEditingPrices(false)
+  }, "\u041E\u0442\u043C\u0435\u043D\u0430")))), currentUser.role === "admin" && onEditDeliveredItems && order.status === "delivered" && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 20,
       paddingTop: 16,
@@ -4784,7 +4910,7 @@ function OrderDetail({
       flex: 1
     },
     onClick: () => setEditingDelivered(false)
-  }, "\u041E\u0442\u043C\u0435\u043D\u0430"))), Array.isArray(order.items_edits) && order.items_edits.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\u041E\u0442\u043C\u0435\u043D\u0430")))), currentUser.role === "admin" && Array.isArray(order.items_edits) && order.items_edits.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 14
     }
@@ -4814,7 +4940,7 @@ function OrderDetail({
       fontWeight: 600,
       color: C.text
     }
-  }, e.by_name, " \xB7 ", fmtDT(e.at)), /*#__PURE__*/React.createElement("div", null, "\u0421\u0443\u043C\u043C\u0430: ", (e.before_total || 0).toLocaleString(), " \u20B8 \u2192 ", (e.after_total || 0).toLocaleString(), " \u20B8"), e.reason && /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u0438\u0447\u0438\u043D\u0430: ", e.reason))))), currentUser.role === "admin" && onDeleteOrder && order.status !== "delivered" && /*#__PURE__*/React.createElement("div", {
+  }, e.kind === "price" ? "💰 " : "", e.by_name, " \xB7 ", fmtDT(e.at)), /*#__PURE__*/React.createElement("div", null, "\u0421\u0443\u043C\u043C\u0430: ", (e.before_total || 0).toLocaleString(), " \u20B8 \u2192 ", (e.after_total || 0).toLocaleString(), " \u20B8"), e.reason && /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u0438\u0447\u0438\u043D\u0430: ", e.reason)))), currentUser.role === "admin" && onDeleteOrder && order.status !== "delivered" && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 20,
       paddingTop: 16,
@@ -13109,6 +13235,20 @@ function AdminCabinet({
     loadOrders();
     return res;
   };
+
+  // Свободная правка цены позиций — только admin, до статуса "Доставлено"
+  // включительно (см. PUT /api/orders/:id/prices на сервере). Нужна для
+  // VIP/оптовых клиентов с эксклюзивной ценой, которую торговый не знал на
+  // момент оформления заявки.
+  const editPrices = async (orderId, items, reason) => {
+    const res = await apiCall('PUT', `/api/orders/${orderId}/prices`, {
+      items,
+      reason
+    });
+    setSelectedOrder(res);
+    loadOrders();
+    return res;
+  };
   const [expandedSales, setExpandedSales] = useState({});
   const [cashboxGroupBy, setCashboxGroupBy] = useState("driver");
   // Клик по кругляшкам НАЛ/QR/ДОЛГ в сводке "Касса за период" прокручивает
@@ -16076,6 +16216,7 @@ function AdminCabinet({
       onFixItemCost: user.role !== "operator" ? fixItemCost : undefined,
       onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
       onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
+      onEditPrices: user.role === "admin" ? editPrices : undefined,
       currentUser: user,
       drivers: users.filter(u => u.role === "driver" && u.active !== false),
       products: products
@@ -16169,6 +16310,7 @@ function AdminCabinet({
     onFixItemCost: user.role !== "operator" ? fixItemCost : undefined,
     onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
     onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
+    onEditPrices: user.role === "admin" ? editPrices : undefined,
     currentUser: user,
     drivers: users.filter(u => u.role === "driver" && u.active !== false),
     products: products

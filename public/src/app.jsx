@@ -2140,7 +2140,7 @@ function PhotoViewerOverlay({ src, onClose }) {
   );
 }
 
-function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, onEditDeliveredItems, currentUser, drivers, products }) {
+function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, onEditDeliveredItems, onEditPrices, currentUser, drivers, products }) {
   // Позиции заявки хранят псевдоним товара (см. addToCart), а в накладной
   // должно быть название из 1С (см. buildWaybillInnerHtml) — карта код->
   // название из уже загруженного в кабинете каталога (products), которую
@@ -2166,6 +2166,13 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
   const [editReason, setEditReason] = useState("");
   const [savingDeliveredItems, setSavingDeliveredItems] = useState(false);
   const [editHistoryOpen, setEditHistoryOpen] = useState(false);
+  // Свободная правка цены — только admin, до статуса "Доставлено"
+  // включительно (см. PUT /api/orders/:id/prices на сервере и onEditPrices
+  // выше — передаётся только из AdminCabinet и только ему).
+  const [editingPrices, setEditingPrices] = useState(false);
+  const [priceInputs, setPriceInputs] = useState({});
+  const [priceReason, setPriceReason] = useState("");
+  const [savingPrices, setSavingPrices] = useState(false);
   // Договорник ли клиент заявки (см. DogovornikModal/is_dogovornik) — влияет
   // на печать накладной: см. printWaybill/buildWaybillInnerHtml (hideQr).
   const [isDogovornik, setIsDogovornik] = useState(false);
@@ -2219,6 +2226,28 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
       }
     } catch(e) { alert(e.message); }
     setSavingDeliveredItems(false);
+  };
+  const startEditingPrices = () => {
+    const init = {};
+    items.forEach(it => { if (it.code) init[it.code] = String(it.price); });
+    setPriceInputs(init);
+    setPriceReason("");
+    setEditingPrices(true);
+  };
+  const savePrices = async () => {
+    if (savingPrices) return;
+    const payloadItems = items.filter(it=>it.code).map(it => ({ code: it.code, price: Number(priceInputs[it.code]) }));
+    if (payloadItems.some(it=>!Number.isFinite(it.price)||it.price<0)) { alert('Укажите корректную цену для всех позиций'); return; }
+    if (!window.confirm(`Изменить цену по заявке № ${order.id}? Сумма заявки пересчитается.`)) return;
+    setSavingPrices(true);
+    try {
+      const res = await onEditPrices(order.id, payloadItems, priceReason);
+      setEditingPrices(false);
+      if (res && res.payment_mismatch) {
+        alert('Готово. Обратите внимание: сумма заявки после правки больше не совпадает с уже принятой оплатой (нал/QR/долг) — оплату сверьте отдельно.');
+      }
+    } catch(e) { alert(e.message); }
+    setSavingPrices(false);
   };
   // Весовые позиции, вес которых ещё не подтверждён складом (см.
   // POST /api/orders/weights) — до этого кол-во в заявке условное, и
@@ -2411,6 +2440,31 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
             <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED"}} onClick={()=>{if(window.confirm('Оформить возврат по заявке № '+order.id+'? Действие нельзя отменить.'))onUpdateStatus(order.id,"returned",null);}}>↩️ Оформить возврат</button>
           </div>
         )}
+        {currentUser.role==="admin" && onEditPrices && ["new","in_transit","delivered"].includes(order.status) && (
+          <div style={{marginTop:20,paddingTop:16,borderTop:`1px dashed ${C.border}`}}>
+            {!editingPrices ? (
+              <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",width:"100%"}} onClick={startEditingPrices}>💰 Изменить цену</button>
+            ) : (
+              <div>
+                <p style={{margin:"0 0 8px",fontSize:15,fontWeight:700,color:C.navy}}>Цена за единицу, ₸</p>
+                <p style={{margin:"0 0 10px",fontSize:13,color:C.textFaint}}>Свободная цена, без ограничения каталогом — например, для VIP/оптового клиента с эксклюзивной ценой. Сумма заявки пересчитается.</p>
+                {items.filter(it=>it.code).map(it=>(
+                  <div key={it.code} style={{...S.row,marginBottom:8,gap:8}}>
+                    <span style={{fontSize:14,color:C.text,flex:1}}>{it.name}</span>
+                    <input type="number" min="0" value={priceInputs[it.code]!=null?priceInputs[it.code]:""} onFocus={e=>e.target.select()}
+                      onChange={e=>setPriceInputs(a=>({...a,[it.code]:e.target.value}))}
+                      style={{...S.input,width:100,padding:"7px 8px",fontSize:15,fontWeight:700,textAlign:"right"}}/>
+                  </div>
+                ))}
+                <input style={{...S.input,marginBottom:10}} placeholder="Причина правки (необязательно)" value={priceReason} onChange={e=>setPriceReason(e.target.value)}/>
+                <div style={{display:"flex",gap:8}}>
+                  <button disabled={savingPrices} style={{...S.btnPrimary,flex:1,marginTop:0,opacity:savingPrices?0.5:1}} onClick={savePrices}>{savingPrices?"Сохранение...":"Сохранить"}</button>
+                  <button disabled={savingPrices} style={{...S.btnSecondary,flex:1}} onClick={()=>setEditingPrices(false)}>Отмена</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         {currentUser.role==="admin" && onEditDeliveredItems && order.status==="delivered" && (
           <div style={{marginTop:20,paddingTop:16,borderTop:`1px dashed ${C.border}`}}>
             {!editingDelivered ? (
@@ -2450,18 +2504,18 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
                 </div>
               </div>
             )}
-            {Array.isArray(order.items_edits) && order.items_edits.length>0 && (
-              <div style={{marginTop:14}}>
-                <p style={{margin:0,fontSize:14,fontWeight:600,color:C.navy,cursor:"pointer",textDecoration:"underline"}} onClick={()=>setEditHistoryOpen(o=>!o)}>{editHistoryOpen?"▲ Скрыть историю правок":`▼ История правок (${order.items_edits.length})`}</p>
-                {editHistoryOpen && order.items_edits.slice().reverse().map((e,i)=>(
-                  <div key={i} style={{marginTop:8,padding:"8px 10px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,fontSize:13,color:C.textSub}}>
-                    <div style={{fontWeight:600,color:C.text}}>{e.by_name} · {fmtDT(e.at)}</div>
-                    <div>Сумма: {(e.before_total||0).toLocaleString()} ₸ → {(e.after_total||0).toLocaleString()} ₸</div>
-                    {e.reason&&<div>Причина: {e.reason}</div>}
-                  </div>
-                ))}
+          </div>
+        )}
+        {currentUser.role==="admin" && Array.isArray(order.items_edits) && order.items_edits.length>0 && (
+          <div style={{marginTop:14}}>
+            <p style={{margin:0,fontSize:14,fontWeight:600,color:C.navy,cursor:"pointer",textDecoration:"underline"}} onClick={()=>setEditHistoryOpen(o=>!o)}>{editHistoryOpen?"▲ Скрыть историю правок":`▼ История правок (${order.items_edits.length})`}</p>
+            {editHistoryOpen && order.items_edits.slice().reverse().map((e,i)=>(
+              <div key={i} style={{marginTop:8,padding:"8px 10px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,fontSize:13,color:C.textSub}}>
+                <div style={{fontWeight:600,color:C.text}}>{e.kind==="price"?"💰 ":""}{e.by_name} · {fmtDT(e.at)}</div>
+                <div>Сумма: {(e.before_total||0).toLocaleString()} ₸ → {(e.after_total||0).toLocaleString()} ₸</div>
+                {e.reason&&<div>Причина: {e.reason}</div>}
               </div>
-            )}
+            ))}
           </div>
         )}
         {currentUser.role==="admin" && onDeleteOrder && order.status!=="delivered" && (
@@ -6321,6 +6375,17 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return res;
   };
 
+  // Свободная правка цены позиций — только admin, до статуса "Доставлено"
+  // включительно (см. PUT /api/orders/:id/prices на сервере). Нужна для
+  // VIP/оптовых клиентов с эксклюзивной ценой, которую торговый не знал на
+  // момент оформления заявки.
+  const editPrices = async (orderId, items, reason) => {
+    const res = await apiCall('PUT', `/api/orders/${orderId}/prices`, { items, reason });
+    setSelectedOrder(res);
+    loadOrders();
+    return res;
+  };
+
   const [expandedSales, setExpandedSales] = useState({});
   const [cashboxGroupBy, setCashboxGroupBy] = useState("driver");
   // Клик по кругляшкам НАЛ/QR/ДОЛГ в сводке "Касса за период" прокручивает
@@ -7629,7 +7694,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return (
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
         <AutofillDecoy/>
-        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         {showNewOrderModal&&<NewOrderModal products={products} clients={clients} onClose={()=>setShowNewOrderModal(false)} onCreated={()=>{ setShowNewOrderModal(false); loadOrders(); }} isAdmin={user.role==="admin"}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
@@ -7660,7 +7725,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   return (
     <div style={{paddingBottom:72}}>
       <AutofillDecoy/>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
       {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
