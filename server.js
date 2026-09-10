@@ -2516,14 +2516,20 @@ app.put('/api/debt-settlements/:id', authMiddleware, (req, res) => {
 // см. соответствующие эндпоинты) =====
 db.defaults({ stock: [] }).write();
 
-// 1С — снова источник остатков (решение владельца отменено). 1С может
-// присылать не полный снимок, а только изменившиеся коды — поэтому
-// обновляем/добавляем только присланные коды через upsert, а не полностью
-// заменяем коллекцию db.set(), иначе коды, отсутствующие в конкретном
-// пакете, молча обнулялись бы (см. computeAvailableStock: код без записи в
-// stock = остаток 0; этот баг уже однажды чинили, см. историю коммитов).
+// 1С — снова источник остатков (решение владельца отменено). ПО УМОЛЧАНИЮ
+// это upsert, не полная замена: 1С может присылать не полный снимок, а
+// только изменившиеся коды — обновляем/добавляем только присланные, а
+// код, отсутствующий в конкретном пакете, не трогаем (иначе он молча
+// обнулился бы; этот баг уже однажды чинили, см. историю коммитов).
+//
+// full:true в теле запроса — явное исключение из этого правила: "этот
+// пакет — окончательный полный список остатков, всё остальное обнулить".
+// Нужно для разового полного пересчёта (например, переделали ввод
+// начальных остатков в 1С и хотим, чтобы сайт забыл всё, чего в новом
+// списке уже нет, а не копил старые цифры с прошлых тестовых прогонов).
+// Без явного full:true поведение не меняется вообще.
 app.post('/api/stock/sync', (req, res) => {
-  const { items, secret } = req.body;
+  const { items, secret, full } = req.body;
   if (secret !== SYNC_SECRET) {
     console.error(`[stock/sync] ${new Date().toISOString()} отклонён: неверный secret (items: ${(items || []).length})`);
     return res.status(403).json({ error: 'Нет доступа' });
@@ -2572,9 +2578,24 @@ app.post('/api/stock/sync', (req, res) => {
     }
     count++;
   });
+
+  let zeroed = 0;
+  if (full) {
+    const sentCodes = new Set((items || []).map(it => it && it.code).filter(Boolean));
+    stock.forEach(rec => {
+      if (sentCodes.has(rec.code)) return;
+      const isWeightItem = !!(aliasMap[rec.code] && aliasMap[rec.code].priced_by_weight);
+      if (isWeightItem) {
+        if (rec.weight_kg) { rec.weight_kg = 0; zeroed++; }
+      } else {
+        if (rec.qty) { rec.qty = 0; rec.weight_kg = null; zeroed++; }
+      }
+    });
+  }
+
   db.write();
-  console.log(`[stock/sync] ${new Date().toISOString()} применено кодов: ${count} из ${(items || []).length} присланных`);
-  res.json({ success: true, count });
+  console.log(`[stock/sync] ${new Date().toISOString()} применено кодов: ${count} из ${(items || []).length} присланных${full ? `, полный снимок — обнулено кодов вне пакета: ${zeroed}` : ''}`);
+  res.json({ success: true, count, zeroed: full ? zeroed : undefined });
 });
 
 // История движения по товару — по просьбе владельца: "был остаток, торговый

@@ -50,6 +50,19 @@ test('products/sync — исчезновение кода из полного с
   assert.equal(products.find(p => p.code === 'B1').stock, 0, 'старый остаток не должен вернуться вместе с кодом');
 });
 
+test('stock/sync с full:true — обнуляет коды, отсутствующие в пакете (разовый полный пересчёт)', async () => {
+  await apiCall(server.baseUrl, 'POST', '/api/products/sync', { secret: SYNC_SECRET, items: [{ code: 'D1', name: 'Товар D1', unit: 'кор', price: 100 }, { code: 'D2', name: 'Товар D2', unit: 'кор', price: 200 }] });
+  await apiCall(server.baseUrl, 'POST', '/api/stock/sync', { secret: SYNC_SECRET, items: [{ code: 'D1', qty: 10 }, { code: 'D2', qty: 20 }] });
+
+  // Переделали ввод остатков в 1С — в новом окончательном списке D2 уже нет.
+  const res = await apiCall(server.baseUrl, 'POST', '/api/stock/sync', { secret: SYNC_SECRET, full: true, items: [{ code: 'D1', qty: 15 }] });
+  assert.equal(res.zeroed, 1);
+
+  const products = await apiCall(server.baseUrl, 'GET', '/api/products');
+  assert.equal(products.find(p => p.code === 'D1').stock, 15);
+  assert.equal(products.find(p => p.code === 'D2').stock, 0, 'full:true должен обнулить код, которого больше нет в присланном полном списке');
+});
+
 test('products/sync — дубль кода в одном пакете не создаёт вторую позицию', async () => {
   const res = await apiCall(server.baseUrl, 'POST', '/api/products/sync', {
     secret: SYNC_SECRET,
