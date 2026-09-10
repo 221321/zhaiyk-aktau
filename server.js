@@ -47,12 +47,16 @@ function round2(n) {
 const NKT_OFD_BASE_URL = process.env.NKT_OFD_BASE_URL || 'https://nct.gov.kz/api/integration/ofd';
 const NKT_OFD_JWT = process.env.NKT_OFD_JWT || '';
 
+// UPLOADS_DIR — только для автотестов (см. DB_PATH выше и tests/), чтобы
+// загруженные тестовые фото не попадали в боевую папку uploads/.
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
+
 // ===== ФОТО ПОДПИСАННЫХ НАКЛАДНЫХ =====
-const WAYBILL_PHOTOS_DIR = path.join(__dirname, 'uploads', 'waybill-photos');
+const WAYBILL_PHOTOS_DIR = path.join(UPLOADS_DIR, 'waybill-photos');
 fs.mkdirSync(WAYBILL_PHOTOS_DIR, { recursive: true });
 
 // ===== ФОТО ТОВАРОВ (карточки номенклатуры) =====
-const PRODUCT_PHOTOS_DIR = path.join(__dirname, 'uploads', 'product-photos');
+const PRODUCT_PHOTOS_DIR = path.join(UPLOADS_DIR, 'product-photos');
 fs.mkdirSync(PRODUCT_PHOTOS_DIR, { recursive: true });
 
 // ===== PUSH (web-push / VAPID) =====
@@ -63,10 +67,13 @@ webpush.setVapidDetails('mailto:admin@probuh.asia', VAPID_PUBLIC_KEY, VAPID_PRIV
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 // База данных (JSON файл)
-const adapter = new FileSync('db.json');
+// DB_PATH — только для автотестов (см. tests/), чтобы каждый прогон
+// получал свежую изолированную базу вместо боевого db.json. В обычной
+// работе (деплой, разработка) переменная не задана, и путь как раньше.
+const adapter = new FileSync(process.env.DB_PATH || 'db.json');
 const db = low(adapter);
 
 // Начальные данные
