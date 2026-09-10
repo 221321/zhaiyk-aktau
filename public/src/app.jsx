@@ -69,15 +69,15 @@ function debtReminderText(d) {
 // отправляет. На компьютере (или если share недоступен) откатываемся к
 // прежнему поведению — текст в wa.me плюс накладная отдельной вкладкой,
 // чтобы прикрепить вручную.
+//
+// Саму отправку в /api/debt-reminders этот хелпер больше не пишет — только
+// открывает WhatsApp. Раньше запись писалась сразу по нажатию кнопки, и
+// операторы путались: нажал/открыл ещё не значит отправил (сообщение всё
+// равно уходит вживую внутри WhatsApp — сайт не может знать, дошло ли оно,
+// см. комментарий у toWhatsAppDigits). Теперь запись пишет sendReminder в
+// DebtsPanel, и только после того, как оператор сам подтвердит, что
+// отправил (см. waitForReturn там же).
 async function shareDebtReminder(d) {
-  // Фиксируем сам факт "нажал написать" сразу, до открытия WhatsApp — само
-  // сообщение всё равно отправляет вживую человек внутри WhatsApp (см.
-  // комментарий у toWhatsAppDigits), приложение не может знать, дошло ли
-  // оно; ждать успеха native share не нужно (share может и не завершиться,
-  // напр. пользователь просто закрыл системный диалог, см. ниже). Список
-  // "Должники" (см. DebtsPanel) после этого перезагружается и показывает
-  // "сегодня уже писали" остальным операторам.
-  apiCall('POST', '/api/debt-reminders', { orderId: d.order_id || undefined, saleId: d.sale_id || undefined }).catch(()=>{});
   const text = debtReminderText(d);
   const link = waMeLink(d.contact_phone, text);
   const openFallback = () => {
@@ -100,6 +100,32 @@ async function shareDebtReminder(d) {
     if (e && e.name === 'AbortError') return;
   }
   openFallback();
+}
+
+// Ждём, пока оператор вернётся на вкладку/приложение после того, как
+// переключился в WhatsApp — 'focus' на window срабатывает и при возврате из
+// другого приложения (мобильный переключатель задач), и при возврате в
+// открытую вкладку с сайта после закрытия/переключения вкладки WhatsApp
+// (десктоп). Это лучший доступный сигнал "похоже, человек закончил" — сам
+// факт отправки сайту всё равно не виден (см. shareDebtReminder), поэтому
+// дальше оператор подтверждает вручную (см. sendReminder в DebtsPanel).
+// Таймаут — подстраховка на случай, если событие вообще не сработает
+// (например, всплывающее окно WhatsApp заблокировано браузером).
+function waitForReturn(timeoutMs = 15000) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('focus', finish);
+      document.removeEventListener('visibilitychange', onVis);
+      resolve();
+    };
+    const onVis = () => { if (document.visibilityState === 'visible') finish(); };
+    window.addEventListener('focus', finish);
+    document.addEventListener('visibilitychange', onVis);
+    setTimeout(finish, timeoutMs);
+  });
 }
 
 const SL = { new: "Ожидает", in_transit: "В работе", delivered: "Доставлено", cancelled: "Отказ при получении", returned: "Возврат", revoked: "Отозвана" };
@@ -821,7 +847,20 @@ function DebtsPanel({ readOnly, role }) {
       const when = new Date(d.last_reminder_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
       if (!window.confirm(`Сегодня в ${when} должнику «${d.client_name}» уже писали (${d.last_reminder_by_name}). Отправить ещё раз?`)) return;
     }
+    // Слушатели возврата на вкладку регистрируем ДО открытия WhatsApp
+    // (см. waitForReturn) — иначе можно пропустить момент переключения.
+    const returned = waitForReturn();
     await shareDebtReminder(d);
+    await returned;
+    // Сайт не видит, что реально произошло внутри WhatsApp — спрашиваем
+    // оператора напрямую, вместо того чтобы считать открытие ссылки
+    // отправкой (см. комментарий у shareDebtReminder). "Нет" — ничего не
+    // пишем, карточка должника останется как есть.
+    if (window.confirm(`Отправили сообщение в WhatsApp должнику «${d.client_name}»?`)) {
+      try {
+        await apiCall('POST', '/api/debt-reminders', { orderId: d.order_id||undefined, saleId: d.sale_id||undefined });
+      } catch(e) {}
+    }
     loadDebts();
     if (role) loadReminders();
   };
