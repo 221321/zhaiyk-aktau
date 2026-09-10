@@ -4083,6 +4083,21 @@ function DriverCabinet({ user, onLogout }) {
   );
 }
 
+// Сверка "весовой товар" (галочка на сайте) с единицей измерения, которую
+// реально прислала 1С (p.unit, см. /api/products/sync) — найденная на
+// практике причина рассинхрона остатка: если 1С считает товар в штуках/
+// коробах, а на сайте он ошибочно отмечен как весовой (или наоборот, 1С
+// шлёт кг, а на сайте не отмечен) — заявки на сайте пишут qty в одном
+// смысле, а 1С разбирает его в другом, отсюда и разъезжаются цифры при
+// синхронизации (см. историю: "Яйцо Деревенское 360" считалось на сайте в
+// кг, хотя 1С — в шт, из-за этого при сверке остатков расхождение было в
+// десятки раз больше, чем по остальным товарам).
+function weightUnitMismatch(unit, pricedByWeight) {
+  if (!unit) return false; // 1С ещё не прислала единицу — сверять не с чем
+  const isKg = /^кг\.?$/i.test(unit.trim());
+  return isKg !== !!pricedByWeight;
+}
+
 // Мемоизированная карточка товара для вкладки "Товары" (псевдонимы/цены).
 // Раньше все карточки рендерились заново на каждое нажатие клавиши в любом
 // поле — из-за этого набор текста подтормаживал, особенно когда открыт список
@@ -4118,6 +4133,11 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked: lockedProp,
         <input type="checkbox" disabled={locked} checked={pricedByWeight} onChange={e=>onChange(p.code,'priced_by_weight',e.target.checked)}/>
         Весовой товар (цена за кг, кол-во в заявке — до факт. взвешивания на складе)
       </label>
+      {weightUnitMismatch(p.unit, pricedByWeight)&&(
+        <p style={{margin:"0 0 6px",fontSize:12,fontWeight:700,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",padding:"5px 8px",borderRadius:6}}>
+          ⚠ В 1С единица измерения товара — «{p.unit}», а галочка "Весовой товар" здесь {pricedByWeight?'включена':'выключена'}. Если это не весовой товар (штуки/короба), 1С и сайт будут расходиться в остатках.
+        </p>
+      )}
       {pricedByWeight&&(
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
           <span style={{fontSize:13,color:locked?C.textFaint:C.textMid,whiteSpace:"nowrap"}}>Средний вес короба, кг</span>
@@ -4214,6 +4234,7 @@ function ProductAliasesPanel({ desktop }) {
   const [savingCode, setSavingCode] = useState(null);
   const [editingCodes, setEditingCodes] = useState({});
   const [aliasSectionsOpen, setAliasSectionsOpen] = useState({ unset: true, set: false });
+  const [onlyMismatch, setOnlyMismatch] = useState(false);
 
   const loadProducts = useCallback(async () => {
     try { setProducts(await fetch('/api/products').then(r => r.json())); } catch(e) {}
@@ -4322,7 +4343,10 @@ function ProductAliasesPanel({ desktop }) {
   // что показано в предупреждении отчёта о прибыли), было невозможно —
   // "Ничего не найдено" даже когда товар точно есть.
   const q = aliasSearch.trim().toLowerCase();
-  const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name||'').toLowerCase().includes(q) || (p.code||'').includes(q));
+  const mismatchCount = products.filter(p => weightUnitMismatch(p.unit, !!p.priced_by_weight)).length;
+  const filtered = products
+    .filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name||'').toLowerCase().includes(q) || (p.code||'').includes(q))
+    .filter(p => !onlyMismatch || weightUnitMismatch(p.unit, !!p.priced_by_weight));
   const withoutAlias = filtered.filter(p => !p.has_alias);
   const withAlias = filtered.filter(p => p.has_alias);
 
@@ -4333,6 +4357,14 @@ function ProductAliasesPanel({ desktop }) {
         <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
           Название из 1С меняется от поставки к поставке — задай здесь постоянное имя, которое увидят торгпреды.
         </p>
+        {mismatchCount>0&&(
+          <button
+            onClick={()=>setOnlyMismatch(v=>!v)}
+            style={{display:"block",width:"100%",textAlign:"left",marginBottom:12,padding:"10px 12px",borderRadius:10,border:`1px solid ${onlyMismatch?"#92400E":"#FDE68A"}`,background:onlyMismatch?"#92400E":"#FFFBEB",color:onlyMismatch?"#fff":"#92400E",fontSize:13,fontWeight:700,cursor:"pointer"}}
+          >
+            ⚠ {mismatchCount} {mismatchCount===1?'товар':'товаров'}: единица измерения из 1С не совпадает с галочкой "Весовой товар" — риск рассинхрона остатка. {onlyMismatch?'Показать все товары':'Показать только их'}
+          </button>
+        )}
         <input
           type="search"
           style={{...S.input,marginBottom:12}}
@@ -6088,6 +6120,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   }, []);
   useEffect(() => { loadProducts(); }, []);
   const [aliasSearch, setAliasSearch] = useState("");
+  const [onlyMismatch, setOnlyMismatch] = useState(false);
   const [catalogAdminSearch, setCatalogAdminSearch] = useState("");
   const [catalogAdminSection, setCatalogAdminSection] = useState("");
 
@@ -7422,6 +7455,18 @@ function AdminCabinet({ user, onLogout, desktop }) {
           <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
             Название из 1С меняется от поставки к поставке — задай здесь постоянное имя, которое увидят торгпреды.
           </p>
+          {(() => {
+            const mismatchCount = products.filter(p => weightUnitMismatch(p.unit, !!p.priced_by_weight)).length;
+            if (!mismatchCount) return null;
+            return (
+              <button
+                onClick={()=>setOnlyMismatch(v=>!v)}
+                style={{display:"block",width:"100%",textAlign:"left",marginBottom:12,padding:"10px 12px",borderRadius:10,border:`1px solid ${onlyMismatch?"#92400E":"#FDE68A"}`,background:onlyMismatch?"#92400E":"#FFFBEB",color:onlyMismatch?"#fff":"#92400E",fontSize:13,fontWeight:700,cursor:"pointer"}}
+              >
+                ⚠ {mismatchCount} {mismatchCount===1?'товар':'товаров'}: единица измерения из 1С не совпадает с галочкой "Весовой товар" — риск рассинхрона остатка. {onlyMismatch?'Показать все товары':'Показать только их'}
+              </button>
+            );
+          })()}
           <input
             type="search"
             style={{...S.input,marginBottom:12}}
@@ -7460,7 +7505,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
             // (display_name — постоянный псевдоним, если задан) — см. тот же
             // фикс в ProductAliasesPanel.
             const q = aliasSearch.trim().toLowerCase();
-            const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name||'').toLowerCase().includes(q) || (p.code||'').includes(q));
+            const filtered = products
+              .filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name||'').toLowerCase().includes(q) || (p.code||'').includes(q))
+              .filter(p => !onlyMismatch || weightUnitMismatch(p.unit, !!p.priced_by_weight));
             const withoutAlias = filtered.filter(p => !p.has_alias);
             const withAlias = filtered.filter(p => p.has_alias);
 
