@@ -8406,6 +8406,21 @@ function DriverCabinet({
   }, lb)))));
 }
 
+// Сверка "весовой товар" (галочка на сайте) с единицей измерения, которую
+// реально прислала 1С (p.unit, см. /api/products/sync) — найденная на
+// практике причина рассинхрона остатка: если 1С считает товар в штуках/
+// коробах, а на сайте он ошибочно отмечен как весовой (или наоборот, 1С
+// шлёт кг, а на сайте не отмечен) — заявки на сайте пишут qty в одном
+// смысле, а 1С разбирает его в другом, отсюда и разъезжаются цифры при
+// синхронизации (см. историю: "Яйцо Деревенское 360" считалось на сайте в
+// кг, хотя 1С — в шт, из-за этого при сверке остатков расхождение было в
+// десятки раз больше, чем по остальным товарам).
+function weightUnitMismatch(unit, pricedByWeight) {
+  if (!unit) return false; // 1С ещё не прислала единицу — сверять не с чем
+  const isKg = /^кг\.?$/i.test(unit.trim());
+  return isKg !== !!pricedByWeight;
+}
+
 // Мемоизированная карточка товара для вкладки "Товары" (псевдонимы/цены).
 // Раньше все карточки рендерились заново на каждое нажатие клавиши в любом
 // поле — из-за этого набор текста подтормаживал, особенно когда открыт список
@@ -8516,7 +8531,18 @@ const ProductAliasCard = memo(function ProductAliasCard({
     disabled: locked,
     checked: pricedByWeight,
     onChange: e => onChange(p.code, 'priced_by_weight', e.target.checked)
-  }), "\u0412\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440 (\u0446\u0435\u043D\u0430 \u0437\u0430 \u043A\u0433, \u043A\u043E\u043B-\u0432\u043E \u0432 \u0437\u0430\u044F\u0432\u043A\u0435 \u2014 \u0434\u043E \u0444\u0430\u043A\u0442. \u0432\u0437\u0432\u0435\u0448\u0438\u0432\u0430\u043D\u0438\u044F \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435)"), pricedByWeight && /*#__PURE__*/React.createElement("div", {
+  }), "\u0412\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440 (\u0446\u0435\u043D\u0430 \u0437\u0430 \u043A\u0433, \u043A\u043E\u043B-\u0432\u043E \u0432 \u0437\u0430\u044F\u0432\u043A\u0435 \u2014 \u0434\u043E \u0444\u0430\u043A\u0442. \u0432\u0437\u0432\u0435\u0448\u0438\u0432\u0430\u043D\u0438\u044F \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435)"), weightUnitMismatch(p.unit, pricedByWeight) && /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 6px",
+      fontSize: 12,
+      fontWeight: 700,
+      color: "#92400E",
+      background: "#FFFBEB",
+      border: "1px solid #FDE68A",
+      padding: "5px 8px",
+      borderRadius: 6
+    }
+  }, "\u26A0 \u0412 1\u0421 \u0435\u0434\u0438\u043D\u0438\u0446\u0430 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F \u0442\u043E\u0432\u0430\u0440\u0430 \u2014 \xAB", p.unit, "\xBB, \u0430 \u0433\u0430\u043B\u043E\u0447\u043A\u0430 \"\u0412\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440\" \u0437\u0434\u0435\u0441\u044C ", pricedByWeight ? 'включена' : 'выключена', ". \u0415\u0441\u043B\u0438 \u044D\u0442\u043E \u043D\u0435 \u0432\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440 (\u0448\u0442\u0443\u043A\u0438/\u043A\u043E\u0440\u043E\u0431\u0430), 1\u0421 \u0438 \u0441\u0430\u0439\u0442 \u0431\u0443\u0434\u0443\u0442 \u0440\u0430\u0441\u0445\u043E\u0434\u0438\u0442\u044C\u0441\u044F \u0432 \u043E\u0441\u0442\u0430\u0442\u043A\u0430\u0445."), pricedByWeight && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -8708,6 +8734,7 @@ function ProductAliasesPanel({
     unset: true,
     set: false
   });
+  const [onlyMismatch, setOnlyMismatch] = useState(false);
   const loadProducts = useCallback(async () => {
     try {
       setProducts(await fetch('/api/products').then(r => r.json()));
@@ -8874,7 +8901,8 @@ function ProductAliasesPanel({
   // что показано в предупреждении отчёта о прибыли), было невозможно —
   // "Ничего не найдено" даже когда товар точно есть.
   const q = aliasSearch.trim().toLowerCase();
-  const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name || '').toLowerCase().includes(q) || (p.code || '').includes(q));
+  const mismatchCount = products.filter(p => weightUnitMismatch(p.unit, !!p.priced_by_weight)).length;
+  const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name || '').toLowerCase().includes(q) || (p.code || '').includes(q)).filter(p => !onlyMismatch || weightUnitMismatch(p.unit, !!p.priced_by_weight));
   const withoutAlias = filtered.filter(p => !p.has_alias);
   const withAlias = filtered.filter(p => p.has_alias);
   return /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
@@ -8890,7 +8918,23 @@ function ProductAliasesPanel({
       marginTop: desktop ? 0 : -8,
       marginBottom: 12
     }
-  }, "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438\u0437 1\u0421 \u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043E\u0442 \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0438 \u043A \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0435 \u2014 \u0437\u0430\u0434\u0430\u0439 \u0437\u0434\u0435\u0441\u044C \u043F\u043E\u0441\u0442\u043E\u044F\u043D\u043D\u043E\u0435 \u0438\u043C\u044F, \u043A\u043E\u0442\u043E\u0440\u043E\u0435 \u0443\u0432\u0438\u0434\u044F\u0442 \u0442\u043E\u0440\u0433\u043F\u0440\u0435\u0434\u044B."), /*#__PURE__*/React.createElement("input", {
+  }, "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438\u0437 1\u0421 \u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043E\u0442 \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0438 \u043A \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0435 \u2014 \u0437\u0430\u0434\u0430\u0439 \u0437\u0434\u0435\u0441\u044C \u043F\u043E\u0441\u0442\u043E\u044F\u043D\u043D\u043E\u0435 \u0438\u043C\u044F, \u043A\u043E\u0442\u043E\u0440\u043E\u0435 \u0443\u0432\u0438\u0434\u044F\u0442 \u0442\u043E\u0440\u0433\u043F\u0440\u0435\u0434\u044B."), mismatchCount > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setOnlyMismatch(v => !v),
+    style: {
+      display: "block",
+      width: "100%",
+      textAlign: "left",
+      marginBottom: 12,
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: `1px solid ${onlyMismatch ? "#92400E" : "#FDE68A"}`,
+      background: onlyMismatch ? "#92400E" : "#FFFBEB",
+      color: onlyMismatch ? "#fff" : "#92400E",
+      fontSize: 13,
+      fontWeight: 700,
+      cursor: "pointer"
+    }
+  }, "\u26A0 ", mismatchCount, " ", mismatchCount === 1 ? 'товар' : 'товаров', ": \u0435\u0434\u0438\u043D\u0438\u0446\u0430 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F \u0438\u0437 1\u0421 \u043D\u0435 \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u0435\u0442 \u0441 \u0433\u0430\u043B\u043E\u0447\u043A\u043E\u0439 \"\u0412\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440\" \u2014 \u0440\u0438\u0441\u043A \u0440\u0430\u0441\u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0430 \u043E\u0441\u0442\u0430\u0442\u043A\u0430. ", onlyMismatch ? 'Показать все товары' : 'Показать только их'), /*#__PURE__*/React.createElement("input", {
     type: "search",
     style: {
       ...S.input,
@@ -12967,6 +13011,7 @@ function AdminCabinet({
     loadProducts();
   }, []);
   const [aliasSearch, setAliasSearch] = useState("");
+  const [onlyMismatch, setOnlyMismatch] = useState(false);
   const [catalogAdminSearch, setCatalogAdminSearch] = useState("");
   const [catalogAdminSection, setCatalogAdminSection] = useState("");
 
@@ -15554,7 +15599,27 @@ function AdminCabinet({
       marginTop: desktop ? 0 : -8,
       marginBottom: 12
     }
-  }, "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438\u0437 1\u0421 \u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043E\u0442 \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0438 \u043A \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0435 \u2014 \u0437\u0430\u0434\u0430\u0439 \u0437\u0434\u0435\u0441\u044C \u043F\u043E\u0441\u0442\u043E\u044F\u043D\u043D\u043E\u0435 \u0438\u043C\u044F, \u043A\u043E\u0442\u043E\u0440\u043E\u0435 \u0443\u0432\u0438\u0434\u044F\u0442 \u0442\u043E\u0440\u0433\u043F\u0440\u0435\u0434\u044B."), /*#__PURE__*/React.createElement("input", {
+  }, "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438\u0437 1\u0421 \u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043E\u0442 \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0438 \u043A \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0435 \u2014 \u0437\u0430\u0434\u0430\u0439 \u0437\u0434\u0435\u0441\u044C \u043F\u043E\u0441\u0442\u043E\u044F\u043D\u043D\u043E\u0435 \u0438\u043C\u044F, \u043A\u043E\u0442\u043E\u0440\u043E\u0435 \u0443\u0432\u0438\u0434\u044F\u0442 \u0442\u043E\u0440\u0433\u043F\u0440\u0435\u0434\u044B."), (() => {
+    const mismatchCount = products.filter(p => weightUnitMismatch(p.unit, !!p.priced_by_weight)).length;
+    if (!mismatchCount) return null;
+    return /*#__PURE__*/React.createElement("button", {
+      onClick: () => setOnlyMismatch(v => !v),
+      style: {
+        display: "block",
+        width: "100%",
+        textAlign: "left",
+        marginBottom: 12,
+        padding: "10px 12px",
+        borderRadius: 10,
+        border: `1px solid ${onlyMismatch ? "#92400E" : "#FDE68A"}`,
+        background: onlyMismatch ? "#92400E" : "#FFFBEB",
+        color: onlyMismatch ? "#fff" : "#92400E",
+        fontSize: 13,
+        fontWeight: 700,
+        cursor: "pointer"
+      }
+    }, "\u26A0 ", mismatchCount, " ", mismatchCount === 1 ? 'товар' : 'товаров', ": \u0435\u0434\u0438\u043D\u0438\u0446\u0430 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F \u0438\u0437 1\u0421 \u043D\u0435 \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u0435\u0442 \u0441 \u0433\u0430\u043B\u043E\u0447\u043A\u043E\u0439 \"\u0412\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440\" \u2014 \u0440\u0438\u0441\u043A \u0440\u0430\u0441\u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0430 \u043E\u0441\u0442\u0430\u0442\u043A\u0430. ", onlyMismatch ? 'Показать все товары' : 'Показать только их');
+  })(), /*#__PURE__*/React.createElement("input", {
     type: "search",
     style: {
       ...S.input,
@@ -15592,7 +15657,7 @@ function AdminCabinet({
     // (display_name — постоянный псевдоним, если задан) — см. тот же
     // фикс в ProductAliasesPanel.
     const q = aliasSearch.trim().toLowerCase();
-    const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name || '').toLowerCase().includes(q) || (p.code || '').includes(q));
+    const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name || '').toLowerCase().includes(q) || (p.code || '').includes(q)).filter(p => !onlyMismatch || weightUnitMismatch(p.unit, !!p.priced_by_weight));
     const withoutAlias = filtered.filter(p => !p.has_alias);
     const withAlias = filtered.filter(p => p.has_alias);
 
