@@ -9368,7 +9368,7 @@ function MaterialStatementReport({
     load();
   }, [load]);
   const q = search.trim().toLowerCase();
-  const filtered = rows.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.code || '').includes(q)).filter(r => !hideEmpty || r.opening || r.income || r.outcome || r.closing);
+  const filtered = rows.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.code || '').includes(q)).filter(r => !hideEmpty || r.income || r.outcome);
   const numLabel = (v, unit) => `${v}${unit ? ' ' + unit : ''}`;
   const exportCsv = () => downloadCsv(`vedomost_${from}_${to}.csv`, filtered, [{
     label: 'Код',
