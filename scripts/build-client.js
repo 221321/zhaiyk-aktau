@@ -19,6 +19,11 @@ const result = babel.transformSync(source, {
   presets: [['@babel/preset-react', { runtime: 'classic' }]],
   babelrc: false,
   configFile: false,
+  // Без этого babel сам минифицирует вывод, если исходник больше 500KB
+  // ("code generator has deoptimised the styling") — app.jsx уже давно
+  // больше, и такой билд превращает git diff в переписывание всего файла
+  // вместо реальной правки.
+  compact: false,
 });
 
 fs.writeFileSync(outPath, result.code + '\n');

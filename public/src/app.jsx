@@ -2494,6 +2494,8 @@ function SalesCabinet({ user, token, onLogout }) {
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [editOrder, setEditOrder] = useState(null);
+  const [editLines, setEditLines] = useState([]);
+  const [editSaving, setEditSaving] = useState(false);
   const newLine = () => ({uid:Math.random(),productId:null,name:"",qty:"",price:"",search:"",showDrop:false,pricedByWeight:false,weightPerBox:""});
   const [lines, setLines] = useState([newLine()]);
 
@@ -2625,6 +2627,78 @@ function SalesCabinet({ user, token, onLogout }) {
     } catch(e) { alert(e.message); }
   };
 
+  // Правка состава заявки, пока она "Ожидает" (см. PUT /api/orders/:id/items
+  // на сервере) — раньше единственным вариантом было отозвать заявку и
+  // создать новую (см. openEditOrder ниже и модалку в JSX). Строки
+  // заполняются из уже сохранённых позиций заявки, а не с нуля.
+  const openEditOrder = (order) => {
+    const its = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+    setEditLines(its.map(it => {
+      const prod = products.find(p=>p.code===it.code);
+      const isW = !!it.is_weight_item;
+      const ownQty = Number(it.qty) || 0;
+      const ownBoxes = Number(it.boxes) || 0;
+      const baseStock = prod ? prod.stock : null;
+      const baseStockKg = prod ? prod.stock_weight_kg : null;
+      return {
+        uid: Math.random(),
+        productId: prod ? prod.id : (it.code || true),
+        code: it.code,
+        name: it.name,
+        unit: prod ? prod.unit : it.unit,
+        search: it.name,
+        showDrop: false,
+        pricedByWeight: isW,
+        qty: isW ? String(ownBoxes || ownQty) : String(ownQty),
+        weightPerBox: isW && ownBoxes > 0 ? String(Math.round((ownQty / ownBoxes) * 100) / 100) : "",
+        price: String(it.price != null ? it.price : ""),
+        commission: it.commission || 0,
+        priceOptions: prod ? prod.priceOptions : [],
+        // Возвращаем в отображаемый остаток то, что эта же заявка уже сама
+        // резервирует по этой позиции (см. /api/products: stock/stock_weight_kg
+        // там уже "доступно" за минусом всех new/in_transit заявок, включая
+        // эту) — иначе при правке нельзя было бы даже сохранить исходное кол-во.
+        stock: baseStock != null ? baseStock + (isW ? ownBoxes : ownQty) : null,
+        stockWeightKg: baseStockKg != null ? baseStockKg + (isW && it.weight_confirmed ? ownQty : 0) : null,
+        avgBoxWeight: prod ? prod.avg_box_weight : null,
+      };
+    }));
+    setEditOrder(order);
+  };
+  const updateEditLine = (uid,patch) => setEditLines(ls=>ls.map(l=>l.uid===uid?{...l,...patch}:l));
+  const removeEditLine = (uid) => setEditLines(ls=>ls.length>1?ls.filter(l=>l.uid!==uid):ls);
+  const addEditLine = () => setEditLines(ls=>[...ls,newLine()]);
+  const selectEditProduct = (uid,prod) => {
+    if (stockIsOut(prod)) return;
+    updateEditLine(uid,{
+      productId:prod.id,code:prod.code,name:prod.name,unit:prod.unit,
+      price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",
+      search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock,
+      stockWeightKg:prod.stock_weight_kg,
+      avgBoxWeight:prod.avg_box_weight,
+      pricedByWeight:!!prod.pricedByWeight,
+      weightPerBox: prod.avgWeightPerBox!=null ? String(Math.round(prod.avgWeightPerBox*100)/100) : ""
+    });
+  };
+  const filledEditLines = editLines.filter(l=>l.name&&l.productId&&Number(l.qty)>0&&Number(l.price)>0&&(!l.pricedByWeight||Number(l.weightPerBox)>0));
+  const editTotal = filledEditLines.reduce((s,l)=>s+estWeightOf(l)*Number(l.price),0);
+  const hasEditOverStock = filledEditLines.some(l=>l.pricedByWeight&&l.stockWeightKg!=null&&estWeightOf(l)>l.stockWeightKg);
+  const closeEditOrder = () => { setEditOrder(null); setEditLines([]); };
+  const handleSaveEdit = async () => {
+    if (editSaving || !editOrder) return;
+    if (filledEditLines.length===0 || hasEditOverStock) return;
+    const items = filledEditLines.map(l=>l.pricedByWeight
+      ? {id:l.productId,code:l.code,name:l.name,qty:estWeightOf(l),boxes:Number(l.qty),price:Number(l.price),commission:l.commission||0}
+      : {id:l.productId,code:l.code,name:l.name,qty:Number(l.qty),price:Number(l.price),commission:l.commission||0}
+    );
+    setEditSaving(true);
+    try {
+      await apiCall('PUT',`/api/orders/${editOrder.id}/items`,{items});
+      closeEditOrder(); loadOrders();
+    } catch(e) { alert(e.message); }
+    setEditSaving(false);
+  };
+
   const todayStr = new Date().toISOString().slice(0,10);
   const [salesDateFrom, setSalesDateFrom] = useState(todayStr);
   const [salesDateTo, setSalesDateTo] = useState(todayStr);
@@ -2682,16 +2756,93 @@ function SalesCabinet({ user, token, onLogout }) {
           <div style={{background:"#fff",margin:"16px",borderRadius:16,padding:20,maxWidth:480,marginLeft:"auto",marginRight:"auto"}}>
             <div style={{...S.row,marginBottom:16}}>
               <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>Редактирование № {editOrder.id}</p>
-              <button style={S.btnSecondary} onClick={()=>setEditOrder(null)}>✕</button>
+              <button style={S.btnSecondary} onClick={closeEditOrder}>✕</button>
             </div>
-            <p style={{fontSize:15,color:C.textSub,marginBottom:16}}>Для редактирования отзовите заявку и создайте новую</p>
-            <button style={S.btnDanger} onClick={async()=>{
+            <p style={{fontSize:14,color:C.textSub,marginBottom:12}}>Можно уменьшить/убрать позицию или добавить новую — доступно, пока заявка «Ожидает»</p>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,marginBottom:6}}>
+              {["Наименование","Кол-во","Цена ₸",""].map((h,i)=><div key={i} style={{fontSize:12,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
+            </div>
+            {editLines.map(line=>{
+              const inStock=products.filter(p=>!stockIsOut(p));
+              const matched=line.search.length>0?inStock.filter(p=>p.name.toLowerCase().includes(line.search.toLowerCase())):inStock.slice(0,50);
+              const lineWeight=estWeightOf(line);
+              const lineTotal=lineWeight>0&&Number(line.price)>0?lineWeight*Number(line.price):null;
+              return(
+                <div key={line.uid} style={{marginBottom:8}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 64px 80px 28px",gap:6,alignItems:"center"}}>
+                    <div style={{position:"relative"}}>
+                      <input style={{...S.input,padding:"8px 10px",fontSize:15,...(line.name&&!line.productId?{borderColor:C.red}:{})}} placeholder="Введите товар..." value={line.search}
+                        onChange={e=>updateEditLine(line.uid,{search:e.target.value,name:e.target.value,productId:null,price:"",showDrop:true})}
+                        onFocus={()=>updateEditLine(line.uid,{showDrop:true})}
+                        onBlur={()=>setTimeout(()=>updateEditLine(line.uid,{showDrop:false}),180)}
+                      />
+                      {line.name&&!line.productId&&!line.showDrop&&<p style={{margin:"4px 0 0",fontSize:12,color:C.red}}>Выберите товар из списка — вписать вручную нельзя</p>}
+                      {line.showDrop&&matched.length>0&&(
+                        <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:180,overflowY:"auto"}}>
+                          {matched.map(p=>{
+                            const outOfStock = stockIsOut(p);
+                            const stockLbl = stockLabel(p);
+                            return (
+                            <div key={p.id} onMouseDown={()=>selectEditProduct(line.uid,p)} style={{padding:"9px 12px",cursor:outOfStock?"not-allowed":"pointer",borderBottom:`1px solid ${C.border}`,fontSize:15,opacity:outOfStock?0.5:1,background:outOfStock?C.surface:C.white}}>
+                              <div style={{fontWeight:600}}>{p.name}</div>
+                              <div style={{fontSize:13,color:outOfStock?C.red:C.textFaint}}>{p.price>0?p.price.toLocaleString()+' ₸ / ':''}{p.unit}{p.group?' · '+p.group:''}{stockLbl!=null?(outOfStock?' · Нет в наличии':' · Остаток: '+stockLbl):''}</div>
+                            </div>
+                          )})}
+                        </div>
+                      )}
+                    </div>
+                    <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"center"}} placeholder={line.pricedByWeight?"кор":"кол"} value={line.qty} type="number" min="1" max={(!line.pricedByWeight&&line.stock!=null)?line.stock:undefined}
+                      onChange={e=>{
+                        let v = e.target.value;
+                        if (!line.pricedByWeight && line.stock!=null && Number(v) > line.stock) v = String(line.stock);
+                        updateEditLine(line.uid,{qty:v});
+                      }}
+                      onFocus={e=>e.target.select()}
+                    />
+                    <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"right",background:(line.priceOptions&&line.priceOptions.length>0)?C.surface:C.white,color:(line.priceOptions&&line.priceOptions.length>0)?C.textSub:C.text}} placeholder="цена" value={line.price} type="number"
+                      disabled={line.priceOptions&&line.priceOptions.length>0}
+                      onChange={e=>updateEditLine(line.uid,{price:e.target.value})}
+                      onFocus={e=>e.target.select()}
+                    />
+                    <button onClick={()=>removeEditLine(line.uid)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:16,color:C.textFaint}}>×</button>
+                  </div>
+                  {line.pricedByWeight
+                    ? (line.stockWeightKg!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {formatWeightStock(line.stockWeightKg,line.avgBoxWeight)}</div>)
+                    : (line.stock!=null&&<div style={{fontSize:13,color:C.textFaint,marginTop:2}}>На складе: {line.stock} {line.unit}</div>)}
+                  {line.pricedByWeight&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>
+                      <span style={{fontSize:13,color:C.textSub,whiteSpace:"nowrap"}}>⚖️ Вес короба, кг (примерно)</span>
+                      <input style={{...S.input,width:80,padding:"6px 8px",fontSize:14,textAlign:"center"}} placeholder="кг" value={line.weightPerBox} type="number"
+                        onChange={e=>updateEditLine(line.uid,{weightPerBox:e.target.value})}
+                        onFocus={e=>e.target.select()}
+                      />
+                      {lineWeight>0&&<span style={{fontSize:13,color:(line.stockWeightKg!=null&&lineWeight>line.stockWeightKg)?C.red:C.textFaint}}>≈ {lineWeight.toLocaleString()} кг</span>}
+                    </div>
+                  )}
+                  {line.pricedByWeight&&line.stockWeightKg!=null&&lineWeight>line.stockWeightKg&&(
+                    <p style={{margin:"2px 0 0",fontSize:12,color:C.red}}>Недостаточно остатка: доступно {line.stockWeightKg.toLocaleString()} кг</p>
+                  )}
+                  {lineTotal&&<div style={{textAlign:"right",fontSize:13,color:C.textSub,marginTop:2,paddingRight:34}}>= <strong style={{color:C.navy}}>{lineTotal.toLocaleString()} ₸</strong></div>}
+                  {line.priceOptions&&line.priceOptions.length>0&&(
+                    <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+                      {line.priceOptions.map((pr,i)=>(
+                        <button key={i} onClick={()=>updateEditLine(line.uid,{price:pr})} style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${Number(line.price)===pr?C.navy:C.border}`,background:Number(line.price)===pr?C.navy:C.white,color:Number(line.price)===pr?C.white:C.textMid,fontSize:14,fontWeight:600,cursor:"pointer"}}>{pr.toLocaleString()} ₸</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <button onClick={addEditLine} style={{background:C.navy,color:C.white,border:"none",borderRadius:8,padding:"6px 14px",fontSize:14,fontWeight:600,cursor:"pointer",marginTop:4}}>+ Товар</button>
+            {filledEditLines.length>0&&<><hr style={{...S.divider,marginTop:12}}/><div style={S.row}><span style={{fontSize:15,color:C.textSub}}>Итого</span><span style={{fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>{editTotal.toLocaleString()} ₸</span></div></>}
+            <button style={{...S.btnPrimary,opacity:(editSaving||filledEditLines.length===0||hasEditOverStock)?0.45:1}} disabled={editSaving||filledEditLines.length===0||hasEditOverStock} onClick={handleSaveEdit}>{editSaving?"Сохранение...":"💾 Сохранить"}</button>
+            <button style={{...S.btnDanger,marginTop:8}} onClick={async()=>{
+              if(!window.confirm('Отозвать заявку № '+editOrder.id+'? Действие нельзя отменить.')) return;
               try {
                 await apiCall('PUT',`/api/orders/${editOrder.id}/status`,{status:"revoked"});
-                setEditOrder(null); loadOrders();
+                closeEditOrder(); loadOrders();
               } catch(e){alert(e.message);}
-            }}>🗑 Отозвать заявку</button>
-            <button style={{...S.btnOutline,marginTop:8}} onClick={()=>{setEditOrder(null);setTab("new");}}>📝 Создать новую заявку</button>
+            }}>🗑 Отозвать заявку целиком</button>
           </div>
         </div>
       )}
@@ -2788,7 +2939,7 @@ function SalesCabinet({ user, token, onLogout }) {
             </>}
             <p style={{...S.sectionTitle,fontSize:17,marginTop:20}}>{user.role==="senior_sales"?(salesRepFilter?`Заявки: ${salesReps.find(r=>r.id===salesRepFilter)?.name||''}`:"Заявки всех торговых"):"Мои заявки"}</p>
             {visibleOrders.length===0?<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}><div style={{fontSize:40,marginBottom:12}}>📋</div><p>Заявок пока нет</p></div>
-              :visibleOrders.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder} onEdit={o.status==="new"&&(user.role!=="senior_sales"||o.sales_id===user.id)?setEditOrder:null}/>)}
+              :visibleOrders.map(o=><OrderCard key={o.id} order={o} onOpen={setSelectedOrder} onEdit={o.status==="new"&&(user.role!=="senior_sales"||o.sales_id===user.id)?openEditOrder:null}/>)}
           </>}
         </>}
         {tab==="new"&&<>

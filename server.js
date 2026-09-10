@@ -499,6 +499,99 @@ app.post('/api/orders', authMiddleware, (req, res) => {
   res.json(order);
 });
 
+// Правка состава ЗАЯВКИ, пока её ещё не взял в работу водитель/склад
+// (status==='new'). До этого эндпоинта единственным способом что-то
+// поправить (убрать/уменьшить позицию, добавить забытую) было отозвать
+// заявку целиком и оформить новую — см. фронт (EditOrderModal). Пока
+// заявка в "new", она только резервирует остаток (см. computeAvailableStock),
+// ничего не списывает физически, так что менять резерв безопасно; как
+// только заявку берут в доставку или доставляют, этот эндпоинт уже
+// недоступен (см. проверку статуса ниже) — там количество меняется только
+// через частичную доставку/правку доставленного (см. PUT .../status и
+// PUT .../delivered-items).
+app.put('/api/orders/:id/items', authMiddleware, (req, res) => {
+  const orderId = parseInt(req.params.id);
+  const order = db.get('orders').find({ id: orderId }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+
+  const isManagerRole = ['admin', 'manager'].includes(req.user.role);
+  const isOwnerSales = ['sales', 'store', 'senior_sales'].includes(req.user.role) && order.sales_id === req.user.id;
+  if (!isManagerRole && !isOwnerSales) {
+    return res.status(403).json({ error: 'Нет доступа к изменению этой заявки' });
+  }
+  if (order.status !== 'new') {
+    return res.status(400).json({ error: 'Редактировать состав можно только пока заявка в статусе "Ожидает"' });
+  }
+
+  const itemsInput = req.body.items;
+  if (!Array.isArray(itemsInput) || itemsInput.length === 0) {
+    return res.status(400).json({ error: 'В заявке должна остаться хотя бы одна позиция' });
+  }
+  if (itemsInput.some(it => !it || !it.code)) {
+    return res.status(400).json({ error: 'Каждая позиция должна быть выбрана из каталога' });
+  }
+
+  const aliases = db.get('productAliases').value();
+  const aliasMap = {};
+  aliases.forEach(a => { aliasMap[a.code] = a; });
+
+  // cost/is_weight_item — тот же снимок на момент правки, что и при
+  // оформлении (см. POST /api/orders выше): не ссылка на текущую карточку
+  // товара, а зафиксированное на позиции значение.
+  const costMap = getCostMap();
+  const finalItems = itemsInput.map(it => {
+    const rec = aliasMap[it.code];
+    const isWeightItem = !!(rec && rec.priced_by_weight);
+    // Магазину, как и при создании (POST /api/orders), цену/комиссию
+    // трогать нельзя — только из каталога; торговому (sales/senior_sales)
+    // доверяем то, что прислал фронт, как и при оформлении.
+    const price = req.user.role === 'store' ? (rec && rec.price1 != null ? rec.price1 : it.price) : it.price;
+    const commission = req.user.role === 'store' ? (rec && rec.commission != null ? rec.commission : 4) : (it.commission || 0);
+    return {
+      ...it,
+      price: Number(price) || 0,
+      commission: Number(commission) || 0,
+      cost: costMap[it.code] != null ? costMap[it.code] : null,
+      is_weight_item: isWeightItem,
+      boxes: isWeightItem ? (it.boxes != null ? Number(it.boxes) : (Number(it.qty) || 0)) : undefined,
+    };
+  });
+
+  // Доступный остаток БЕЗ учёта резерва этой же заявки — иначе собственный
+  // текущий резерв заявки засчитался бы как "занято" и мешал бы, например,
+  // просто уменьшить кол-во одной позиции, не трогая другую.
+  const availableMap = computeAvailableStock(orderId);
+  const weightAvailableMap = computeAvailableWeightKg(orderId);
+  for (const it of finalItems) {
+    if (!it.code) continue;
+    if (it.is_weight_item) {
+      if (!Object.prototype.hasOwnProperty.call(weightAvailableMap, it.code)) continue;
+      const avail = weightAvailableMap[it.code];
+      const checkQty = Number(it.qty) || 0;
+      if (checkQty > avail) {
+        return res.status(400).json({ error: `Недостаточно остатка: "${it.name}" (доступно ${avail.toLocaleString()} кг)` });
+      }
+      continue;
+    }
+    const avail = availableMap[it.code] != null ? availableMap[it.code] : 0;
+    const checkQty = Number(it.qty) || 0;
+    if (checkQty > avail) {
+      return res.status(400).json({ error: `Недостаточно остатка: "${it.name}" (доступно ${avail})` });
+    }
+  }
+
+  const newTotal = finalItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+  const newCommissionTotal = finalItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.commission) || 0), 0);
+
+  db.get('orders').find({ id: orderId }).assign({
+    items: finalItems,
+    total: newTotal,
+    commission_total: newCommissionTotal,
+  }).write();
+
+  res.json(db.get('orders').find({ id: orderId }).value());
+});
+
 app.put('/api/orders/:id/status', authMiddleware, (req, res) => {
   const { status, payment, driverId, items: deliveredItemsInput } = req.body;
   const validStatuses = ['new', 'in_transit', 'delivered', 'cancelled', 'returned', 'revoked'];
@@ -2462,7 +2555,7 @@ app.put('/api/stock/:code', authMiddleware, (req, res) => {
 // напрямую приход/продажа/доставка/возврат — см. соответствующие эндпоинты)
 // минус то, что ещё зарезервировано под заявки, которые едут, но ещё не
 // доставлены (см. ниже)
-function computeAvailableStock() {
+function computeAvailableStock(excludeOrderId) {
   const stock = db.get('stock').value();
   const stockMap = {};
   stock.forEach(s => { stockMap[s.code] = s.qty; });
@@ -2478,6 +2571,11 @@ function computeAvailableStock() {
   const orders = db.get('orders').value();
   orders.forEach(o => {
     if (!['new', 'in_transit'].includes(o.status)) return;
+    // При правке состава самой этой заявки (см. PUT /api/orders/:id/items)
+    // её собственный текущий резерв не должен считаться "занятым" сам
+    // против себя — иначе, например, просто уменьшить одну позицию было бы
+    // нельзя, пока другая позиция той же заявки "резервирует" остаток.
+    if (excludeOrderId != null && o.id === excludeOrderId) return;
     const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
     items.forEach(it => {
       if (!it.code) return;
@@ -2514,7 +2612,7 @@ function computeAvailableStock() {
 // нужно с этим кг-остатком, а не с остатком в коробах, иначе 40+ кг веса
 // сравнивались бы с 10-15 доступными коробами и почти всегда "не хватало бы
 // остатка", хотя по весу товара физически достаточно.
-function computeAvailableWeightKg() {
+function computeAvailableWeightKg(excludeOrderId) {
   const stock = db.get('stock').value();
   const weightMap = {};
   stock.forEach(s => { if (s.weight_kg != null) weightMap[s.code] = Number(s.weight_kg) || 0; });
@@ -2523,6 +2621,7 @@ function computeAvailableWeightKg() {
   const orders = db.get('orders').value();
   orders.forEach(o => {
     if (!['new', 'in_transit'].includes(o.status)) return;
+    if (excludeOrderId != null && o.id === excludeOrderId) return;
     const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
     items.forEach(it => {
       if (!it.code || !it.is_weight_item || !it.weight_confirmed) return;
