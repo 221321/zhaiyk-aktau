@@ -9641,6 +9641,318 @@ function MaterialStatementReport({
   }, numLabel(r.closing, r.unit)))))))));
 }
 
+// Разбор xlsx-выгрузки "Материальная ведомость" из 1С — колонки ищем по
+// заголовкам, а не по фиксированному номеру: "Код" отмечает нужную строку
+// шапки, "Итого приход"/"Итого расход" — нужные столбцы (их "Количество"
+// лежит ровно в той же колонке, где начинается объединённая шапка — так
+// устроен сам шаблон 1С, см. разбор реальной выгрузки владельца). Если
+// шаблон в 1С когда-нибудь поменяют — тут сразу понятная ошибка, а не тихо
+// неверные цифры.
+function parse1cVedomost(workbook) {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    raw: true,
+    defval: null
+  });
+  let headerRow = -1;
+  for (let i = 0; i < data.length; i++) {
+    if (data[i] && String(data[i][4] || '').trim() === 'Код') {
+      headerRow = i;
+      break;
+    }
+  }
+  if (headerRow === -1) {
+    throw new Error('Не нашёл колонку "Код" в файле — это не похоже на материальную ведомость 1С в привычном формате');
+  }
+  const incomeCol = data[headerRow].findIndex(v => String(v || '').trim() === 'Итого приход');
+  const outcomeCol = data[headerRow].findIndex(v => String(v || '').trim() === 'Итого расход');
+  if (incomeCol === -1 || outcomeCol === -1) {
+    throw new Error('Не нашёл колонки "Итого приход"/"Итого расход" в файле');
+  }
+  const rows = [];
+  for (let i = headerRow + 2; i < data.length; i++) {
+    const row = data[i];
+    if (!row) continue;
+    if (String(row[0] || '').trim() === 'Итого') break;
+    const code = row[4];
+    if (!code) continue;
+    rows.push({
+      code: String(code).trim(),
+      name: row[1] || '',
+      unit: (row[5] || '').toString().trim(),
+      income: Number(row[incomeCol]) || 0,
+      outcome: Number(row[outcomeCol]) || 0
+    });
+  }
+  return rows;
+}
+
+// Сверка с 1С — по просьбе владельца: раньше это делали вручную (сюда
+// присылали выгрузку из 1С и отдельно CSV с сайта, сверка была на моей
+// стороне). Теперь сайт делает это сам: парсит xlsx из 1С прямо в браузере
+// (библиотека XLSX подключена в index.html) и шлёт на сервер уже готовый
+// массив строк — POST /api/reports/reconcile-1c сверяет их с собственной
+// версией той же ведомости (computeMaterialStatementRows в server.js — то,
+// что сайт реально доставил за период). Список — это как раз то, по каким
+// товарам в 1С не проводятся реализации ("не хватает остатка") и где
+// перепутаны единицы измерения (кг/шт).
+function Reconcile1CReport({
+  onClose
+}) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const monthAgoStr = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const [from, setFrom] = useState(monthAgoStr);
+  const [to, setTo] = useState(todayStr);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState(null);
+  const onFile = async e => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setError('');
+    setRows(null);
+    if (typeof XLSX === 'undefined') {
+      setError('Библиотека для чтения Excel не загрузилась — проверь интернет-соединение и обнови страницу');
+      return;
+    }
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {
+        type: 'array'
+      });
+      const c1cRows = parse1cVedomost(wb);
+      if (c1cRows.length === 0) throw new Error('В файле не нашлось ни одной строки с товаром');
+      setLoading(true);
+      const result = await apiCall('POST', '/api/reports/reconcile-1c', {
+        from,
+        to,
+        rows: c1cRows
+      });
+      setRows(result);
+    } catch (err) {
+      setError(err.message || String(err));
+    }
+    setLoading(false);
+    e.target.value = '';
+  };
+  const numLabel = (v, unit) => `${v}${unit ? ' ' + unit : ''}`;
+  const exportCsv = () => downloadCsv(`sverka_1c_${from}_${to}.csv`, rows || [], [{
+    label: 'Код',
+    get: r => r.code
+  }, {
+    label: 'Товар',
+    get: r => r.name
+  }, {
+    label: 'Ед. на сайте',
+    get: r => r.unit_site
+  }, {
+    label: 'Ед. в 1С',
+    get: r => r.unit_1c
+  }, {
+    label: 'Расход на сайте',
+    get: r => r.outcome_site
+  }, {
+    label: 'Расход в 1С',
+    get: r => r.outcome_1c
+  }, {
+    label: 'Не хватает в 1С',
+    get: r => r.shortfall
+  }]);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(28,25,23,0.45)",
+      zIndex: 200,
+      overflowY: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.white,
+      margin: "16px",
+      borderRadius: 16,
+      padding: 20,
+      maxWidth: 1100,
+      marginLeft: "auto",
+      marginRight: "auto",
+      border: `1px solid ${C.border}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.row,
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 19,
+      fontWeight: 800,
+      fontFamily: FH,
+      color: C.navy
+    }
+  }, "\uD83D\uDD0D \u0421\u0432\u0435\u0440\u043A\u0430 \u0441 1\u0421"), /*#__PURE__*/React.createElement("button", {
+    style: S.btnSecondary,
+    onClick: onClose
+  }, "\u2715")), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 14px",
+      fontSize: 13,
+      color: C.textFaint
+    }
+  }, "\u0417\u0430\u0433\u0440\u0443\u0437\u0438 xlsx-\u0432\u044B\u0433\u0440\u0443\u0437\u043A\u0443 \"\u041C\u0430\u0442\u0435\u0440\u0438\u0430\u043B\u044C\u043D\u0430\u044F \u0432\u0435\u0434\u043E\u043C\u043E\u0441\u0442\u044C\" \u0438\u0437 1\u0421 \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434 \u2014 \u0441\u0430\u0439\u0442 \u0441\u0430\u043C \u0441\u0440\u0430\u0432\u043D\u0438\u0442 \u0441\u043E \u0441\u0432\u043E\u0438\u043C\u0438 \u0434\u0430\u043D\u043D\u044B\u043C\u0438 \u0438 \u043F\u043E\u043A\u0430\u0436\u0435\u0442, \u0433\u0434\u0435 1\u0421 \u043D\u0435 \u0434\u043E\u0441\u0447\u0438\u0442\u0430\u043B\u0430\u0441\u044C (\u043E\u0431\u044B\u0447\u043D\u043E \u2014 \u043D\u0435\u043F\u0440\u043E\u0432\u0435\u0434\u0451\u043D\u043D\u044B\u0435 \u0440\u0435\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438, \"\u043D\u0435 \u0445\u0432\u0430\u0442\u0430\u0435\u0442 \u043E\u0441\u0442\u0430\u0442\u043A\u0430\") \u0438 \u0433\u0434\u0435 \u043F\u0435\u0440\u0435\u043F\u0443\u0442\u0430\u043D\u044B \u0435\u0434\u0438\u043D\u0438\u0446\u044B \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      marginBottom: 12,
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0421"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    style: S.input,
+    value: from,
+    onChange: e => setFrom(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u041F\u043E"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    style: S.input,
+    value: to,
+    onChange: e => setTo(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 220
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0424\u0430\u0439\u043B \u0438\u0437 1\u0421 (.xlsx)"), /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: ".xlsx",
+    style: S.input,
+    onChange: onFile
+  }))), error && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.card,
+      background: C.redSoft,
+      color: C.red,
+      padding: 12,
+      marginBottom: 12,
+      fontSize: 13,
+      fontWeight: 600
+    }
+  }, error), loading && /*#__PURE__*/React.createElement("div", {
+    style: S.loadingWrap
+  }, "\u0421\u0432\u0435\u0440\u044F\u044E..."), !loading && rows && rows.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      padding: "30px 0",
+      color: C.green,
+      fontWeight: 700
+    }
+  }, "\u2713 \u0420\u0430\u0441\u0445\u043E\u0436\u0434\u0435\u043D\u0438\u0439 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u2014 \u0432\u0441\u0451 \u0441\u0445\u043E\u0434\u0438\u0442\u0441\u044F"), !loading && rows && rows.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.row,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 14,
+      color: C.textSub
+    }
+  }, "\u0420\u0430\u0441\u0445\u043E\u0436\u0434\u0435\u043D\u0438\u0439: ", rows.length), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnPrimary,
+      width: "auto",
+      padding: "9px 16px",
+      fontSize: 14
+    },
+    onClick: exportCsv
+  }, "\u2B07 \u0421\u043A\u0430\u0447\u0430\u0442\u044C \u0432 Excel")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      overflowX: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: 13
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    style: {
+      borderBottom: `2px solid ${C.border}`,
+      textAlign: "left"
+    }
+  }, /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, "\u0422\u043E\u0432\u0430\u0440"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right"
+    }
+  }, "\u0420\u0430\u0441\u0445\u043E\u0434 \u043D\u0430 \u0441\u0430\u0439\u0442\u0435"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right"
+    }
+  }, "\u0420\u0430\u0441\u0445\u043E\u0434 \u0432 1\u0421"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right"
+    }
+  }, "\u041D\u0435 \u0445\u0432\u0430\u0442\u0430\u0435\u0442 \u0432 1\u0421"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, "\u0415\u0434.\u0438\u0437\u043C."))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.code,
+    style: {
+      borderBottom: `1px solid ${C.border}`
+    }
+  }, /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, r.name, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.textFaint,
+      fontSize: 11
+    }
+  }, r.code)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right"
+    }
+  }, numLabel(r.outcome_site, r.unit_site)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right"
+    }
+  }, numLabel(r.outcome_1c, r.unit_1c)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right",
+      fontWeight: 700,
+      color: r.shortfall > 0 ? C.red : r.shortfall < 0 ? C.green : C.textFaint
+    }
+  }, r.shortfall > 0 ? '+' : '', r.shortfall), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, r.unit_mismatch ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#92400E",
+      fontWeight: 700
+    }
+  }, "\u26A0 ", r.unit_site || '—', " / ", r.unit_1c || '—') : r.unit_site || r.unit_1c || '')))))))));
+}
+
 // Экран "Остатки на складе" — тот же, что у зав. склада (см.
 // WarehouseCabinet), вынесен в отдельный самодостаточный компонент по
 // той же причине, что и ProductAliasesPanel выше: старшему торговому
@@ -9722,6 +10034,7 @@ function StockPanel() {
   const [hideEmpty, setHideEmpty] = useState(false);
   const [showMovements, setShowMovements] = useState(false);
   const [showStatement, setShowStatement] = useState(false);
+  const [showReconcile, setShowReconcile] = useState(false);
   const loadProducts = useCallback(async () => {
     try {
       setProducts(await fetch('/api/products').then(r => r.json()));
@@ -9759,6 +10072,8 @@ function StockPanel() {
     onClose: () => setShowMovements(false)
   }), showStatement && /*#__PURE__*/React.createElement(MaterialStatementReport, {
     onClose: () => setShowStatement(false)
+  }), showReconcile && /*#__PURE__*/React.createElement(Reconcile1CReport, {
+    onClose: () => setShowReconcile(false)
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.row,
@@ -9778,7 +10093,8 @@ function StockPanel() {
   }, "(\u0442\u043E\u043B\u044C\u043A\u043E \u0438\u0437 1\u0421)")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 8
+      gap: 8,
+      flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("button", {
     style: {
@@ -9796,7 +10112,15 @@ function StockPanel() {
       fontSize: 13
     },
     onClick: () => setShowStatement(true)
-  }, "\uD83D\uDCCB \u0412\u0435\u0434\u043E\u043C\u043E\u0441\u0442\u044C"))), !loadingProducts && products.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDCCB \u0412\u0435\u0434\u043E\u043C\u043E\u0441\u0442\u044C"), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnOutline,
+      width: "auto",
+      padding: "6px 12px",
+      fontSize: 13
+    },
+    onClick: () => setShowReconcile(true)
+  }, "\uD83D\uDD0D \u0421\u0432\u0435\u0440\u043A\u0430 \u0441 1\u0421"))), !loadingProducts && products.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: S.statsRow
   }, /*#__PURE__*/React.createElement("div", {
     style: S.statCard()
@@ -16868,6 +17192,7 @@ function WarehouseCabinet({
   const [hideEmpty, setHideEmpty] = useState(false);
   const [showMovements, setShowMovements] = useState(false);
   const [showStatement, setShowStatement] = useState(false);
+  const [showReconcile, setShowReconcile] = useState(false);
 
   // Приём налички от водителей (инкассация) — см. POST/PUT /api/cash-handovers.
   const [cashHandovers, setCashHandovers] = useState([]);
@@ -17153,6 +17478,8 @@ function WarehouseCabinet({
     onClose: () => setShowMovements(false)
   }), showStatement && /*#__PURE__*/React.createElement(MaterialStatementReport, {
     onClose: () => setShowStatement(false)
+  }), showReconcile && /*#__PURE__*/React.createElement(Reconcile1CReport, {
+    onClose: () => setShowReconcile(false)
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.row,
@@ -17166,7 +17493,8 @@ function WarehouseCabinet({
   }, "\u041E\u0441\u0442\u0430\u0442\u043A\u0438 \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 8
+      gap: 8,
+      flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("button", {
     style: {
@@ -17184,7 +17512,15 @@ function WarehouseCabinet({
       fontSize: 13
     },
     onClick: () => setShowStatement(true)
-  }, "\uD83D\uDCCB \u0412\u0435\u0434\u043E\u043C\u043E\u0441\u0442\u044C"))), !loadingProducts && products.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDCCB \u0412\u0435\u0434\u043E\u043C\u043E\u0441\u0442\u044C"), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnOutline,
+      width: "auto",
+      padding: "6px 12px",
+      fontSize: 13
+    },
+    onClick: () => setShowReconcile(true)
+  }, "\uD83D\uDD0D \u0421\u0432\u0435\u0440\u043A\u0430 \u0441 1\u0421"))), !loadingProducts && products.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: S.statsRow
   }, /*#__PURE__*/React.createElement("div", {
     style: S.statCard()

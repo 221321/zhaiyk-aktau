@@ -2830,14 +2830,11 @@ app.get('/api/stock-movements', authMiddleware, (req, res) => {
 // ВПЕРЁД с момента, как её завели, поэтому за периоды до этого приход и
 // расход не восстановить, только текущий остаток (тогда opening===closing
 // и приход/расход будут 0, даже если движение реально было).
-app.get('/api/reports/material-statement', authMiddleware, (req, res) => {
-  if (!['admin', 'manager', 'warehouse', 'operator'].includes(req.user.role)) {
-    return res.status(403).json({ error: 'Нет доступа' });
-  }
-  const today = new Date().toISOString().slice(0, 10);
-  const from = req.query.from || today;
-  const to = req.query.to || today;
-
+// Вынесено в функцию — та же ведомость нужна ещё в одном месте (см. POST
+// /api/reports/reconcile-1c ниже: сверка с выгрузкой из 1С использует
+// именно эти цифры сайта, только вместо ответа кладёт их рядом с тем, что
+// прислала 1С, а не просто возвращает как есть).
+function computeMaterialStatementRows(from, to) {
   const aliasMap = {};
   db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
   const productNameMap = {};
@@ -2895,7 +2892,90 @@ app.get('/api/reports/material-statement', authMiddleware, (req, res) => {
   });
 
   rows.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
-  res.json(rows);
+  return rows;
+}
+
+app.get('/api/reports/material-statement', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'warehouse', 'operator'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const from = req.query.from || today;
+  const to = req.query.to || today;
+  res.json(computeMaterialStatementRows(from, to));
+});
+
+// Сверка с 1С — по просьбе владельца: раньше эту сверку я делал вручную
+// (присылали мне выгрузку из 1С и CSV с сайта, я сопоставлял в Python).
+// Теперь так же делает сам сайт: фронт разбирает xlsx-выгрузку "Материальная
+// ведомость" из 1С прямо в браузере (см. reconcile1cRows/XLSX в app.jsx —
+// парсинг клиентский, серверу нужен уже готовый массив строк, не сам файл,
+// чтобы не тащить xlsx-парсер в зависимости бэкенда) и шлёт сюда только
+// {code, name, unit, income, outcome} на каждую строку. Сервер берёт свою
+// версию той же ведомости (computeMaterialStatementRows — то, что сайт
+// реально доставил за период) и сопоставляет по коду.
+//
+// shortfall = сколько сайт списал МИНУС сколько реально провела 1С — это и
+// есть "не хватает остатка в 1С", та самая причина, по которой реализации не
+// проводятся (см. историю переписки). Положительный shortfall — 1С отстаёт
+// от сайта, нужно добавить остаток/довести реализации. Отрицательный —
+// обратная (более редкая) ситуация, 1С списала больше, чем сайт — тоже
+// показываем, но не считаем "нехваткой" в заголовке.
+app.post('/api/reports/reconcile-1c', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'warehouse'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { from, to, rows: c1cRows } = req.body;
+  if (!from || !to) return res.status(400).json({ error: 'Укажите период' });
+  if (!Array.isArray(c1cRows) || c1cRows.length === 0) {
+    return res.status(400).json({ error: 'Не удалось прочитать ни одной строки из файла 1С' });
+  }
+
+  const siteRows = computeMaterialStatementRows(from, to);
+  const siteByCode = {};
+  siteRows.forEach(r => { siteByCode[r.code] = r; });
+
+  const c1cByCode = {};
+  c1cRows.forEach(r => {
+    if (!r || !r.code) return;
+    const code = String(r.code).trim();
+    if (!code) return;
+    c1cByCode[code] = {
+      name: r.name || '',
+      unit: r.unit || '',
+      income: Number(r.income) || 0,
+      outcome: Number(r.outcome) || 0,
+    };
+  });
+
+  const allCodes = new Set([...Object.keys(siteByCode), ...Object.keys(c1cByCode)]);
+  const result = [];
+  allCodes.forEach(code => {
+    const site = siteByCode[code] || { name: '', unit: '', income: 0, outcome: 0 };
+    const c1c = c1cByCode[code] || { name: '', unit: '', income: 0, outcome: 0 };
+    const outcomeShortfall = round2(site.outcome - c1c.outcome);
+    const incomeDiff = round2(site.income - c1c.income);
+    // Единица считается несовпадающей, только если известна с ОБЕИХ сторон —
+    // товар, которого не было в присланном 1С-файле вовсе (unit пустой),
+    // сравнивать не с чем, это не "несовпадение", а просто нет данных.
+    const unitMismatch = !!(site.unit !== undefined && c1c.unit && ((site.unit || 'кор') !== c1c.unit && !(site.unit === 'кг' && /^кг\.?$/i.test(c1c.unit))));
+    if (outcomeShortfall === 0 && incomeDiff === 0 && !unitMismatch) return; // сошлось идеально — не засоряем список
+    result.push({
+      code,
+      name: site.name || c1c.name || code,
+      unit_site: site.unit || '',
+      unit_1c: c1c.unit || '',
+      unit_mismatch: unitMismatch,
+      income_site: site.income,
+      income_1c: c1c.income,
+      outcome_site: site.outcome,
+      outcome_1c: c1c.outcome,
+      shortfall: outcomeShortfall,
+    });
+  });
+
+  result.sort((a, b) => b.shortfall - a.shortfall);
+  res.json(result);
 });
 
 // Ручная правка остатка со склада — ЗАПРЕЩЕНА по решению владельца:
