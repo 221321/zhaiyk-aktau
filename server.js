@@ -952,11 +952,10 @@ app.put('/api/orders/:id/delivered-items', authMiddleware, (req, res) => {
 
   const currentItems = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
   // Эталон — исходный состав заявки ДО каких-либо правок (частичная
-  // доставка водителем или более ранняя правка админа этим же эндпоинтом):
-  // относительно него нельзя указать "доставлено больше" — физически
-  // больше и не привозили. Если заявку ещё никто не сокращал, эталоном
-  // служит её текущий (единственный) состав — записываем его в
-  // items_ordered здесь же, при первой правке.
+  // доставка водителем или более ранняя правка админа этим же эндпоинтом) —
+  // просто справочный "было" рядом с каждой позицией на фронте. Если заявку
+  // ещё никто не правил, эталоном служит её текущий (единственный) состав —
+  // записываем его в items_ordered здесь же, при первой правке.
   const referenceItems = order.items_ordered
     ? (typeof order.items_ordered === 'string' ? JSON.parse(order.items_ordered || '[]') : order.items_ordered)
     : currentItems;
@@ -988,10 +987,17 @@ app.put('/api/orders/:id/delivered-items', authMiddleware, (req, res) => {
       continue;
     }
     let newQty = overrideMap[ref.code];
+    // Раньше здесь было жёсткое ограничение "не больше, чем изначально
+    // записано" (значение выше молча срезалось уже на фронте, см. историю
+    // правок app.jsx) — расчёт задумывался только как "клиент принял МЕНЬШЕ
+    // присланного". На практике админу нужно чинить и обратную ошибку —
+    // например, вес изначально взвесили и записали неверно (опечатка на
+    // весах), а не то, что клиент кого-то недосчитался — такую ошибку можно
+    // поправить только вверх. Эндпоинт уже admin-only и пишет полную историю
+    // правок (items_edits) — тот же уровень доверия, что и у свободной
+    // правки цены (PUT /api/orders/:id/prices), так что верхний потолок не
+    // нужен, важно лишь не уйти в отрицательное.
     if (!Number.isFinite(newQty) || newQty < 0) newQty = 0;
-    if (newQty > refQty + 1e-9) {
-      return res.status(400).json({ error: `"${ref.name}": нельзя указать больше, чем было в заявке изначально (${refQty})` });
-    }
     plan.push({ ref, cur, curQty, newQty, changed: Math.abs(newQty - curQty) > 1e-9 });
   }
   if (!plan.some(p => p.newQty > 1e-9)) {
@@ -1688,8 +1694,35 @@ app.post('/api/products/sync', (req, res) => {
   // на "Остатках" со старым числом навсегда — обнуляем его вместе с
   // исчезновением товара из каталога (жалоба: удалили позицию в 1С,
   // синхронизировали остатки — на сайте остаток не пропал).
+  // Защита от дублей кода в присланном снимке — например, 1С по ошибке
+  // прислала одну позицию дважды в одной выгрузке, или код пришёл с лишним
+  // пробелом ("00000104" vs " 00000104 "), из-за чего он выглядит другим.
+  // Без дедупликации такой код показывался бы в каталоге два раза отдельными
+  // строками, раздувая "Всего позиций"/"В наличии" на сайте относительно
+  // того, что реально в 1С (жалоба: в 1С 50 позиций, на сайте 52). Последняя
+  // запись с этим кодом в присланном массиве побеждает — сам код нормализуем
+  // (trim), дальше по нему ищут stock/productAliases везде в системе.
+  const dedupedItems = [];
+  const indexByCode = new Map();
+  (items || []).forEach(it => {
+    if (!it) return;
+    const code = it.code != null ? String(it.code).trim() : '';
+    if (!code) { dedupedItems.push(it); return; }
+    const entry = code !== it.code ? { ...it, code } : it;
+    if (indexByCode.has(code)) {
+      dedupedItems[indexByCode.get(code)] = entry;
+    } else {
+      indexByCode.set(code, dedupedItems.length);
+      dedupedItems.push(entry);
+    }
+  });
+  const duplicateCount = (items || []).length - dedupedItems.length;
+  if (duplicateCount > 0) {
+    console.log(`[products/sync] ${new Date().toISOString()} обнаружено и убрано дублей кода: ${duplicateCount}`);
+  }
+
   const oldCodes = db.get('products').value().map(p => p && p.code).filter(Boolean);
-  const newCodes = new Set((items || []).map(it => it && it.code).filter(Boolean));
+  const newCodes = new Set(dedupedItems.map(it => it && it.code).filter(Boolean));
   const removedCodes = oldCodes.filter(code => !newCodes.has(code));
   if (removedCodes.length > 0) {
     const removedSet = new Set(removedCodes);
@@ -1701,8 +1734,8 @@ app.post('/api/products/sync', (req, res) => {
     });
     console.log(`[products/sync] ${new Date().toISOString()} товар удалён из 1С, остаток обнулён: ${removedCodes.join(', ')}`);
   }
-  db.set('products', items).write();
-  res.json({ success: true, count: items.length, removed: removedCodes.length });
+  db.set('products', dedupedItems).write();
+  res.json({ success: true, count: dedupedItems.length, removed: removedCodes.length, duplicates: duplicateCount });
 });
 
 // ===== PRODUCT ALIASES (псевдонимы и цены для сайта) =====
