@@ -215,7 +215,16 @@ async function sendPushToUser(userId, payload) {
       if (err.statusCode === 404 || err.statusCode === 410) {
         db.get('pushSubscriptions').remove({ endpoint: s.endpoint }).write();
       } else {
-        console.error('Push error:', err.message);
+        // err.message у web-push обычно просто "Received unexpected response
+        // code" — само по себе бесполезно для диагностики (жалоба "перестали
+        // приходить уведомления", а в логе не видно, ЧЕЙ пуш и с каким
+        // реальным кодом ответа push-сервиса упал: 401/403 — проблема с
+        // VAPID-ключами на сервере, 400/413 — битая подписка/большой payload).
+        // err.body — сырой ответ push-сервиса (FCM/Mozilla), тоже полезен.
+        console.error(
+          `Push error: user_id=${userId} endpoint=...${(s.endpoint || '').slice(-24)} ` +
+          `statusCode=${err.statusCode} body=${err.body} message=${err.message}`
+        );
       }
     }
   }
