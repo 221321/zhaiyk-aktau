@@ -2368,7 +2368,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
           </div>
         )}
         <hr style={S.divider}/>
-        {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.created_at?[["Создана",fmtDT(order.created_at)]]:[]),...(order.driver_name?[["Водитель",order.driver_name]]:[]),...(order.driver_name&&order.in_transit_at?[["В работе с",fmtDT(order.in_transit_at)]]:[]),...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
+        {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.created_at?[["Создана",fmtDT(order.created_at)]]:[]),...(order.driver_name?[["Водитель",order.driver_name]]:[]),...(order.driver_name&&order.in_transit_at?[["В работе с",fmtDT(order.in_transit_at)]]:[]),...(order.delivered_at?[["Доставлено",fmtDT(order.delivered_at)]]:[]),...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
           <div key={k} style={{...S.row,marginBottom:8,alignItems:"flex-start"}}>
             <span style={{fontSize:14,color:C.textFaint,fontWeight:600,minWidth:90,textTransform:"uppercase"}}>{k}</span>
             <span style={{fontSize:15,color:C.text,textAlign:"right",flex:1}}>{v}</span>
