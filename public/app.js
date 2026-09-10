@@ -9962,26 +9962,35 @@ function Reconcile1CReport({
 // которые трогали этот код (см. GET /api/products/:code/history) — ничего
 // не хранится отдельно, это уже существующие данные заявок, просто
 // собранные по коду товара, чтобы было видно "кто и сколько убавил".
+// Построчная лента движения по товару — "было / пришло / списалось / стало"
+// одно событие в одной строке таблицы, как настоящая ведомость (см. GET
+// /api/products/:code/ledger). Заменила прежний список заявок одной строкой
+// текста на каждую (жалоба владельца: "в таблице хаос") — та версия к тому
+// же не показывала приходы из 1С вовсе, только продажи.
 function ProductHistoryToggle({
   code
 }) {
   const [open, setOpen] = useState(false);
-  const [rows, setRows] = useState(null);
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const load = async () => {
     setLoading(true);
     try {
-      setRows(await apiCall('GET', `/api/products/${code}/history`));
+      setData(await apiCall('GET', `/api/products/${code}/ledger`));
     } catch (e) {
-      setRows([]);
+      setData({
+        unit: '',
+        entries: []
+      });
     }
     setLoading(false);
   };
   const toggle = () => {
     const next = !open;
     setOpen(next);
-    if (next && rows === null) load();
+    if (next && data === null) load();
   };
+  const numLabel = (v, unit) => `${v}${unit ? ' ' + unit : ''}`;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 8
@@ -9999,32 +10008,93 @@ function ProductHistoryToggle({
       cursor: "pointer",
       textDecoration: "underline"
     }
-  }, open ? "Скрыть историю" : "История по товару"), open && (loading ? /*#__PURE__*/React.createElement("p", {
+  }, open ? "Скрыть историю движения" : "История движения"), open && (loading ? /*#__PURE__*/React.createElement("p", {
     style: {
       margin: "6px 0 0",
       fontSize: 13,
       color: C.textFaint
     }
-  }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : rows && rows.length > 0 ? /*#__PURE__*/React.createElement("div", {
+  }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : data && data.entries.length > 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
-      marginTop: 6,
-      borderTop: `1px solid ${C.border}`,
-      paddingTop: 6
+      marginTop: 8,
+      overflowX: "auto"
     }
-  }, rows.map(r => /*#__PURE__*/React.createElement("p", {
-    key: r.order_id,
+  }, /*#__PURE__*/React.createElement("table", {
     style: {
-      margin: "0 0 4px",
-      fontSize: 13,
-      color: C.textSub
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: 12
     }
-  }, "\u2116", r.order_id, " \xB7 ", r.date, " \xB7 ", r.sales_name || r.client_name || '—', " \xB7 ", SL[r.status] || r.status, " \xB7 ", r.is_weight_item ? r.weight_confirmed ? `${r.qty} кг` : `≈${r.boxes || 0} кор` : `${r.qty}`))) : /*#__PURE__*/React.createElement("p", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    style: {
+      borderBottom: `2px solid ${C.border}`,
+      textAlign: "left"
+    }
+  }, /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "4px 6px",
+      whiteSpace: "nowrap"
+    }
+  }, "\u0414\u0430\u0442\u0430"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "4px 6px"
+    }
+  }, "\u0421\u043E\u0431\u044B\u0442\u0438\u0435"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "4px 6px",
+      textAlign: "right"
+    }
+  }, "\u041F\u0440\u0438\u0445\u043E\u0434"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "4px 6px",
+      textAlign: "right"
+    }
+  }, "\u0420\u0430\u0441\u0445\u043E\u0434"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "4px 6px",
+      textAlign: "right"
+    }
+  }, "\u041E\u0441\u0442\u0430\u0442\u043E\u043A \u0441\u0442\u0430\u043B"))), /*#__PURE__*/React.createElement("tbody", null, data.entries.map((e, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i,
+    style: {
+      borderBottom: `1px solid ${C.border}`
+    }
+  }, /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "4px 6px",
+      whiteSpace: "nowrap"
+    }
+  }, e.date), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "4px 6px"
+    }
+  }, e.label), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "4px 6px",
+      textAlign: "right",
+      color: C.green,
+      fontWeight: e.income ? 700 : 400
+    }
+  }, e.income ? `+${numLabel(e.income, data.unit)}` : '—'), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "4px 6px",
+      textAlign: "right",
+      color: C.red,
+      fontWeight: e.outcome ? 700 : 400
+    }
+  }, e.outcome ? `−${numLabel(e.outcome, data.unit)}` : '—'), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "4px 6px",
+      textAlign: "right",
+      fontWeight: 700
+    }
+  }, numLabel(e.balance_after, data.unit))))))) : /*#__PURE__*/React.createElement("p", {
     style: {
       margin: "6px 0 0",
       fontSize: 13,
       color: C.textFaint
     }
-  }, "\u0417\u0430\u044F\u0432\u043E\u043A \u0441 \u044D\u0442\u0438\u043C \u0442\u043E\u0432\u0430\u0440\u043E\u043C \u043D\u0435 \u0431\u044B\u043B\u043E")));
+  }, "\u0414\u0432\u0438\u0436\u0435\u043D\u0438\u044F \u043F\u043E \u044D\u0442\u043E\u043C\u0443 \u0442\u043E\u0432\u0430\u0440\u0443 \u0435\u0449\u0451 \u043D\u0435 \u0437\u0430\u0444\u0438\u043A\u0441\u0438\u0440\u043E\u0432\u0430\u043D\u043E (\u043B\u0435\u043D\u0442\u0430 \u043A\u043E\u043F\u0438\u0442\u0441\u044F \u0441 10 \u0441\u0435\u043D\u0442\u044F\u0431\u0440\u044F 2026)")));
 }
 function StockPanel() {
   const [products, setProducts] = useState([]);

@@ -4864,36 +4864,59 @@ function Reconcile1CReport({ onClose }) {
 // которые трогали этот код (см. GET /api/products/:code/history) — ничего
 // не хранится отдельно, это уже существующие данные заявок, просто
 // собранные по коду товара, чтобы было видно "кто и сколько убавил".
+// Построчная лента движения по товару — "было / пришло / списалось / стало"
+// одно событие в одной строке таблицы, как настоящая ведомость (см. GET
+// /api/products/:code/ledger). Заменила прежний список заявок одной строкой
+// текста на каждую (жалоба владельца: "в таблице хаос") — та версия к тому
+// же не показывала приходы из 1С вовсе, только продажи.
 function ProductHistoryToggle({ code }) {
   const [open, setOpen] = useState(false);
-  const [rows, setRows] = useState(null);
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const load = async () => {
     setLoading(true);
-    try { setRows(await apiCall('GET', `/api/products/${code}/history`)); } catch(e) { setRows([]); }
+    try { setData(await apiCall('GET', `/api/products/${code}/ledger`)); } catch(e) { setData({ unit: '', entries: [] }); }
     setLoading(false);
   };
   const toggle = () => {
     const next = !open;
     setOpen(next);
-    if (next && rows === null) load();
+    if (next && data === null) load();
   };
+  const numLabel = (v, unit) => `${v}${unit?' '+unit:''}`;
   return (
     <div style={{marginTop:8}}>
       <button type="button" onClick={toggle} style={{background:"none",border:"none",padding:0,color:C.navy,fontSize:13,fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>
-        {open?"Скрыть историю":"История по товару"}
+        {open?"Скрыть историю движения":"История движения"}
       </button>
       {open&&(loading
         ? <p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Загрузка...</p>
-        : (rows&&rows.length>0)
-          ? <div style={{marginTop:6,borderTop:`1px solid ${C.border}`,paddingTop:6}}>
-              {rows.map(r=>(
-                <p key={r.order_id} style={{margin:"0 0 4px",fontSize:13,color:C.textSub}}>
-                  №{r.order_id} · {r.date} · {r.sales_name||r.client_name||'—'} · {SL[r.status]||r.status} · {r.is_weight_item ? (r.weight_confirmed ? `${r.qty} кг` : `≈${r.boxes||0} кор`) : `${r.qty}`}
-                </p>
-              ))}
+        : (data&&data.entries.length>0)
+          ? <div style={{marginTop:8,overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{borderBottom:`2px solid ${C.border}`,textAlign:"left"}}>
+                    <th style={{padding:"4px 6px",whiteSpace:"nowrap"}}>Дата</th>
+                    <th style={{padding:"4px 6px"}}>Событие</th>
+                    <th style={{padding:"4px 6px",textAlign:"right"}}>Приход</th>
+                    <th style={{padding:"4px 6px",textAlign:"right"}}>Расход</th>
+                    <th style={{padding:"4px 6px",textAlign:"right"}}>Остаток стал</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.entries.map((e,i)=>(
+                    <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
+                      <td style={{padding:"4px 6px",whiteSpace:"nowrap"}}>{e.date}</td>
+                      <td style={{padding:"4px 6px"}}>{e.label}</td>
+                      <td style={{padding:"4px 6px",textAlign:"right",color:C.green,fontWeight:e.income?700:400}}>{e.income?`+${numLabel(e.income,data.unit)}`:'—'}</td>
+                      <td style={{padding:"4px 6px",textAlign:"right",color:C.red,fontWeight:e.outcome?700:400}}>{e.outcome?`−${numLabel(e.outcome,data.unit)}`:'—'}</td>
+                      <td style={{padding:"4px 6px",textAlign:"right",fontWeight:700}}>{numLabel(e.balance_after,data.unit)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          : <p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Заявок с этим товаром не было</p>
+          : <p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Движения по этому товару ещё не зафиксировано (лента копится с 10 сентября 2026)</p>
       )}
     </div>
   );

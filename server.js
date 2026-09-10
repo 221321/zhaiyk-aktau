@@ -2703,6 +2703,59 @@ app.get('/api/products/:code/history', authMiddleware, (req, res) => {
   res.json(rows.slice(0, 100));
 });
 
+// Понятная построчная лента движения ОДНОГО товара — "было / пришло /
+// списалось / стало" одно событие за строкой, а не общая цифра за период
+// (та — см. computeMaterialStatementRows/"Ведомость") и не список заявок без
+// приходов (см. GET .../history выше — жалоба владельца: там "хаос", в одну
+// строку слеплены номер/дата/статус/клиент, и совсем не видно синков из 1С,
+// только продажи). Строится по той же ленте stockLedger, что и Ведомость —
+// просто по одному коду и без агрегации, событие за событием.
+app.get('/api/products/:code/ledger', authMiddleware, (req, res) => {
+  if (!['admin', 'manager', 'warehouse', 'operator'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const code = req.params.code;
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+  const isWeight = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+  const pool = isWeight ? 'weight_kg' : 'qty';
+  const unit = isWeight ? 'кг' : '';
+
+  // Человекочитаемая подпись события — по типу и мета-полям, которые
+  // проставляет logStockMovement/pushLedgerEntry в местах, где двигается
+  // остаток (см. комментарий там же — полный список типов).
+  const LABELS = {
+    sync: 'Синхронизация с 1С',
+    delivery: 'Доставка заявки',
+    delivery_correction: 'Правка доставленного кол-ва',
+    sale: 'Продажа кассы',
+    sale_void: 'Отмена продажи кассы',
+    return: 'Возврат от клиента',
+    return_rollback: 'Отмена возврата',
+    removed: 'Товар удалён из номенклатуры 1С',
+  };
+  const labelFor = (e) => {
+    const base = LABELS[e.type] || e.type;
+    if (e.order_id != null) return `${base} №${e.order_id}`;
+    if (e.sale_id != null) return `${base} №${e.sale_id}`;
+    if (e.return_id != null) return `${base} №${e.return_id}`;
+    return base;
+  };
+
+  const entries = db.get('stockLedger').value()
+    .filter(e => e.code === code && e.pool === pool)
+    .map(e => ({
+      date: e.date,
+      created_at: e.created_at,
+      label: labelFor(e),
+      income: e.delta > 0 ? round2(e.delta) : 0,
+      outcome: e.delta < 0 ? round2(-e.delta) : 0,
+      balance_after: round2(e.balance_after),
+    }));
+
+  res.json({ unit, entries });
+});
+
 // Отчёт по движению остатков за период (для выгрузки в Excel на фронте) —
 // "остаток до / списано / остаток после" по каждой заявке, а не просто
 // список активности. Считаем только ДОСТАВЛЕННЫЕ заявки — статусы
