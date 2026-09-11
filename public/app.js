@@ -3623,6 +3623,16 @@ function fullBorder(cell) {
     right: THIN_BORDER
   };
 }
+// Высота строки под перенесённый по словам длинный текст (название
+// товара может быть на несколько строк, см. wrapText на ячейке
+// "Наименование"/"Товар") — иначе видна только первая строка, а остальное
+// обрезано по границе ячейки визуально (сами данные при этом не теряются,
+// но пока не увеличишь строку вручную — не видно).
+function wrapRowHeight(text, colWidth) {
+  const charsPerLine = Math.max(8, colWidth - 2);
+  const lines = Math.max(1, Math.ceil(String(text || '').length / charsPerLine));
+  return Math.max(18, lines * 14 + 6);
+}
 // Подпись-"линия" — только нижняя рамка на пустой ячейке, чтобы было
 // видно, где расписаться (аналог <span class="signline"> в печатной форме).
 function signLine(ws, r, c1, c2) {
@@ -3630,6 +3640,28 @@ function signLine(ws, r, c1, c2) {
   for (let c = c1; c <= c2; c++) ws.getCell(r, c).border = {
     bottom: THIN_BORDER
   };
+}
+// Ячейка "жирная подпись: значение" одним объединённым диапазоном — не
+// отдельная узкая ячейка под подпись с соседней занятой ячейкой рядом
+// (Excel обрезает переполнение текста, только если сосед пуст; занятая
+// или объединённая соседняя ячейка обрезает подпись всегда, даже если
+// реальной ширины колонки А не хватает — так теряло хвост "Запасы
+// получил:"/"Расшифровка подписи:" и т.п. при узкой колонке №).
+function labelValueCell(ws, row, c1, c2, label, value) {
+  ws.mergeCells(row, c1, row, c2);
+  const cell = ws.getCell(row, c1);
+  cell.value = {
+    richText: [{
+      font: {
+        bold: true
+      },
+      text: label + ' '
+    }, {
+      font: {},
+      text: value == null ? '' : String(value)
+    }]
+  };
+  return cell;
 }
 function buildDogovornikWaybillSheet(ws, order, productNameByCode) {
   const nameByCode = productNameByCode || {};
@@ -3639,7 +3671,7 @@ function buildDogovornikWaybillSheet(ws, order, productNameByCode) {
   ws.columns = [{
     width: 5
   }, {
-    width: 30
+    width: 42
   }, {
     width: 13
   }, {
@@ -3667,36 +3699,10 @@ function buildDogovornikWaybillSheet(ws, order, productNameByCode) {
   ws.getCell(1, 1).alignment = {
     horizontal: 'right'
   };
-  ws.getCell(2, 1).value = 'Организация (ИП):';
-  ws.getCell(2, 1).font = {
-    bold: true
-  };
-  ws.mergeCells(2, 2, 2, 4);
-  ws.getCell(2, 2).value = COMPANY_INFO.name;
-  ws.getCell(2, 6).value = 'ИИН/БИН:';
-  ws.getCell(2, 6).font = {
-    bold: true
-  };
-  ws.mergeCells(2, 7, 2, 9);
-  ws.getCell(2, 7).value = COMPANY_INFO.bin;
-  ws.getCell(2, 7).numFmt = '@';
-  ws.getCell(3, 1).value = 'Номер документа:';
-  ws.getCell(3, 1).font = {
-    bold: true
-  };
-  ws.getCell(3, 2).value = order.id;
-  ws.getCell(3, 3).value = 'Дата составления:';
-  ws.getCell(3, 3).font = {
-    bold: true
-  };
-  ws.mergeCells(3, 4, 3, 5);
-  const orderDate = new Date(order.date);
-  if (!isNaN(orderDate.getTime())) {
-    ws.getCell(3, 4).value = orderDate;
-    ws.getCell(3, 4).numFmt = 'dd.mm.yyyy';
-  } else {
-    ws.getCell(3, 4).value = order.date;
-  }
+  labelValueCell(ws, 2, 1, 5, 'Организация (ИП):', COMPANY_INFO.name);
+  labelValueCell(ws, 2, 6, 9, 'ИИН/БИН:', COMPANY_INFO.bin);
+  labelValueCell(ws, 3, 1, 4, 'Номер документа:', order.id);
+  labelValueCell(ws, 3, 6, 9, 'Дата составления:', formatDateDMY(order.date));
   ws.mergeCells(5, 1, 5, 9);
   ws.getCell(5, 1).value = 'НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ';
   ws.getCell(5, 1).font = {
@@ -3780,21 +3786,31 @@ function buildDogovornikWaybillSheet(ws, order, productNameByCode) {
     const sum = (Number(it.qty) || 0) * (Number(it.price) || 0);
     const nds = Math.round(sum * 16 / 116);
     totalNds += nds;
-    const values = [i + 1, nameByCode[it.code] || it.name, it.code || '', unitOf(it), Number(it.qty) || 0, Number(it.qty) || 0, Number(it.price) || 0, sum, nds];
+    const name = nameByCode[it.code] || it.name;
+    const values = [i + 1, name, it.code || '', unitOf(it), Number(it.qty) || 0, Number(it.qty) || 0, Number(it.price) || 0, sum, nds];
     values.forEach((v, ci) => {
       const cell = ws.getCell(r, ci + 1);
       cell.value = v;
       fullBorder(cell);
+      if (ci === 1) cell.alignment = {
+        wrapText: true,
+        vertical: 'top'
+      };
       if (ci === 2) cell.numFmt = '@'; // код номенклатуры — текстом, не терять ведущие нули
       if (ci === 0 || ci === 3) cell.alignment = {
         horizontal: 'center'
       };
-      if (ci === 4 || ci === 5) cell.numFmt = '#,##0.##';
+      // Без разделителя тысяч: у "#,##0.##" на целых значениях (вес не
+      // задан, qty вроде 20) Excel иногда рисует висящую запятую без
+      // цифр после неё — количество тут всегда маленькое, группировка не
+      // нужна вообще, проще её не включать, чем гоняться за этим багом.
+      if (ci === 4 || ci === 5) cell.numFmt = '0.##';
       if (ci >= 6) cell.numFmt = '#,##0';
       if (ci >= 4) cell.alignment = {
         horizontal: 'right'
       };
     });
+    ws.getRow(r).height = wrapRowHeight(name, 42);
     r++;
   });
   ws.mergeCells(r, 1, r, 7);
@@ -3828,31 +3844,23 @@ function buildDogovornikWaybillSheet(ws, order, productNameByCode) {
     bold: true
   };
   r += 2;
-  ws.getCell(r, 1).value = 'Отпуск разрешил:';
-  ws.getCell(r, 1).font = {
-    bold: true
-  };
-  ws.mergeCells(r, 2, r, 4);
-  ws.getCell(r, 2).value = COMPANY_INFO.releaseAuthorizedBy;
+  labelValueCell(ws, r, 1, 5, 'Отпуск разрешил:', COMPANY_INFO.releaseAuthorizedBy);
   r++;
-  ws.getCell(r, 1).value = 'Отпустил (водитель):';
-  ws.getCell(r, 1).font = {
-    bold: true
-  };
-  ws.mergeCells(r, 2, r, 4);
-  ws.getCell(r, 2).value = order.driver_name || '';
+  labelValueCell(ws, r, 1, 5, 'Отпустил (водитель):', order.driver_name || '');
   r += 2;
+  ws.mergeCells(r, 1, r, 3);
   ws.getCell(r, 1).value = 'Запасы получил:';
   ws.getCell(r, 1).font = {
     bold: true
   };
-  signLine(ws, r, 2, 4);
+  signLine(ws, r, 4, 6);
   r++;
+  ws.mergeCells(r, 1, r, 3);
   ws.getCell(r, 1).value = 'Расшифровка подписи:';
   ws.getCell(r, 1).font = {
     bold: true
   };
-  signLine(ws, r, 2, 4);
+  signLine(ws, r, 4, 6);
 }
 function buildSimpleWaybillSheet(ws, order, productNameByCode) {
   const nameByCode = productNameByCode || {};
@@ -3864,7 +3872,7 @@ function buildSimpleWaybillSheet(ws, order, productNameByCode) {
   }, {
     width: 13
   }, {
-    width: 32
+    width: 42
   }, {
     width: 14
   }, {
@@ -3878,18 +3886,10 @@ function buildSimpleWaybillSheet(ws, order, productNameByCode) {
     bold: true,
     size: 13
   };
-  const infoRow = (row, label, value) => {
-    ws.getCell(row, 1).value = label;
-    ws.getCell(row, 1).font = {
-      bold: true
-    };
-    ws.mergeCells(row, 2, row, 6);
-    ws.getCell(row, 2).value = value;
-  };
-  infoRow(3, 'Поставщик:', COMPANY_INFO.name);
-  infoRow(4, 'Покупатель:', order.client_name);
-  infoRow(5, 'Основание:', order.client_name);
-  infoRow(6, 'Склад:', 'Основной склад');
+  labelValueCell(ws, 3, 1, 6, 'Поставщик:', COMPANY_INFO.name);
+  labelValueCell(ws, 4, 1, 6, 'Покупатель:', order.client_name);
+  labelValueCell(ws, 5, 1, 6, 'Основание:', order.client_name);
+  labelValueCell(ws, 6, 1, 6, 'Склад:', 'Основной склад');
   const headRow = 8;
   ['№ п/п', 'Код', 'Товар', 'Количество', 'Цена', 'Сумма'].forEach((label, i) => {
     const cell = ws.getCell(headRow, i + 1);
@@ -3912,7 +3912,8 @@ function buildSimpleWaybillSheet(ws, order, productNameByCode) {
   let r = headRow + 1;
   items.forEach(it => {
     const i = r - headRow - 1;
-    const values = [i + 1, it.code || '', nameByCode[it.code] || it.name, `${it.qty} ${unitOf(it)}`, Number(it.price) || 0, (Number(it.qty) || 0) * (Number(it.price) || 0)];
+    const name = nameByCode[it.code] || it.name;
+    const values = [i + 1, it.code || '', name, `${it.qty} ${unitOf(it)}`, Number(it.price) || 0, (Number(it.qty) || 0) * (Number(it.price) || 0)];
     values.forEach((v, ci) => {
       const cell = ws.getCell(r, ci + 1);
       cell.value = v;
@@ -3921,6 +3922,10 @@ function buildSimpleWaybillSheet(ws, order, productNameByCode) {
       if (ci === 0) cell.alignment = {
         horizontal: 'center'
       };
+      if (ci === 2) cell.alignment = {
+        wrapText: true,
+        vertical: 'top'
+      };
       if (ci >= 4) {
         cell.numFmt = '#,##0';
         cell.alignment = {
@@ -3928,6 +3933,7 @@ function buildSimpleWaybillSheet(ws, order, productNameByCode) {
         };
       }
     });
+    ws.getRow(r).height = wrapRowHeight(name, 42);
     r++;
   });
   ws.mergeCells(r, 1, r, 4);
@@ -3960,18 +3966,14 @@ function buildSimpleWaybillSheet(ws, order, productNameByCode) {
     bold: true
   };
   r += 2;
-  ws.getCell(r, 1).value = 'Отпустил:';
-  ws.getCell(r, 1).font = {
-    bold: true
-  };
-  ws.mergeCells(r, 2, r, 3);
-  ws.getCell(r, 2).value = COMPANY_INFO.releaseAuthorizedBy;
+  labelValueCell(ws, r, 1, 2, 'Отпустил:', COMPANY_INFO.releaseAuthorizedBy);
   r++;
+  ws.mergeCells(r, 1, r, 2);
   ws.getCell(r, 1).value = 'Получил:';
   ws.getCell(r, 1).font = {
     bold: true
   };
-  signLine(ws, r, 2, 3);
+  signLine(ws, r, 3, 4);
 }
 // Скачать накладную как настоящий .xlsx (не CSV) — асинхронно, ExcelJS
 // собирает буфер файла в памяти (workbook.xlsx.writeBuffer), после чего
