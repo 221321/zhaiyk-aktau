@@ -1108,6 +1108,109 @@ app.put('/api/orders/:id/delivered-items', authMiddleware, (req, res) => {
   });
 });
 
+// Аннулирование уже ДОСТАВЛЕННОЙ заявки целиком — по просьбе владельца:
+// нужно для случая "заявку вообще не должно было быть" (ошибка, клиент
+// отказался уже постфактум), в отличие от PUT /api/orders/:id/delivered-items
+// выше, который правит количество, но намеренно НЕ трогает статус/оплату.
+// Только admin. Одним действием откатывает:
+//  1) остаток на складе — зеркало списания в PUT /api/orders/:id/status
+//     (см. тот же расчёт boxesDelta там), лог типа 'annulment';
+//  2) долг и кассу торгового/водителя — без единой явной строчки кода:
+//     GET /api/debts (:2231-2232), computeDriverPendingCash и разбивка
+//     выручки/бонуса в отчёте (app.jsx, periodOrders.filter(status===
+//     "delivered")) читают ТОЛЬКО заявки в статусе 'delivered' — как
+//     только статус уходит в 'annulled', заявка перестаёт участвовать во
+//     всех трёх одновременно (тот же приём, что уже используется для
+//     revoked/cancelled/returned и для sale.status==='voided', см. POST
+//     /api/sales/:id/void);
+//  3) бонус торгового — commission_total обнуляем явно (отчёт и так
+//     пересчитывает бонус из items[].commission живьём по статусу, а не
+//     читает это поле, но так виднее прямо в самой заявке).
+app.put('/api/orders/:id/annul', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Аннулировать доставленную заявку может только администратор' });
+  }
+  const orderId = parseInt(req.params.id);
+  const order = db.get('orders').find({ id: orderId }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+  if (order.status !== 'delivered') {
+    return res.status(400).json({ error: 'Аннулировать можно только заявку в статусе "Доставлено"' });
+  }
+  const reason = (req.body.reason || '').trim();
+  if (!reason) return res.status(400).json({ error: 'Укажите причину аннулирования' });
+
+  // Наличка по заявке уже физически сдана складу И подтверждена (см. PUT
+  // /api/cash-handovers/:id/confirm) — эта сумма уже реально пересчитана
+  // и принята кем-то, откатывать её в одностороннем порядке здесь нельзя
+  // (склад должен узнать и разобраться, откуда взялся "лишний" нал).
+  // Требуем сначала разобраться со сдачей вручную, аннулирование — уже
+  // отдельным шагом после.
+  let handover = null;
+  if (order.cash_handover_id) {
+    handover = db.get('cashHandovers').find({ id: order.cash_handover_id }).value();
+    if (handover && handover.status === 'confirmed') {
+      return res.status(400).json({ error: `Наличка по этой заявке уже сдана и подтверждена складом (сдача №${handover.id}) — сначала разберитесь со сдачей, потом аннулируйте заявку` });
+    }
+  }
+
+  // По долгу этой заявки уже было погашение (POST /api/debts/settle) —
+  // это реальные деньги, которые кто-то когда-то принёс. Простой уход
+  // заявки из "Доставлено" не расскажет, куда делись уже принятые платежи —
+  // разбирают так же вручную, как и подтверждённую сдачу налички выше.
+  const existingSettlements = db.get('debtSettlements').value().filter(s => s.order_id === orderId);
+  if (existingSettlements.length > 0) {
+    return res.status(400).json({ error: 'По долгу этой заявки уже были погашения — сначала разберитесь с ними в разделе "Должники", потом аннулируйте заявку' });
+  }
+
+  const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+  const stockCol = db.get('stock');
+  items.forEach(it => {
+    if (!it.code) return;
+    const rec = stockCol.find({ code: it.code }).value();
+    if (!rec) return;
+    // Точное зеркало списания в PUT /api/orders/:id/status — та же формула
+    // boxesDelta, только плюсом, а не минусом.
+    const boxesDelta = it.is_weight_item ? (Number(it.boxes) || 0) : (Number(it.qty) || 0);
+    const qtyBefore = Number(rec.qty) || 0;
+    const qtyAfter = qtyBefore + boxesDelta;
+    stockCol.find({ code: it.code }).assign({ qty: qtyAfter }).write();
+    logStockMovement(it.code, 'qty', qtyAfter - qtyBefore, qtyAfter, 'annulment', { order_id: orderId });
+    if (it.is_weight_item && it.weight_confirmed && rec.weight_kg != null) {
+      const kgBefore = Number(rec.weight_kg) || 0;
+      const kgAfter = round2(kgBefore + (Number(it.qty) || 0));
+      stockCol.find({ code: it.code }).assign({ weight_kg: kgAfter }).write();
+      logStockMovement(it.code, 'weight_kg', kgAfter - kgBefore, kgAfter, 'annulment', { order_id: orderId });
+    }
+  });
+
+  // Наличка уже попала в НЕподтверждённую (pending) сдачу — вынимаем
+  // заявку оттуда и пересчитываем ожидаемую сумму, иначе сдача будет ждать
+  // наличку, которой больше не будет (тот же приём, что и в DELETE
+  // /api/cash-handovers/:id, но для одной заявки, а не всей сдачи целиком).
+  if (handover && handover.status === 'pending') {
+    const remainingIds = (handover.order_ids || []).filter(oid => oid !== orderId);
+    if (remainingIds.length === 0) {
+      db.get('cashHandovers').remove({ id: handover.id }).write();
+    } else {
+      const remainingOrders = db.get('orders').value().filter(o => remainingIds.includes(o.id));
+      const newAmount = remainingOrders.reduce((s, o) => s + (Number(o.payment_cash) || 0), 0);
+      db.get('cashHandovers').find({ id: handover.id }).assign({ order_ids: remainingIds, expected_amount: newAmount }).write();
+    }
+  }
+
+  db.get('orders').find({ id: orderId }).assign({
+    status: 'annulled',
+    cash_handover_id: null,
+    commission_total: 0,
+    annulled_at: new Date().toISOString(),
+    annulled_by_id: req.user.id,
+    annulled_by_name: req.user.name,
+    annul_reason: reason,
+  }).write();
+
+  res.json(db.get('orders').find({ id: orderId }).value());
+});
+
 // Правка ЦЕНЫ позиций заявки — только admin, свободная цена без привязки к
 // price1/price2/price3 каталога (нужна, когда выясняется, что клиент —
 // VIP/оптовик с эксклюзивной ценой, о которой торговый не знал при
@@ -1411,7 +1514,18 @@ app.delete('/api/orders/:id', authMiddleware, (req, res) => {
   // возврат" (статус) и правка кол-ва задним числом (см.
   // PUT /api/orders/:id/delivered-items), которые не рвут эти связи.
   if (order.status === 'delivered') {
-    return res.status(400).json({ error: 'Доставленную заявку удалять нельзя — остаток на складе и связанные долги/сдачи не были бы пересчитаны. Используйте "Оформить возврат" или правку доставленного количества.' });
+    return res.status(400).json({ error: 'Доставленную заявку удалять нельзя — остаток на складе и связанные долги/сдачи не были бы пересчитаны. Используйте "Оформить возврат", правку доставленного количества или аннулирование.' });
+  }
+  // Аннулированная заявка (см. PUT /api/orders/:id/annul) — уже полностью
+  // откаченная финансовая операция: остаток, долг/касса и бонус торгового
+  // по ней обнулены корректно. Но сама запись — единственный след того,
+  // что произошло и почему (annul_reason/annulled_by) — простое remove()
+  // стёрло бы эту историю без следа, а восстановить/подтвердить задним
+  // числом уже нечем. Значимость та же, что и у "нельзя удалить
+  // доставленную" выше — аннулирование уже И ЕСТЬ отмена, второй раз
+  // отменять (удалением) нечего.
+  if (order.status === 'annulled') {
+    return res.status(400).json({ error: 'Аннулированную заявку удалять нельзя — это уже отменённая операция, её запись остаётся историей аннулирования.' });
   }
   db.get('orders').remove({ id: orderId }).write();
   res.json({ success: true });
@@ -2733,6 +2847,7 @@ app.get('/api/products/:code/ledger', authMiddleware, (req, res) => {
     return: 'Возврат от клиента',
     return_rollback: 'Отмена возврата',
     removed: 'Товар удалён из номенклатуры 1С',
+    annulment: 'Аннулирование заявки',
   };
   const labelFor = (e) => {
     const base = LABELS[e.type] || e.type;

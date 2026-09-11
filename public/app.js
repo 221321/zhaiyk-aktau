@@ -164,7 +164,8 @@ const SL = {
   delivered: "Доставлено",
   cancelled: "Отказ при получении",
   returned: "Возврат",
-  revoked: "Отозвана"
+  revoked: "Отозвана",
+  annulled: "Аннулирована"
 };
 const SC = {
   new: "#DA1A10",
@@ -172,7 +173,8 @@ const SC = {
   delivered: "#15803D",
   cancelled: "#DC2626",
   returned: "#7C3AED",
-  revoked: "#6B7280"
+  revoked: "#6B7280",
+  annulled: "#991B1B"
 };
 const SB = {
   new: "#FCEBEA",
@@ -180,7 +182,8 @@ const SB = {
   delivered: "#EAF5EE",
   cancelled: "#FEF2F2",
   returned: "#F5F3FF",
-  revoked: "#F3F4F6"
+  revoked: "#F3F4F6",
+  annulled: "#FEE2E2"
 };
 const C = {
   navy: "#1C1917",
@@ -4586,6 +4589,7 @@ function OrderDetail({
   onFixItemWeight,
   onEditDeliveredItems,
   onEditPrices,
+  onAnnulOrder,
   currentUser,
   drivers,
   products
@@ -4624,6 +4628,14 @@ function OrderDetail({
   const [priceInputs, setPriceInputs] = useState({});
   const [priceReason, setPriceReason] = useState("");
   const [savingPrices, setSavingPrices] = useState(false);
+  // Аннулирование уже ДОСТАВЛЕННОЙ заявки целиком — только admin (см. PUT
+  // /api/orders/:id/annul на сервере, onAnnulOrder передаётся только из
+  // AdminCabinet и только ему). В отличие от "Исправить доставленное
+  // количество" выше, это не правка, а полная отмена — остаток на склад,
+  // долг/касса и бонус торгового перестают учитывать эту заявку целиком.
+  const [annulling, setAnnulling] = useState(false);
+  const [annulReason, setAnnulReason] = useState("");
+  const [savingAnnul, setSavingAnnul] = useState(false);
   // Договорник ли клиент заявки (см. DogovornikModal/is_dogovornik) — влияет
   // на печать накладной: см. printWaybill/buildWaybillInnerHtml (hideQr).
   const [isDogovornik, setIsDogovornik] = useState(false);
@@ -4724,6 +4736,22 @@ function OrderDetail({
       alert(e.message);
     }
     setSavingPrices(false);
+  };
+  const saveAnnul = async () => {
+    if (savingAnnul) return;
+    if (!annulReason.trim()) {
+      alert('Укажите причину аннулирования');
+      return;
+    }
+    if (!window.confirm(`Аннулировать заявку № ${order.id} целиком? Остаток вернётся на склад, долг/касса и бонус торгового по ней обнулятся. Действие нельзя отменить.`)) return;
+    setSavingAnnul(true);
+    try {
+      await onAnnulOrder(order.id, annulReason.trim());
+      setAnnulling(false);
+    } catch (e) {
+      alert(e.message);
+    }
+    setSavingAnnul(false);
   };
   // Весовые позиции, вес которых ещё не подтверждён складом (см.
   // POST /api/orders/weights) — до этого кол-во в заявке условное, и
@@ -5581,7 +5609,85 @@ function OrderDetail({
       fontWeight: 600,
       color: C.text
     }
-  }, e.kind === "price" ? "💰 " : "", e.by_name, " \xB7 ", fmtDT(e.at)), /*#__PURE__*/React.createElement("div", null, "\u0421\u0443\u043C\u043C\u0430: ", (e.before_total || 0).toLocaleString(), " \u20B8 \u2192 ", (e.after_total || 0).toLocaleString(), " \u20B8"), e.reason && /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u0438\u0447\u0438\u043D\u0430: ", e.reason)))), currentUser.role === "admin" && onDeleteOrder && order.status !== "delivered" && /*#__PURE__*/React.createElement("div", {
+  }, e.kind === "price" ? "💰 " : "", e.by_name, " \xB7 ", fmtDT(e.at)), /*#__PURE__*/React.createElement("div", null, "\u0421\u0443\u043C\u043C\u0430: ", (e.before_total || 0).toLocaleString(), " \u20B8 \u2192 ", (e.after_total || 0).toLocaleString(), " \u20B8"), e.reason && /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u0438\u0447\u0438\u043D\u0430: ", e.reason)))), currentUser.role === "admin" && onAnnulOrder && order.status === "delivered" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 20,
+      paddingTop: 16,
+      borderTop: `1px dashed ${C.border}`
+    }
+  }, !annulling ? /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnDanger,
+      width: "100%"
+    },
+    onClick: () => {
+      setAnnulReason("");
+      setAnnulling(true);
+    }
+  }, "\u26D4 \u0410\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0437\u0430\u044F\u0432\u043A\u0443") : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 8px",
+      fontSize: 15,
+      fontWeight: 700,
+      color: C.red
+    }
+  }, "\u0410\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0437\u0430\u044F\u0432\u043A\u0443 \u2116 ", order.id), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 10px",
+      fontSize: 13,
+      color: C.textFaint
+    }
+  }, "\u0417\u0430\u044F\u0432\u043A\u0430 \u0446\u0435\u043B\u0438\u043A\u043E\u043C \u043E\u0442\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F, \u043A\u0430\u043A \u0431\u0443\u0434\u0442\u043E \u0435\u0451 \u043D\u0435 \u0431\u044B\u043B\u043E: \u0432\u0435\u0441\u044C \u043E\u0441\u0442\u0430\u0442\u043E\u043A \u0432\u0435\u0440\u043D\u0451\u0442\u0441\u044F \u043D\u0430 \u0441\u043A\u043B\u0430\u0434, \u0434\u043E\u043B\u0433/\u043A\u0430\u0441\u0441\u0430 \u0438 \u0431\u043E\u043D\u0443\u0441 \u0442\u043E\u0440\u0433\u043E\u0432\u043E\u0433\u043E \u043F\u043E \u043D\u0435\u0439 \u043E\u0431\u043D\u0443\u043B\u044F\u0442\u0441\u044F. \u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043D\u0435\u043B\u044C\u0437\u044F \u043E\u0442\u043C\u0435\u043D\u0438\u0442\u044C."), /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      marginBottom: 10
+    },
+    placeholder: "\u041F\u0440\u0438\u0447\u0438\u043D\u0430 \u0430\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
+    value: annulReason,
+    onChange: e => setAnnulReason(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    disabled: savingAnnul,
+    style: {
+      ...S.btnDanger,
+      flex: 1,
+      marginTop: 0,
+      opacity: savingAnnul ? 0.5 : 1
+    },
+    onClick: saveAnnul
+  }, savingAnnul ? "Аннулирование..." : "Аннулировать"), /*#__PURE__*/React.createElement("button", {
+    disabled: savingAnnul,
+    style: {
+      ...S.btnSecondary,
+      flex: 1
+    },
+    onClick: () => setAnnulling(false)
+  }, "\u041E\u0442\u043C\u0435\u043D\u0430")))), order.status === "annulled" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 20,
+      paddingTop: 16,
+      borderTop: `1px dashed ${C.border}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 12px",
+      borderRadius: 10,
+      background: SB.annulled,
+      border: `1px solid ${SC.annulled}`,
+      fontSize: 13,
+      color: C.text
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      color: SC.annulled,
+      marginBottom: 4
+    }
+  }, "\u26D4 \u0417\u0430\u044F\u0432\u043A\u0430 \u0430\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u0430"), order.annulled_by_name && /*#__PURE__*/React.createElement("div", null, order.annulled_by_name, order.annulled_at ? ` · ${fmtDT(order.annulled_at)}` : ""), order.annul_reason && /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u0438\u0447\u0438\u043D\u0430: ", order.annul_reason))), currentUser.role === "admin" && onDeleteOrder && order.status !== "delivered" && order.status !== "annulled" && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 20,
       paddingTop: 16,
@@ -14662,6 +14768,18 @@ function AdminCabinet({
     loadOrders();
     return res;
   };
+
+  // Аннулирование уже ДОСТАВЛЕННОЙ заявки целиком — только admin, см. PUT
+  // /api/orders/:id/annul на сервере (там же и все проверки/откаты:
+  // остаток на склад, долг/касса/бонус торгового перестают её учитывать).
+  const annulOrder = async (orderId, reason) => {
+    const res = await apiCall('PUT', `/api/orders/${orderId}/annul`, {
+      reason
+    });
+    setSelectedOrder(res);
+    loadOrders();
+    return res;
+  };
   const [expandedSales, setExpandedSales] = useState({});
   const [cashboxGroupBy, setCashboxGroupBy] = useState("driver");
   // Клик по кругляшкам НАЛ/QR/ДОЛГ в сводке "Касса за период" прокручивает
@@ -14989,7 +15107,7 @@ function AdminCabinet({
       totalCommission
     };
   }, [orders, sales, products, dateFrom, dateTo, debtSettlements, returnsList]);
-  const FILTERS = [["all", "Все"], ["new", "Ожидает"], ["in_transit", "В работе"], ["delivered", "Доставлено"], ["cancelled", "Отказ"], ["returned", "Возврат"], ["revoked", "Отозвана"]];
+  const FILTERS = [["all", "Все"], ["new", "Ожидает"], ["in_transit", "В работе"], ["delivered", "Доставлено"], ["cancelled", "Отказ"], ["returned", "Возврат"], ["revoked", "Отозвана"], ["annulled", "Аннулирована"]];
   // Оператор — только два раздела (Заявки, Касса), и без прав на изменение
   // в них (см. readOnlyOp ниже): видит, но не правит, кроме сумм по
   // должникам (POST /api/debts/settle) и WhatsApp — тем ничего на сервере
@@ -17650,6 +17768,7 @@ function AdminCabinet({
       onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
       onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
       onEditPrices: user.role === "admin" ? editPrices : undefined,
+      onAnnulOrder: user.role === "admin" ? annulOrder : undefined,
       currentUser: user,
       drivers: users.filter(u => u.role === "driver" && u.active !== false),
       products: products
@@ -17744,6 +17863,7 @@ function AdminCabinet({
     onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
     onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
     onEditPrices: user.role === "admin" ? editPrices : undefined,
+    onAnnulOrder: user.role === "admin" ? annulOrder : undefined,
     currentUser: user,
     drivers: users.filter(u => u.role === "driver" && u.active !== false),
     products: products
@@ -17963,7 +18083,7 @@ function WarehouseCabinet({
   const [orderSearch, setOrderSearch] = useState("");
   const [orderFilter, setOrderFilter] = useState("all");
   const [pickupOnly, setPickupOnly] = useState(false);
-  const ORDER_FILTERS = [["all", "Все"], ["new", "Ожидает"], ["in_transit", "В работе"], ["delivered", "Доставлено"], ["cancelled", "Отказ"], ["returned", "Возврат"], ["revoked", "Отозвана"]];
+  const ORDER_FILTERS = [["all", "Все"], ["new", "Ожидает"], ["in_transit", "В работе"], ["delivered", "Доставлено"], ["cancelled", "Отказ"], ["returned", "Возврат"], ["revoked", "Отозвана"], ["annulled", "Аннулирована"]];
   const oq = orderSearch.trim().toLowerCase();
   const filteredOrders = orders.filter(o => orderFilter === "all" || o.status === orderFilter).filter(o => !pickupOnly || o.time_slot === PICKUP_SLOT).filter(o => !oq || String(o.id).includes(oq) || (o.client_name || '').toLowerCase().includes(oq) || (o.sales_name || '').toLowerCase().includes(oq));
   const [driverFilter, setDriverFilter] = useState("");
