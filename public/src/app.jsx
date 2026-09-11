@@ -2369,6 +2369,30 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
     }
     fn();
   };
+  // Выгрузка заявки в Excel (CSV) — по просьбе владельца: если у клиента
+  // накладная разошлась с 1С (например, контрагента переименовали в 1С уже
+  // после того, как заявка была создана — имя в заявке снимок на момент
+  // оформления, см. finalClientName на сервере, и задним числом не
+  // обновляется), проще скачать заявку и поправить вручную в Excel, чем
+  // ждать правки на сайте. Название клиента и позиции — как в самой
+  // заявке на момент выгрузки.
+  const exportOrderCsv = () => downloadCsv(
+    `zayavka_${order.id}.csv`,
+    items,
+    [
+      { label: '№ заявки', get: () => order.id },
+      { label: 'Дата', get: () => order.date },
+      { label: 'Клиент', get: () => order.client_name||order.clientName },
+      { label: 'Адрес', get: () => order.address },
+      { label: 'Торговый', get: () => order.sales_name||order.salesName },
+      { label: 'Контакт', get: () => order.contact_name||'' },
+      { label: 'Телефон', get: () => order.contact_phone||'' },
+      { label: 'Товар', get: it => it.name },
+      { label: 'Кол-во', get: it => Number(it.qty)||0 },
+      { label: 'Цена', get: it => Number(it.price)||0 },
+      { label: 'Сумма', get: it => (Number(it.qty)||0)*(Number(it.price)||0) },
+    ]
+  );
   // Самовывоз клиент забирает прямо со склада, без водителя — зав. склад
   // сам "берёт в работу" и сам же закрывает такую заявку при выдаче товара
   // (см. canChange на сервере), тем же способом, что и водитель у обычной
@@ -2409,6 +2433,9 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
             <button style={{flex:1,padding:"11px",background:C.navy,color:C.white,border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:pendingWeightItems.length>0?"not-allowed":"pointer",opacity:pendingWeightItems.length>0?0.5:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>confirmPrintIfPending(()=>printWaybill(order,isDogovornik,productNameByCode))}>🖨 Печать накладной</button>
             <button style={{flex:1,padding:"11px",background:"#25D366",color:C.white,border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:pendingWeightItems.length>0?"not-allowed":"pointer",opacity:pendingWeightItems.length>0?0.5:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={()=>confirmPrintIfPending(()=>shareWaybillPdf(order,isDogovornik,productNameByCode))}>📲 Отправить PDF</button>
           </div>
+        )}
+        {currentUser.role!=="driver" && (
+          <button style={{...S.btnOutline,marginTop:0,marginBottom:14,padding:"9px",fontSize:14}} onClick={exportOrderCsv}>⬇ Скачать заявку в Excel</button>
         )}
         <hr style={S.divider}/>
         {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.created_at?[["Создана",fmtDT(order.created_at)]]:[]),...(order.driver_name?[["Водитель",order.driver_name]]:[]),...(order.driver_name&&order.in_transit_at?[["В работе с",fmtDT(order.in_transit_at)]]:[]),...(order.delivered_at?[["Доставлено",fmtDT(order.delivered_at)]]:[]),...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
