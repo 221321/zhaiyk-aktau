@@ -5,7 +5,7 @@
 // арифметика сходится: opening + income - outcome === closing.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { startServer, login, apiCall, seedProducts, createOrder, deliverOrder } = require('./helpers');
+const { startServer, login, apiCall, seedProducts, createOrder, deliverOrder, SYNC_SECRET } = require('./helpers');
 
 const PORT = 4106;
 let server;
@@ -48,6 +48,35 @@ test('material-statement — приход (sync) и расход (доставк
   assert.equal(m2.outcome, 0);
   assert.equal(m2.opening, 0);
   assert.equal(m2.closing, 0);
+});
+
+test('material-statement — отрицательная корректировка остатка синком из 1С не считается расходом', async () => {
+  // Воспроизводит реальный случай: 1С прислала остаток ниже, чем на сайте
+  // (потому что в 1С реализация ещё не проведена) — это не физическая
+  // продажа, поэтому "Расход" не должен её учитывать, а разница уходит в
+  // отдельное поле correction (см. computeMaterialStatementRows).
+  await seedProducts(server.baseUrl, admin, [{ code: 'M3', name: 'Товар M3', price: 100, qty: 100 }]);
+  const order = await createOrder(server.baseUrl, sales, {
+    items: [{ code: 'M3', name: 'Товар M3', qty: 10, price: 100 }],
+  });
+  await deliverOrder(server.baseUrl, driver, order.id, { cash: 1000, qr: 0, debt: 0 });
+  // Остаток на сайте сейчас 90 (100 - 10 доставленных). 1С досчиталась и
+  // прислала гораздо более низкий остаток — 20 — не потому что кто-то ещё
+  // продал 70, а потому что в 1С не были проведены другие реализации.
+  await apiCall(server.baseUrl, 'POST', '/api/stock/sync', {
+    secret: SYNC_SECRET,
+    items: [{ code: 'M3', qty: 20 }],
+  });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = await apiCall(server.baseUrl, 'GET', `/api/reports/material-statement?from=${today}&to=${today}`, undefined, admin);
+
+  const m3 = rows.find(r => r.code === 'M3');
+  assert.ok(m3, 'M3 должен быть в отчёте');
+  assert.equal(m3.outcome, 10, 'расход — только реальная доставка, корректировка 1С в него не идёт');
+  assert.equal(m3.correction, -70, 'корректировка синком (1С прислала на 70 меньше) видна отдельно');
+  assert.equal(m3.closing, 20, 'конечный остаток — фактический, каким его прислала 1С');
+  assert.equal(m3.opening + m3.income - m3.outcome + m3.correction, m3.closing, 'начальный + приход - расход + корректировка = конечный');
 });
 
 test('material-statement — за пределами доступа роль sales/driver видеть не может', async () => {
