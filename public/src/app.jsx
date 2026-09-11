@@ -1730,6 +1730,72 @@ function buildExpenseWaybillInnerHtml(order, productNameByCode) {
     </div>`;
 }
 
+// Та же накладная, что печатается кнопкой "Печать накладной" (см.
+// printWaybill/buildWaybillInnerHtml/buildExpenseWaybillInnerHtml выше), но
+// в виде строк для CSV — по просьбе владельца: нужно не просто список
+// позиций заявки, а сам бланк накладной, скачанный в Excel, чтобы можно
+// было поправить вручную (например, если название клиента разошлось с
+// 1С). Повторяет тот же выбор формы, что и печать: договорники — Форма
+// З-2 (официальный бланк, приказ Минфина №562, с НДС), остальные —
+// "Расходная накладная" (простой бланк). См. downloadCsvMatrix.
+function buildWaybillCsvMatrix(order, isDogovornik, productNameByCode) {
+  const nameByCode = productNameByCode || {};
+  const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
+  const unitOf = (it) => it.is_weight_item ? 'кг' : 'шт';
+  const total = order.total || 0;
+  const rows = [];
+  if (isDogovornik) {
+    rows.push(['Приложение 26 к приказу Министра финансов Республики Казахстан от 20 декабря 2012 года № 562']);
+    rows.push(['Организация (индивидуальный предприниматель)', COMPANY_INFO.name, 'ИИН/БИН', COMPANY_INFO.bin]);
+    rows.push(['Номер документа', order.id, 'Дата составления', formatDateDMY(order.date)]);
+    rows.push([]);
+    rows.push(['НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ (Форма З-2)']);
+    rows.push([]);
+    rows.push(['Организация — отправитель', COMPANY_INFO.name]);
+    rows.push(['Организация — получатель', order.client_name]);
+    rows.push(['Ответственный за поставку (Ф.И.О.)', order.driver_name||'', COMPANY_INFO.responsiblePhone]);
+    rows.push(['Адрес доставки', order.address||'', order.contact_phone?('Тел: '+order.contact_phone):'']);
+    rows.push([]);
+    rows.push(['№','Наименование','Номенкл. №','Ед. изм.','Кол-во подлежит отпуску','Кол-во отпущено','Цена за ед., ₸','Сумма, ₸','Сумма НДС, ₸']);
+    let totalNds = 0;
+    items.forEach((it,i) => {
+      const sum = (Number(it.qty)||0)*(Number(it.price)||0);
+      const nds = Math.round(sum*16/116);
+      totalNds += nds;
+      rows.push([i+1, nameByCode[it.code]||it.name, it.code||'', unitOf(it), Number(it.qty)||0, Number(it.qty)||0, Number(it.price)||0, sum, nds]);
+    });
+    rows.push(['','','','','','','Итого', total, totalNds]);
+    rows.push([]);
+    rows.push(['Всего отпущено на сумму', total+' ₸']);
+    rows.push(['Сумма прописью', tengeSumToWords(total)]);
+    rows.push([]);
+    rows.push(['Отпуск разрешил', COMPANY_INFO.releaseAuthorizedBy]);
+    rows.push(['Отпустил (водитель)', order.driver_name||'']);
+    rows.push(['Запасы получил', '']);
+    rows.push(['Расшифровка подписи', '']);
+  } else {
+    rows.push([`Расходная накладная № ${order.id} от ${formatDateWordsRu(order.date)}`]);
+    rows.push([]);
+    rows.push(['Поставщик', COMPANY_INFO.name]);
+    rows.push(['Покупатель', order.client_name]);
+    rows.push(['Основание', order.client_name]);
+    rows.push(['Склад', 'Основной склад']);
+    rows.push([]);
+    rows.push(['№ п/п','Код','Товар','Количество','Цена','Сумма']);
+    items.forEach((it,i) => {
+      rows.push([i+1, it.code||'', nameByCode[it.code]||it.name, `${it.qty} ${unitOf(it)}`, Number(it.price)||0, (Number(it.qty)||0)*(Number(it.price)||0)]);
+    });
+    rows.push(['','','','','Итого:', total]);
+    rows.push([]);
+    rows.push([`Всего наименований ${items.length}, на сумму ${total} KZT`]);
+    rows.push([tengeSumToWords(total)]);
+    rows.push([]);
+    rows.push(['Отпустил', COMPANY_INFO.releaseAuthorizedBy]);
+    rows.push(['Получил', '']);
+  }
+  return rows;
+}
+
 // Возвратная накладная (см. PUT /api/returns/:id/confirm) — та же форма,
 // что и обычная накладная на отпуск (buildWaybillInnerHtml), но товар
 // движется в обратную сторону: отправитель — клиент, получатель — компания.
@@ -2377,29 +2443,17 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
     }
     fn();
   };
-  // Выгрузка заявки в Excel (CSV) — по просьбе владельца: если у клиента
+  // Выгрузка НАКЛАДНОЙ (не просто списка позиций) в Excel — тот же бланк,
+  // что и "Печать накладной" (см. buildWaybillCsvMatrix), только строками
+  // CSV вместо печатной формы. По просьбе владельца: если у клиента
   // накладная разошлась с 1С (например, контрагента переименовали в 1С уже
   // после того, как заявка была создана — имя в заявке снимок на момент
   // оформления, см. finalClientName на сервере, и задним числом не
-  // обновляется), проще скачать заявку и поправить вручную в Excel, чем
-  // ждать правки на сайте. Название клиента и позиции — как в самой
-  // заявке на момент выгрузки.
-  const exportOrderCsv = () => downloadCsv(
-    `zayavka_${order.id}.csv`,
-    items,
-    [
-      { label: '№ заявки', get: () => order.id },
-      { label: 'Дата', get: () => order.date },
-      { label: 'Клиент', get: () => order.client_name||order.clientName },
-      { label: 'Адрес', get: () => order.address },
-      { label: 'Торговый', get: () => order.sales_name||order.salesName },
-      { label: 'Контакт', get: () => order.contact_name||'' },
-      { label: 'Телефон', get: () => order.contact_phone||'' },
-      { label: 'Товар', get: it => it.name },
-      { label: 'Кол-во', get: it => Number(it.qty)||0 },
-      { label: 'Цена', get: it => Number(it.price)||0 },
-      { label: 'Сумма', get: it => (Number(it.qty)||0)*(Number(it.price)||0) },
-    ]
+  // обновляется), проще скачать бланк и поправить вручную в Excel, чем
+  // ждать правки на сайте.
+  const exportOrderCsv = () => downloadCsvMatrix(
+    `nakladnaya_${order.id}.csv`,
+    buildWaybillCsvMatrix(order, isDogovornik, productNameByCode)
   );
   // Самовывоз клиент забирает прямо со склада, без водителя — зав. склад
   // сам "берёт в работу" и сам же закрывает такую заявку при выдаче товара
@@ -4417,34 +4471,49 @@ function ProductAliasesPanel({ desktop }) {
   );
 }
 
-// Скачать массив объектов как CSV (Excel открывает CSV нативно, без
-// сторонних библиотек для .xlsx). BOM в начале — чтобы Excel сразу понял
-// кодировку UTF-8 и не превратил кириллицу в кракозябры.
-function downloadCsv(filename, rows, columns) {
-  // Разделитель — ";", а не запятая: Excel с русской локалью (Windows)
-  // определяет разделитель CSV по системному "разделителю списка", а он в
-  // ru-RU — ";" (запятая там зарезервирована под десятичную точку). С "," всё
-  // содержимое схлопывается в один столбец при открытии — так и было.
-  //
-  // Числа с точкой (JS-формат, например 14.1) Excel в русской локали не
-  // узнаёт как десятичную дробь (там точка не разделитель дроби) и вместо
-  // этого пытается угадать дату "день.месяц" — 14.1 превращается в "14
-  // октября". Сами цифры при этом верные, просто отображение ломается.
-  // Чиним так же, как и с разделителем колонок: настоящие числа отдаём с
-  // запятой вместо точки — тогда Excel читает их как число, а не как дату.
-  const esc = (v) => {
-    if (typeof v === 'number') return String(v).replace('.', ',');
-    const s = v == null ? '' : String(v);
-    return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-  };
-  const lines = [columns.map(c => esc(c.label)).join(';')];
-  rows.forEach(r => lines.push(columns.map(c => esc(c.get(r))).join(';')));
+// Экранирование одной ячейки CSV — общее для downloadCsv (таблица
+// объектов с фиксированными колонками) и downloadCsvMatrix (произвольные
+// строки ячеек, см. buildWaybillCsvMatrix). Разделитель — ";", а не
+// запятая: Excel с русской локалью (Windows) определяет разделитель CSV по
+// системному "разделителю списка", а он в ru-RU — ";" (запятая там
+// зарезервирована под десятичную точку). С "," всё содержимое схлопывается
+// в один столбец при открытии — так и было.
+//
+// Числа с точкой (JS-формат, например 14.1) Excel в русской локали не
+// узнаёт как десятичную дробь (там точка не разделитель дроби) и вместо
+// этого пытается угадать дату "день.месяц" — 14.1 превращается в "14
+// октября". Сами цифры при этом верные, просто отображение ломается.
+// Чиним так же, как и с разделителем колонок: настоящие числа отдаём с
+// запятой вместо точки — тогда Excel читает их как число, а не как дату.
+function csvEscapeCell(v) {
+  if (typeof v === 'number') return String(v).replace('.', ',');
+  const s = v == null ? '' : String(v);
+  return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+// BOM в начале — чтобы Excel сразу понял кодировку UTF-8 и не превратил
+// кириллицу в кракозябры.
+function downloadCsvText(filename, lines) {
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+// Скачать массив объектов как CSV (Excel открывает CSV нативно, без
+// сторонних библиотек для .xlsx) — одна строка объектов на одинаковые
+// колонки, как в списковых отчётах (остатки, ведомость, сверка с 1С).
+function downloadCsv(filename, rows, columns) {
+  const lines = [columns.map(c => csvEscapeCell(c.label)).join(';')];
+  rows.forEach(r => lines.push(columns.map(c => csvEscapeCell(c.get(r))).join(';')));
+  downloadCsvText(filename, lines);
+}
+// Скачать CSV из готовых строк ячеек произвольной формы (не таблица с
+// одинаковыми колонками) — для накладной, см. buildWaybillCsvMatrix: там
+// шапка документа, таблица позиций и подписи вперемешку, как в самом
+// печатном бланке, а не единый список с одинаковыми полями в каждой строке.
+function downloadCsvMatrix(filename, matrix) {
+  downloadCsvText(filename, matrix.map(row => row.map(csvEscapeCell).join(';')));
 }
 
 // Отчёт "Движение остатков" — по просьбе владельца: "был остаток, торговый
