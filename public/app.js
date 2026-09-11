@@ -9938,6 +9938,9 @@ function MaterialStatementReport({
     label: 'Расход',
     get: r => r.outcome
   }, {
+    label: 'Корректировка 1С',
+    get: r => r.correction || 0
+  }, {
     label: 'Конечный остаток',
     get: r => r.closing
   }]);
@@ -10095,6 +10098,12 @@ function MaterialStatementReport({
     style: {
       padding: "6px 8px",
       textAlign: "right"
+    },
+    title: "\u041E\u0442\u0440\u0438\u0446\u0430\u0442\u0435\u043B\u044C\u043D\u0430\u044F \u043F\u0440\u0430\u0432\u043A\u0430 \u043E\u0441\u0442\u0430\u0442\u043A\u0430 \u0441\u0438\u043D\u043A\u043E\u043C \u0438\u0437 1\u0421 (\u043D\u0435 \u043F\u0440\u043E\u0434\u0430\u0436\u0430/\u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0430) \u2014 \u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u043A\u043E\u0433\u0434\u0430 \u0432 1\u0421 \u0435\u0449\u0451 \u043D\u0435 \u043F\u0440\u043E\u0432\u0435\u0434\u0435\u043D\u0430 \u0440\u0435\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u044F \u0438 \u043F\u0440\u0438\u0441\u043B\u0430\u043D\u043D\u044B\u0439 \u043E\u0441\u0442\u0430\u0442\u043E\u043A \u043D\u0438\u0436\u0435 \u0444\u0430\u043A\u0442\u0430 \u043D\u0430 \u0441\u0430\u0439\u0442\u0435"
+  }, "\u041A\u043E\u0440\u0440\u0435\u043A\u0442\u0438\u0440\u043E\u0432\u043A\u0430 1\u0421"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right"
     }
   }, "\u041A\u043E\u043D\u0435\u0447\u043D\u044B\u0439 \u043E\u0441\u0442\u0430\u0442\u043E\u043A"))), /*#__PURE__*/React.createElement("tbody", null, filtered.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.code,
@@ -10130,6 +10139,12 @@ function MaterialStatementReport({
       fontWeight: 700
     }
   }, r.outcome ? `−${numLabel(r.outcome, r.unit)}` : numLabel(0, r.unit)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right",
+      color: r.correction ? C.textFaint : undefined
+    }
+  }, r.correction ? numLabel(r.correction, r.unit) : '—'), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "6px 8px",
       textAlign: "right",
@@ -10255,6 +10270,9 @@ function Reconcile1CReport({
   }, {
     label: 'Не хватает в 1С',
     get: r => r.shortfall
+  }, {
+    label: 'из них корректировка 1С (не продажа)',
+    get: r => r.correction_site || 0
   }]);
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -10405,6 +10423,12 @@ function Reconcile1CReport({
     }
   }, "\u041D\u0435 \u0445\u0432\u0430\u0442\u0430\u0435\u0442 \u0432 1\u0421"), /*#__PURE__*/React.createElement("th", {
     style: {
+      padding: "6px 8px",
+      textAlign: "right"
+    },
+    title: "\u0427\u0430\u0441\u0442\u044C \u0440\u0430\u0441\u0445\u043E\u0434\u0430 \u043D\u0430 \u0441\u0430\u0439\u0442\u0435 \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434 \u2014 \u043D\u0435 \u043F\u0440\u043E\u0434\u0430\u0436\u0430/\u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0430, \u0430 \u043E\u0442\u0440\u0438\u0446\u0430\u0442\u0435\u043B\u044C\u043D\u0430\u044F \u043F\u0440\u0430\u0432\u043A\u0430 \u043E\u0441\u0442\u0430\u0442\u043A\u0430 \u0441\u0438\u043D\u043A\u043E\u043C \u0438\u0437 1\u0421 (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u0432 1\u0421 \u0435\u0449\u0451 \u043D\u0435 \u043F\u0440\u043E\u0432\u0435\u0434\u0435\u043D\u0430 \u0440\u0435\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u044F). \u0423\u0436\u0435 \u0432\u044B\u0447\u0442\u0435\u043D\u0430 \u0438\u0437 shortfall \u0441\u043B\u0435\u0432\u0430 \u2014 \u043F\u043E\u043C\u043E\u0433\u0430\u0435\u0442 \u043F\u043E\u043D\u044F\u0442\u044C, \u043E\u0442\u043A\u0443\u0434\u0430 \u0432\u0437\u044F\u043B\u043E\u0441\u044C \u0440\u0430\u0441\u0445\u043E\u0436\u0434\u0435\u043D\u0438\u0435"
+  }, "\u0418\u0437 \u043D\u0438\u0445 \u043A\u043E\u0440\u0440\u0435\u043A\u0442. 1\u0421"), /*#__PURE__*/React.createElement("th", {
+    style: {
       padding: "6px 8px"
     }
   }, "\u0415\u0434.\u0438\u0437\u043C."))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
@@ -10439,6 +10463,12 @@ function Reconcile1CReport({
       color: r.shortfall > 0 ? C.red : r.shortfall < 0 ? C.green : C.textFaint
     }
   }, r.shortfall > 0 ? '+' : '', r.shortfall), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right",
+      color: C.textFaint
+    }
+  }, r.correction_site ? numLabel(r.correction_site, r.unit_site) : '—'), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "6px 8px"
     }

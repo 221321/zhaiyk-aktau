@@ -6,7 +6,7 @@
 // хватает остатка, чтобы реализация провелась".
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { startServer, login, apiCall, seedProducts, createOrder, deliverOrder } = require('./helpers');
+const { startServer, login, apiCall, seedProducts, createOrder, deliverOrder, SYNC_SECRET } = require('./helpers');
 
 const PORT = 4107;
 let server;
@@ -41,6 +41,38 @@ test('reconcile-1c — считает shortfall = расход сайта мин
   assert.equal(r1.outcome_site, 20, 'сайт реально списал 20');
   assert.equal(r1.outcome_1c, 15, 'из файла 1С пришло 15');
   assert.equal(r1.shortfall, 5, '1С не досчиталась 5 единиц');
+});
+
+test('reconcile-1c — отрицательная корректировка остатка синком из 1С не раздувает shortfall', async () => {
+  // Тот же кейс, что и в material-statement.test.js: 1С прислала остаток
+  // ниже факта на сайте (недопроведённые реализации в 1С), а не потому что
+  // кто-то продал больше. shortfall должен считаться от РЕАЛЬНОГО расхода
+  // сайта (доставки), а не от расхода, раздутого этой корректировкой.
+  await seedProducts(server.baseUrl, admin, [{ code: 'R3', name: 'Товар R3', price: 100, qty: 100 }]);
+  const order = await createOrder(server.baseUrl, sales, {
+    items: [{ code: 'R3', name: 'Товар R3', qty: 10, price: 100 }],
+  });
+  await deliverOrder(server.baseUrl, driver, order.id, { cash: 1000, qr: 0, debt: 0 });
+  await apiCall(server.baseUrl, 'POST', '/api/stock/sync', {
+    secret: SYNC_SECRET,
+    items: [{ code: 'R3', qty: 20 }], // было 90, 1С прислала 20 — корректировка на -70
+  });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const result = await apiCall(server.baseUrl, 'POST', '/api/reports/reconcile-1c', {
+    from: today,
+    to: today,
+    // Приход намеренно не совпадает (50 vs 100 на сайте), чтобы строка не
+    // ушла из результата как "идеальное совпадение" — интересует именно
+    // расход/shortfall, которые здесь как раз совпадают.
+    rows: [{ code: 'R3', name: 'Товар R3', unit: '', income: 50, outcome: 10 }],
+  }, admin);
+
+  const r3 = result.find(r => r.code === 'R3');
+  assert.ok(r3, 'R3 должен попасть в список — приход разошёлся с 1С');
+  assert.equal(r3.outcome_site, 10, 'расход на сайте — только реальная доставка, без корректировки');
+  assert.equal(r3.correction_site, -70, 'корректировка синком видна отдельным полем');
+  assert.equal(r3.shortfall, 0, 'расход сайта и 1С совпали — корректировка не должна создавать ложный shortfall');
 });
 
 test('reconcile-1c — идеальное совпадение не попадает в список расхождений', async () => {

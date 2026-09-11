@@ -4953,6 +4953,7 @@ function MaterialStatementReport({ onClose }) {
       { label: 'Начальный остаток', get: r => r.opening },
       { label: 'Приход', get: r => r.income },
       { label: 'Расход', get: r => r.outcome },
+      { label: 'Корректировка 1С', get: r => r.correction || 0 },
       { label: 'Конечный остаток', get: r => r.closing },
     ]
   );
@@ -4999,6 +5000,7 @@ function MaterialStatementReport({ onClose }) {
                   <th style={{padding:"6px 8px",textAlign:"right"}}>Начальный остаток</th>
                   <th style={{padding:"6px 8px",textAlign:"right"}}>Приход</th>
                   <th style={{padding:"6px 8px",textAlign:"right"}}>Расход</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}} title="Отрицательная правка остатка синком из 1С (не продажа/доставка) — например, когда в 1С ещё не проведена реализация и присланный остаток ниже факта на сайте">Корректировка 1С</th>
                   <th style={{padding:"6px 8px",textAlign:"right"}}>Конечный остаток</th>
                 </tr>
               </thead>
@@ -5009,6 +5011,7 @@ function MaterialStatementReport({ onClose }) {
                     <td style={{padding:"6px 8px",textAlign:"right"}}>{numLabel(r.opening,r.unit)}</td>
                     <td style={{padding:"6px 8px",textAlign:"right",color:C.green,fontWeight:700}}>{r.income?`+${numLabel(r.income,r.unit)}`:numLabel(0,r.unit)}</td>
                     <td style={{padding:"6px 8px",textAlign:"right",color:C.red,fontWeight:700}}>{r.outcome?`−${numLabel(r.outcome,r.unit)}`:numLabel(0,r.unit)}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",color:r.correction?C.textFaint:undefined}}>{r.correction?numLabel(r.correction,r.unit):'—'}</td>
                     <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700}}>{numLabel(r.closing,r.unit)}</td>
                   </tr>
                 ))}
@@ -5116,6 +5119,7 @@ function Reconcile1CReport({ onClose }) {
       { label: 'Расход на сайте', get: r => r.outcome_site },
       { label: 'Расход в 1С', get: r => r.outcome_1c },
       { label: 'Не хватает в 1С', get: r => r.shortfall },
+      { label: 'из них корректировка 1С (не продажа)', get: r => r.correction_site || 0 },
     ]
   );
 
@@ -5159,6 +5163,7 @@ function Reconcile1CReport({ onClose }) {
                   <th style={{padding:"6px 8px",textAlign:"right"}}>Расход на сайте</th>
                   <th style={{padding:"6px 8px",textAlign:"right"}}>Расход в 1С</th>
                   <th style={{padding:"6px 8px",textAlign:"right"}}>Не хватает в 1С</th>
+                  <th style={{padding:"6px 8px",textAlign:"right"}} title="Часть расхода на сайте за период — не продажа/доставка, а отрицательная правка остатка синком из 1С (например, в 1С ещё не проведена реализация). Уже вычтена из shortfall слева — помогает понять, откуда взялось расхождение">Из них коррект. 1С</th>
                   <th style={{padding:"6px 8px"}}>Ед.изм.</th>
                 </tr>
               </thead>
@@ -5169,6 +5174,7 @@ function Reconcile1CReport({ onClose }) {
                     <td style={{padding:"6px 8px",textAlign:"right"}}>{numLabel(r.outcome_site,r.unit_site)}</td>
                     <td style={{padding:"6px 8px",textAlign:"right"}}>{numLabel(r.outcome_1c,r.unit_1c)}</td>
                     <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:r.shortfall>0?C.red:(r.shortfall<0?C.green:C.textFaint)}}>{r.shortfall>0?'+':''}{r.shortfall}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",color:C.textFaint}}>{r.correction_site?numLabel(r.correction_site,r.unit_site):'—'}</td>
                     <td style={{padding:"6px 8px"}}>{r.unit_mismatch?<span style={{color:"#92400E",fontWeight:700}}>⚠ {r.unit_site||'—'} / {r.unit_1c||'—'}</span>:(r.unit_site||r.unit_1c||'')}</td>
                   </tr>
                 ))}

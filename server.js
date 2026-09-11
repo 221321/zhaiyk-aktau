@@ -2920,8 +2920,26 @@ function computeMaterialStatementRows(from, to) {
     const beforeFrom = entries.filter(e => e.date < from);
     const inPeriod = entries.filter(e => e.date >= from && e.date <= to);
 
+    // 1С шлёт остаток не документами (приходная/расходная накладная), а
+    // периодическим upsert'ом "вот сколько сейчас должно быть" (см. POST
+    // /api/stock/sync) — если к моменту синка в 1С ещё не проведена
+    // реализация (см. историю переписки с владельцем), присланное число
+    // окажется выше факта, и наоборот, когда 1С досчитывается и подтягивает
+    // остаток вниз. Такая отрицательная "коррекция" (type sync/removed) —
+    // не физическая продажа/доставка и не входит в расход по определению
+    // этого отчёта (см. шапку файла выше: расход — доставки, продажи кассы,
+    // отмена возврата), поэтому в "Расход" её не считаем — иначе сверка с
+    // 1С каждый раз показывала бы на сайте расход, которого физически не
+    // было (ложный "не хватает в 1С"). Кладём её отдельно в correction,
+    // чтобы opening/income/outcome/closing продолжали сходиться арифметикой
+    // (opening + income - outcome + correction === closing), а не расходились
+    // молча. Положительный sync (реальный приход товара, см. приходную
+    // логику ниже) остаётся в "Приход" как и раньше — тут сомнений нет,
+    // остаток на сайте физически вырос.
+    const isCorrection = (e) => e.delta < 0 && (e.type === 'sync' || e.type === 'removed');
     const income = inPeriod.filter(e => e.delta > 0).reduce((s, e) => s + e.delta, 0);
-    const outcome = inPeriod.filter(e => e.delta < 0).reduce((s, e) => s - e.delta, 0);
+    const outcome = inPeriod.filter(e => e.delta < 0 && !isCorrection(e)).reduce((s, e) => s - e.delta, 0);
+    const correction = inPeriod.filter(isCorrection).reduce((s, e) => s + e.delta, 0);
 
     // closing — остаток на конец периода: последняя запись ленты с датой
     // не позже `to`, если она есть, иначе текущий остаток (значит, лента
@@ -2930,8 +2948,10 @@ function computeMaterialStatementRows(from, to) {
     // opening — остаток на начало периода: последняя запись СТРОГО до
     // `from`, если есть; иначе выводим его из closing за вычетом того, что
     // сам отчёт насчитал за период (для товара, у которого лента началась
-    // только внутри периода или не начиналась вовсе).
-    const opening = beforeFrom.length > 0 ? beforeFrom[beforeFrom.length - 1].balance_after : (closing - income + outcome);
+    // только внутри периода или не начиналась вовсе). correction уже входит
+    // в closing (она реально двигала остаток), поэтому и в обратный вывод
+    // opening её нужно вернуть — иначе opening разъедется на её величину.
+    const opening = beforeFrom.length > 0 ? beforeFrom[beforeFrom.length - 1].balance_after : (closing - income + outcome - correction);
 
     rows.push({
       code,
@@ -2940,6 +2960,7 @@ function computeMaterialStatementRows(from, to) {
       opening: round2(opening),
       income: round2(income),
       outcome: round2(outcome),
+      correction: round2(correction),
       closing: round2(closing),
     });
   });
@@ -3004,7 +3025,7 @@ app.post('/api/reports/reconcile-1c', authMiddleware, (req, res) => {
   const allCodes = new Set([...Object.keys(siteByCode), ...Object.keys(c1cByCode)]);
   const result = [];
   allCodes.forEach(code => {
-    const site = siteByCode[code] || { name: '', unit: '', income: 0, outcome: 0 };
+    const site = siteByCode[code] || { name: '', unit: '', income: 0, outcome: 0, correction: 0 };
     const c1c = c1cByCode[code] || { name: '', unit: '', income: 0, outcome: 0 };
     const outcomeShortfall = round2(site.outcome - c1c.outcome);
     const incomeDiff = round2(site.income - c1c.income);
@@ -3023,6 +3044,11 @@ app.post('/api/reports/reconcile-1c', authMiddleware, (req, res) => {
       income_1c: c1c.income,
       outcome_site: site.outcome,
       outcome_1c: c1c.outcome,
+      // Сколько из остатка на сайте за период — не продажи/доставки, а
+      // отрицательная корректировка синком из 1С (см. computeMaterialStatementRows) —
+      // показываем рядом с shortfall, чтобы было видно, когда расхождение
+      // с 1С вообще ни при чём и остаток просто скорректировала сама 1С.
+      correction_site: site.correction || 0,
       shortfall: outcomeShortfall,
     });
   });
