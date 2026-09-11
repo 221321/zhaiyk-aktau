@@ -1732,68 +1732,261 @@ function buildExpenseWaybillInnerHtml(order, productNameByCode) {
 
 // Та же накладная, что печатается кнопкой "Печать накладной" (см.
 // printWaybill/buildWaybillInnerHtml/buildExpenseWaybillInnerHtml выше), но
-// в виде строк для CSV — по просьбе владельца: нужно не просто список
-// позиций заявки, а сам бланк накладной, скачанный в Excel, чтобы можно
-// было поправить вручную (например, если название клиента разошлось с
-// 1С). Повторяет тот же выбор формы, что и печать: договорники — Форма
-// З-2 (официальный бланк, приказ Минфина №562, с НДС), остальные —
-// "Расходная накладная" (простой бланк). См. downloadCsvMatrix.
-function buildWaybillCsvMatrix(order, isDogovornik, productNameByCode) {
+// как настоящий отформатированный лист Excel (рамки, жирный шрифт,
+// объединённые ячейки, ширина колонок) — не просто текст в CSV. CSV не
+// умеет стили вообще (Excel открывает его как голый текст без рамок и
+// жирности, а по виду это список, не бланк), поэтому по факту нужен
+// именно .xlsx — библиотека для стилизованной записи (ExcelJS, см.
+// index.html), в отличие от уже подключённого XLSX (SheetJS) выше: у него
+// запись со стилями — платная Pro-фича, community-версия при записи
+// молча теряет .s (проверено вручную). Тот же выбор формы, что и печать:
+// договорники — Форма З-2 (официальный бланк, приказ Минфина №562, с
+// НДС), остальные — "Расходная накладная" (простой бланк).
+const THIN_BORDER = { style: 'thin', color: { argb: 'FF999999' } };
+// Рамка по периметру прямоугольного диапазона (в т.ч. объединённых ячеек)
+// — при merge стиль нужно проставлять на КАЖДУЮ ячейку диапазона (иначе
+// видна только часть рамки), поэтому не просто .border у "якорной" ячейки.
+function boxBorder(ws, r1, c1, r2, c2) {
+  for (let r = r1; r <= r2; r++) {
+    for (let c = c1; c <= c2; c++) {
+      const cell = ws.getCell(r, c);
+      const border = { ...cell.border };
+      if (r === r1) border.top = THIN_BORDER;
+      if (r === r2) border.bottom = THIN_BORDER;
+      if (c === c1) border.left = THIN_BORDER;
+      if (c === c2) border.right = THIN_BORDER;
+      cell.border = border;
+    }
+  }
+}
+function fullBorder(cell) {
+  cell.border = { top: THIN_BORDER, left: THIN_BORDER, bottom: THIN_BORDER, right: THIN_BORDER };
+}
+// Подпись-"линия" — только нижняя рамка на пустой ячейке, чтобы было
+// видно, где расписаться (аналог <span class="signline"> в печатной форме).
+function signLine(ws, r, c1, c2) {
+  ws.mergeCells(r, c1, r, c2);
+  for (let c = c1; c <= c2; c++) ws.getCell(r, c).border = { bottom: THIN_BORDER };
+}
+function buildDogovornikWaybillSheet(ws, order, productNameByCode) {
   const nameByCode = productNameByCode || {};
   const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
   const unitOf = (it) => it.is_weight_item ? 'кг' : 'шт';
   const total = order.total || 0;
-  const rows = [];
-  if (isDogovornik) {
-    rows.push(['Приложение 26 к приказу Министра финансов Республики Казахстан от 20 декабря 2012 года № 562']);
-    rows.push(['Организация (индивидуальный предприниматель)', COMPANY_INFO.name, 'ИИН/БИН', COMPANY_INFO.bin]);
-    rows.push(['Номер документа', order.id, 'Дата составления', formatDateDMY(order.date)]);
-    rows.push([]);
-    rows.push(['НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ (Форма З-2)']);
-    rows.push([]);
-    rows.push(['Организация — отправитель', COMPANY_INFO.name]);
-    rows.push(['Организация — получатель', order.client_name]);
-    rows.push(['Ответственный за поставку (Ф.И.О.)', order.driver_name||'', COMPANY_INFO.responsiblePhone]);
-    rows.push(['Адрес доставки', order.address||'', order.contact_phone?('Тел: '+order.contact_phone):'']);
-    rows.push([]);
-    rows.push(['№','Наименование','Номенкл. №','Ед. изм.','Кол-во подлежит отпуску','Кол-во отпущено','Цена за ед., ₸','Сумма, ₸','Сумма НДС, ₸']);
-    let totalNds = 0;
-    items.forEach((it,i) => {
-      const sum = (Number(it.qty)||0)*(Number(it.price)||0);
-      const nds = Math.round(sum*16/116);
-      totalNds += nds;
-      rows.push([i+1, nameByCode[it.code]||it.name, it.code||'', unitOf(it), Number(it.qty)||0, Number(it.qty)||0, Number(it.price)||0, sum, nds]);
-    });
-    rows.push(['','','','','','','Итого', total, totalNds]);
-    rows.push([]);
-    rows.push(['Всего отпущено на сумму', total+' ₸']);
-    rows.push(['Сумма прописью', tengeSumToWords(total)]);
-    rows.push([]);
-    rows.push(['Отпуск разрешил', COMPANY_INFO.releaseAuthorizedBy]);
-    rows.push(['Отпустил (водитель)', order.driver_name||'']);
-    rows.push(['Запасы получил', '']);
-    rows.push(['Расшифровка подписи', '']);
+  ws.columns = [{width:5},{width:30},{width:13},{width:8},{width:11},{width:11},{width:12},{width:12},{width:12}];
+  ws.mergeCells(1,1,1,9);
+  ws.getCell(1,1).value = 'Приложение 26 к приказу Министра финансов Республики Казахстан от 20 декабря 2012 года № 562';
+  ws.getCell(1,1).font = { italic: true, size: 8, color: { argb: 'FF666666' } };
+  ws.getCell(1,1).alignment = { horizontal: 'right' };
+  ws.getCell(2,1).value = 'Организация (ИП):';
+  ws.getCell(2,1).font = { bold: true };
+  ws.mergeCells(2,2,2,4);
+  ws.getCell(2,2).value = COMPANY_INFO.name;
+  ws.getCell(2,6).value = 'ИИН/БИН:';
+  ws.getCell(2,6).font = { bold: true };
+  ws.mergeCells(2,7,2,9);
+  ws.getCell(2,7).value = COMPANY_INFO.bin;
+  ws.getCell(2,7).numFmt = '@';
+  ws.getCell(3,1).value = 'Номер документа:';
+  ws.getCell(3,1).font = { bold: true };
+  ws.getCell(3,2).value = order.id;
+  ws.getCell(3,3).value = 'Дата составления:';
+  ws.getCell(3,3).font = { bold: true };
+  ws.mergeCells(3,4,3,5);
+  const orderDate = new Date(order.date);
+  if (!isNaN(orderDate.getTime())) {
+    ws.getCell(3,4).value = orderDate;
+    ws.getCell(3,4).numFmt = 'dd.mm.yyyy';
   } else {
-    rows.push([`Расходная накладная № ${order.id} от ${formatDateWordsRu(order.date)}`]);
-    rows.push([]);
-    rows.push(['Поставщик', COMPANY_INFO.name]);
-    rows.push(['Покупатель', order.client_name]);
-    rows.push(['Основание', order.client_name]);
-    rows.push(['Склад', 'Основной склад']);
-    rows.push([]);
-    rows.push(['№ п/п','Код','Товар','Количество','Цена','Сумма']);
-    items.forEach((it,i) => {
-      rows.push([i+1, it.code||'', nameByCode[it.code]||it.name, `${it.qty} ${unitOf(it)}`, Number(it.price)||0, (Number(it.qty)||0)*(Number(it.price)||0)]);
-    });
-    rows.push(['','','','','Итого:', total]);
-    rows.push([]);
-    rows.push([`Всего наименований ${items.length}, на сумму ${total} KZT`]);
-    rows.push([tengeSumToWords(total)]);
-    rows.push([]);
-    rows.push(['Отпустил', COMPANY_INFO.releaseAuthorizedBy]);
-    rows.push(['Получил', '']);
+    ws.getCell(3,4).value = order.date;
   }
-  return rows;
+  ws.mergeCells(5,1,5,9);
+  ws.getCell(5,1).value = 'НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ';
+  ws.getCell(5,1).font = { bold: true, size: 14 };
+  ws.getCell(5,1).alignment = { horizontal: 'center' };
+  ws.mergeCells(6,1,6,9);
+  ws.getCell(6,1).value = 'Форма З-2';
+  ws.getCell(6,1).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+  ws.getCell(6,1).alignment = { horizontal: 'center' };
+  const headerBox = (row, c1, c2, label, value) => {
+    ws.mergeCells(row,c1,row,c2);
+    const cell = ws.getCell(row,c1);
+    cell.value = { richText: [
+      { font: { bold: true, size: 9, color: { argb: 'FF666666' } }, text: label + '\n' },
+      { font: { size: 11 }, text: value || '' },
+    ] };
+    cell.alignment = { wrapText: true, vertical: 'top' };
+    boxBorder(ws, row, c1, row, c2);
+  };
+  ws.getRow(8).height = 30;
+  headerBox(8, 1, 4, 'ОРГАНИЗАЦИЯ — ОТПРАВИТЕЛЬ', COMPANY_INFO.name);
+  headerBox(8, 6, 9, 'ОРГАНИЗАЦИЯ — ПОЛУЧАТЕЛЬ', order.client_name);
+  ws.getRow(9).height = 40;
+  headerBox(9, 1, 4, 'ОТВЕТСТВЕННЫЙ ЗА ПОСТАВКУ (Ф.И.О.)', [order.driver_name, COMPANY_INFO.responsiblePhone].filter(Boolean).join('\n'));
+  headerBox(9, 6, 9, 'АДРЕС ДОСТАВКИ', [order.address, order.contact_phone?('Тел: '+order.contact_phone):''].filter(Boolean).join('\n'));
+
+  const headRow = 11;
+  const headLabels = ['№','Наименование','Номенкл. №','Ед.\nизм.','Кол-во\nподлежит\nотпуску','Кол-во\nотпущено','Цена за ед., ₸','Сумма, ₸','Сумма НДС, ₸'];
+  headLabels.forEach((label,i) => {
+    const cell = ws.getCell(headRow, i+1);
+    cell.value = label;
+    cell.font = { bold: true };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+    fullBorder(cell);
+  });
+  ws.getRow(headRow).height = 32;
+
+  let totalNds = 0;
+  let r = headRow + 1;
+  items.forEach((it) => {
+    const i = r - headRow - 1;
+    const sum = (Number(it.qty)||0)*(Number(it.price)||0);
+    const nds = Math.round(sum*16/116);
+    totalNds += nds;
+    const values = [i+1, nameByCode[it.code]||it.name, it.code||'', unitOf(it), Number(it.qty)||0, Number(it.qty)||0, Number(it.price)||0, sum, nds];
+    values.forEach((v,ci) => {
+      const cell = ws.getCell(r, ci+1);
+      cell.value = v;
+      fullBorder(cell);
+      if (ci===2) cell.numFmt = '@'; // код номенклатуры — текстом, не терять ведущие нули
+      if (ci===0||ci===3) cell.alignment = { horizontal: 'center' };
+      if (ci===4||ci===5) cell.numFmt = '#,##0.##';
+      if (ci>=6) cell.numFmt = '#,##0';
+      if (ci>=4) cell.alignment = { horizontal: 'right' };
+    });
+    r++;
+  });
+  ws.mergeCells(r,1,r,7);
+  ws.getCell(r,1).value = 'Итого';
+  ws.getCell(r,1).font = { bold: true };
+  ws.getCell(r,1).alignment = { horizontal: 'right' };
+  fullBorder(ws.getCell(r,1));
+  [total, totalNds].forEach((v,i) => {
+    const cell = ws.getCell(r, 8+i);
+    cell.value = v;
+    cell.numFmt = '#,##0';
+    cell.font = { bold: true };
+    cell.alignment = { horizontal: 'right' };
+    fullBorder(cell);
+  });
+  r += 2;
+  ws.mergeCells(r,1,r,9);
+  ws.getCell(r,1).value = `Всего отпущено на сумму: ${total.toLocaleString()} ₸`;
+  r++;
+  ws.mergeCells(r,1,r,9);
+  ws.getCell(r,1).value = `Сумма прописью: ${tengeSumToWords(total)}`;
+  ws.getCell(r,1).font = { bold: true };
+  r += 2;
+  ws.getCell(r,1).value = 'Отпуск разрешил:';
+  ws.getCell(r,1).font = { bold: true };
+  ws.mergeCells(r,2,r,4);
+  ws.getCell(r,2).value = COMPANY_INFO.releaseAuthorizedBy;
+  r++;
+  ws.getCell(r,1).value = 'Отпустил (водитель):';
+  ws.getCell(r,1).font = { bold: true };
+  ws.mergeCells(r,2,r,4);
+  ws.getCell(r,2).value = order.driver_name || '';
+  r += 2;
+  ws.getCell(r,1).value = 'Запасы получил:';
+  ws.getCell(r,1).font = { bold: true };
+  signLine(ws, r, 2, 4);
+  r++;
+  ws.getCell(r,1).value = 'Расшифровка подписи:';
+  ws.getCell(r,1).font = { bold: true };
+  signLine(ws, r, 2, 4);
+}
+function buildSimpleWaybillSheet(ws, order, productNameByCode) {
+  const nameByCode = productNameByCode || {};
+  const items = typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]);
+  const unitOf = (it) => it.is_weight_item ? 'кг' : 'шт';
+  const total = order.total || 0;
+  ws.columns = [{width:6},{width:13},{width:32},{width:14},{width:12},{width:12}];
+  ws.mergeCells(1,1,1,6);
+  ws.getCell(1,1).value = `Расходная накладная № ${order.id} от ${formatDateWordsRu(order.date)}`;
+  ws.getCell(1,1).font = { bold: true, size: 13 };
+  const infoRow = (row, label, value) => {
+    ws.getCell(row,1).value = label;
+    ws.getCell(row,1).font = { bold: true };
+    ws.mergeCells(row,2,row,6);
+    ws.getCell(row,2).value = value;
+  };
+  infoRow(3, 'Поставщик:', COMPANY_INFO.name);
+  infoRow(4, 'Покупатель:', order.client_name);
+  infoRow(5, 'Основание:', order.client_name);
+  infoRow(6, 'Склад:', 'Основной склад');
+
+  const headRow = 8;
+  ['№ п/п','Код','Товар','Количество','Цена','Сумма'].forEach((label,i) => {
+    const cell = ws.getCell(headRow, i+1);
+    cell.value = label;
+    cell.font = { bold: true };
+    cell.alignment = { horizontal: 'center' };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+    fullBorder(cell);
+  });
+  let r = headRow + 1;
+  items.forEach((it) => {
+    const i = r - headRow - 1;
+    const values = [i+1, it.code||'', nameByCode[it.code]||it.name, `${it.qty} ${unitOf(it)}`, Number(it.price)||0, (Number(it.qty)||0)*(Number(it.price)||0)];
+    values.forEach((v,ci) => {
+      const cell = ws.getCell(r, ci+1);
+      cell.value = v;
+      fullBorder(cell);
+      if (ci===1) cell.numFmt = '@'; // код — текстом, не терять ведущие нули
+      if (ci===0) cell.alignment = { horizontal: 'center' };
+      if (ci>=4) { cell.numFmt = '#,##0'; cell.alignment = { horizontal: 'right' }; }
+    });
+    r++;
+  });
+  ws.mergeCells(r,1,r,4);
+  ws.getCell(r,1).value = 'Итого:';
+  ws.getCell(r,1).font = { bold: true };
+  ws.getCell(r,1).alignment = { horizontal: 'right' };
+  fullBorder(ws.getCell(r,1));
+  const totalCell = ws.getCell(r,5);
+  ws.mergeCells(r,5,r,6);
+  totalCell.value = total;
+  totalCell.numFmt = '#,##0';
+  totalCell.font = { bold: true };
+  totalCell.alignment = { horizontal: 'right' };
+  fullBorder(totalCell);
+  r += 2;
+  ws.mergeCells(r,1,r,6);
+  ws.getCell(r,1).value = `Всего наименований ${items.length}, на сумму ${total.toLocaleString()} KZT`;
+  r++;
+  ws.mergeCells(r,1,r,6);
+  ws.getCell(r,1).value = tengeSumToWords(total);
+  ws.getCell(r,1).font = { bold: true };
+  r += 2;
+  ws.getCell(r,1).value = 'Отпустил:';
+  ws.getCell(r,1).font = { bold: true };
+  ws.mergeCells(r,2,r,3);
+  ws.getCell(r,2).value = COMPANY_INFO.releaseAuthorizedBy;
+  r++;
+  ws.getCell(r,1).value = 'Получил:';
+  ws.getCell(r,1).font = { bold: true };
+  signLine(ws, r, 2, 3);
+}
+// Скачать накладную как настоящий .xlsx (не CSV) — асинхронно, ExcelJS
+// собирает буфер файла в памяти (workbook.xlsx.writeBuffer), после чего
+// это обычный Blob-даунлоад, как и у остальных выгрузок в приложении.
+async function downloadOrderWaybillXlsx(order, isDogovornik, productNameByCode) {
+  if (typeof ExcelJS === 'undefined') {
+    alert('Библиотека для формирования Excel не загрузилась — проверьте интернет-соединение и обновите страницу');
+    return;
+  }
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Накладная');
+  if (isDogovornik) buildDogovornikWaybillSheet(ws, order, productNameByCode);
+  else buildSimpleWaybillSheet(ws, order, productNameByCode);
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `nakladnaya_${order.id}.xlsx`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // Возвратная накладная (см. PUT /api/returns/:id/confirm) — та же форма,
@@ -2444,17 +2637,22 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
     fn();
   };
   // Выгрузка НАКЛАДНОЙ (не просто списка позиций) в Excel — тот же бланк,
-  // что и "Печать накладной" (см. buildWaybillCsvMatrix), только строками
-  // CSV вместо печатной формы. По просьбе владельца: если у клиента
-  // накладная разошлась с 1С (например, контрагента переименовали в 1С уже
-  // после того, как заявка была создана — имя в заявке снимок на момент
-  // оформления, см. finalClientName на сервере, и задним числом не
-  // обновляется), проще скачать бланк и поправить вручную в Excel, чем
-  // ждать правки на сайте.
-  const exportOrderCsv = () => downloadCsvMatrix(
-    `nakladnaya_${order.id}.csv`,
-    buildWaybillCsvMatrix(order, isDogovornik, productNameByCode)
-  );
+  // что и "Печать накладной", только настоящим .xlsx с рамками/жирным
+  // шрифтом (см. downloadOrderWaybillXlsx), а не голым текстом CSV: CSV
+  // Excel открывает без единой рамки, по виду это список, а не документ.
+  // По просьбе владельца: если у клиента накладная разошлась с 1С
+  // (например, контрагента переименовали в 1С уже после того, как заявка
+  // была создана — имя в заявке снимок на момент оформления, см.
+  // finalClientName на сервере, и задним числом не обновляется), проще
+  // скачать бланк и поправить вручную в Excel, чем ждать правки на сайте.
+  const [exportingXlsx, setExportingXlsx] = useState(false);
+  const exportOrderXlsx = async () => {
+    if (exportingXlsx) return;
+    setExportingXlsx(true);
+    try { await downloadOrderWaybillXlsx(order, isDogovornik, productNameByCode); }
+    catch(e) { alert('Не получилось сформировать Excel: ' + e.message); }
+    setExportingXlsx(false);
+  };
   // Самовывоз клиент забирает прямо со склада, без водителя — зав. склад
   // сам "берёт в работу" и сам же закрывает такую заявку при выдаче товара
   // (см. canChange на сервере), тем же способом, что и водитель у обычной
@@ -2497,7 +2695,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
           </div>
         )}
         {currentUser.role!=="driver" && (
-          <button style={{...S.btnOutline,marginTop:0,marginBottom:14,padding:"9px",fontSize:14}} onClick={exportOrderCsv}>⬇ Скачать заявку в Excel</button>
+          <button disabled={exportingXlsx} style={{...S.btnOutline,marginTop:0,marginBottom:14,padding:"9px",fontSize:14,opacity:exportingXlsx?0.6:1,cursor:exportingXlsx?"wait":"pointer"}} onClick={exportOrderXlsx}>{exportingXlsx?"Формирую...":"⬇ Скачать накладную в Excel"}</button>
         )}
         <hr style={S.divider}/>
         {[["Клиент",order.client_name||order.clientName],["Адрес",order.address],["Торговый",order.sales_name||order.salesName],["Дата",order.date],["Доставка",order.time_slot||order.timeSlot],...(order.created_at?[["Создана",fmtDT(order.created_at)]]:[]),...(order.driver_name?[["Водитель",order.driver_name]]:[]),...(order.driver_name&&order.in_transit_at?[["В работе с",fmtDT(order.in_transit_at)]]:[]),...(order.delivered_at?[["Доставлено",fmtDT(order.delivered_at)]]:[]),...(order.contact_name?[["Контакт",order.contact_name]]:[]),...(order.contact_phone?[["Телефон",order.contact_phone]]:[]),...(order.comment?[["Комментарий",order.comment]]:[])].map(([k,v])=>(
@@ -4471,9 +4669,9 @@ function ProductAliasesPanel({ desktop }) {
   );
 }
 
-// Экранирование одной ячейки CSV — общее для downloadCsv (таблица
-// объектов с фиксированными колонками) и downloadCsvMatrix (произвольные
-// строки ячеек, см. buildWaybillCsvMatrix). Разделитель — ";", а не
+// Экранирование одной ячейки CSV — для downloadCsv (списковые отчёты:
+// остатки, ведомость, сверка с 1С — см. ниже; накладная теперь выгружается
+// настоящим .xlsx, см. downloadOrderWaybillXlsx). Разделитель — ";", а не
 // запятая: Excel с русской локалью (Windows) определяет разделитель CSV по
 // системному "разделителю списка", а он в ru-RU — ";" (запятая там
 // зарезервирована под десятичную точку). С "," всё содержимое схлопывается
@@ -4524,13 +4722,6 @@ function downloadCsv(filename, rows, columns) {
   const lines = [columns.map(c => csvEscapeCell(c.label)).join(';')];
   rows.forEach(r => lines.push(columns.map(c => csvEscapeCell(c.get(r))).join(';')));
   downloadCsvText(filename, lines);
-}
-// Скачать CSV из готовых строк ячеек произвольной формы (не таблица с
-// одинаковыми колонками) — для накладной, см. buildWaybillCsvMatrix: там
-// шапка документа, таблица позиций и подписи вперемешку, как в самом
-// печатном бланке, а не единый список с одинаковыми полями в каждой строке.
-function downloadCsvMatrix(filename, matrix) {
-  downloadCsvText(filename, matrix.map(row => row.map(csvEscapeCell).join(';')));
 }
 
 // Отчёт "Движение остатков" — по просьбе владельца: "был остаток, торговый
