@@ -1842,7 +1842,11 @@ function buildDogovornikWaybillSheet(ws, order, productNameByCode) {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
     fullBorder(cell);
   });
-  ws.getRow(headRow).height = 32;
+  // Высота — по самому "многострочному" заголовку (у "Кол-во подлежит
+  // отпуску" три явных переноса \n), иначе Excel обрезает нижнюю строку
+  // по границе следующей строки, а не показывает её целиком.
+  const headMaxLines = Math.max(...headLabels.map(l => l.split('\n').length));
+  ws.getRow(headRow).height = headMaxLines * 15 + 14;
 
   let totalNds = 0;
   let r = headRow + 1;
@@ -1891,20 +1895,25 @@ function buildDogovornikWaybillSheet(ws, order, productNameByCode) {
   ws.mergeCells(r,1,r,9);
   ws.getCell(r,1).value = `Сумма прописью: ${tengeSumToWords(total)}`;
   ws.getCell(r,1).font = { bold: true };
+  // Подписи — двумя колонками рядом, как в самой печатной форме (левая:
+  // отгрузивший, правая: принявший), а не одна под другой: "Запасы
+  // получил" — это уже подпись КЛИЕНТА, ей самое место внизу справа,
+  // напротив "Отпуск разрешил"/"Отпустил", а не под ними.
   r += 2;
-  labelValueCell(ws, r, 1, 5, 'Отпуск разрешил:', COMPANY_INFO.releaseAuthorizedBy);
+  labelValueCell(ws, r, 1, 4, 'Отпуск разрешил:', COMPANY_INFO.releaseAuthorizedBy);
+  ws.mergeCells(r,6,r,7);
+  ws.getCell(r,6).value = 'Запасы получил:';
+  ws.getCell(r,6).font = { bold: true };
+  signLine(ws, r, 8, 9);
   r++;
-  labelValueCell(ws, r, 1, 5, 'Отпустил (водитель):', order.driver_name || '');
-  r += 2;
-  ws.mergeCells(r,1,r,3);
-  ws.getCell(r,1).value = 'Запасы получил:';
-  ws.getCell(r,1).font = { bold: true };
-  signLine(ws, r, 4, 6);
+  labelValueCell(ws, r, 1, 4, 'Отпустил (водитель):', order.driver_name || '');
+  ws.mergeCells(r,6,r,7);
+  ws.getCell(r,6).value = 'Расшифровка подписи:';
+  ws.getCell(r,6).font = { bold: true };
+  signLine(ws, r, 8, 9);
   r++;
-  ws.mergeCells(r,1,r,3);
-  ws.getCell(r,1).value = 'Расшифровка подписи:';
+  ws.getCell(r,1).value = 'М.П.';
   ws.getCell(r,1).font = { bold: true };
-  signLine(ws, r, 4, 6);
 }
 function buildSimpleWaybillSheet(ws, order, productNameByCode) {
   const nameByCode = productNameByCode || {};
@@ -1965,13 +1974,13 @@ function buildSimpleWaybillSheet(ws, order, productNameByCode) {
   ws.mergeCells(r,1,r,6);
   ws.getCell(r,1).value = tengeSumToWords(total);
   ws.getCell(r,1).font = { bold: true };
+  // "Отпустил"/"Получил" рядом на одной строке (как .signcols в печатной
+  // форме — два блока side by side), а не один под другим.
   r += 2;
   labelValueCell(ws, r, 1, 2, 'Отпустил:', COMPANY_INFO.releaseAuthorizedBy);
-  r++;
-  ws.mergeCells(r,1,r,2);
-  ws.getCell(r,1).value = 'Получил:';
-  ws.getCell(r,1).font = { bold: true };
-  signLine(ws, r, 3, 4);
+  ws.getCell(r,4).value = 'Получил:';
+  ws.getCell(r,4).font = { bold: true };
+  signLine(ws, r, 5, 6);
 }
 // Скачать накладную как настоящий .xlsx (не CSV) — асинхронно, ExcelJS
 // собирает буфер файла в памяти (workbook.xlsx.writeBuffer), после чего
