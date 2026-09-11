@@ -63,12 +63,20 @@ function telLink(phone) {
   if (!digits.replace(/\D/g, '')) return null;
   return `tel:${digits}`;
 }
+const MONTHS_RU_SHORT = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const MONTHS_KZ_SHORT = ['қаңтар', 'ақпан', 'наурыз', 'сәуір', 'мамыр', 'маусым', 'шілде', 'тамыз', 'қыркүйек', 'қазан', 'қараша', 'желтоқсан'];
+// День+месяц без года и без часового пояса (см. тот же приём и его причину
+// у formatDateWordsRu ниже) — короткая форма для сообщения в WhatsApp,
+// год не нужен, долг почти всегда за текущий.
+function formatDayMonth(dateStr, months) {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]}`;
+}
 function debtReminderText(d) {
   const sum = d.remaining.toLocaleString();
-  const refRu = d.order_id ? `накладной № ${d.order_id}` : `чеку № ${d.sale_id}`;
-  const refKz = d.order_id ? `№ ${d.order_id} жүкқұжаты` : `№ ${d.sale_id} чегі`;
-  const ru = `Здравствуйте, ${d.client_name}! Напоминаем о задолженности по ${refRu} от ${d.date} на сумму ${sum} ₸. Будем благодарны за оплату в ближайшее время.`;
-  const kz = `Құрметті ${d.client_name}! ${refKz} (${d.date}) бойынша ${sum} ₸ сомасындағы қарызыңызды еске саламыз. Жақын арада төлеп берсеңіз, алғыс білдіреміз.`;
+  const ru = `Долг на ${formatDayMonth(d.date, MONTHS_RU_SHORT)} сумма ${sum} тг. Напоминаем о своевременной оплате, ⚠️`;
+  const kz = `Қарыз ${formatDayMonth(d.date, MONTHS_KZ_SHORT)} ${sum}тг. Еске саламыз, қарызды кешіктірмей төлеңіз ⚠️`;
   return `${ru}\n\n${kz}`;
 }
 
