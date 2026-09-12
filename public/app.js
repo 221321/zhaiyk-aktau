@@ -105,26 +105,82 @@ function debtReminderText(d) {
 // оператор ещё просто смотрит список должников — к моменту клика файл
 // обычно уже готов в кэше, и share() вызывается почти сразу после жеста.
 const deliveryPhotoFileCache = new Map();
+// Не больше 3 фото качаем одновременно — при большом списке должников
+// резкий всплеск из десятков параллельных fetch/blob на слабых Android-
+// телефонах вешал/ронял вкладку браузера. Остальные ждут очереди и
+// стартуют по мере освобождения слотов (см. acquirePrefetchSlot ниже).
+const MAX_CONCURRENT_PHOTO_PREFETCH = 3;
+let activePhotoPrefetches = 0;
+const photoPrefetchWaiters = [];
+function acquirePrefetchSlot() {
+  return new Promise(resolve => {
+    if (activePhotoPrefetches < MAX_CONCURRENT_PHOTO_PREFETCH) {
+      activePhotoPrefetches++;
+      resolve();
+    } else photoPrefetchWaiters.push(resolve);
+  });
+}
+function releasePrefetchSlot() {
+  activePhotoPrefetches--;
+  const next = photoPrefetchWaiters.shift();
+  if (next) {
+    activePhotoPrefetches++;
+    next();
+  }
+}
 function prefetchDeliveryPhotoFile(url, fileNameId) {
   if (!url || deliveryPhotoFileCache.has(url)) return;
-  const filePromise = fetch(url).then(r => r.blob()).then(blob => new File([blob], `nakladnaya-${fileNameId}.jpg`, {
+  const filePromise = acquirePrefetchSlot().then(() => fetch(url)).then(r => r.blob()).then(blob => new File([blob], `nakladnaya-${fileNameId}.jpg`, {
     type: blob.type || 'image/jpeg'
-  })).catch(e => {
+  })).finally(releasePrefetchSlot).catch(e => {
     deliveryPhotoFileCache.delete(url);
     throw e;
   });
   deliveryPhotoFileCache.set(url, filePromise);
 }
+// Раньше запасной путь сам вызывал window.open() для wa.me-ссылки и фото —
+// но к этому моменту мы уже внутри async-функции после await, и часть
+// браузеров (Safari на iPhone, тот же класс проблемы, что и NotAllowedError
+// у navigator.share на Android — см. комментарий у deliveryPhotoFileCache)
+// такие "программные" открытия молча блокирует ("Заблокировано N
+// всплывающих окон"), внешне выглядит как будто вообще ничего не
+// произошло. Вместо этого показываем оверлей с обычными ссылками — клик
+// по ним самим оператором браузер никогда не блокирует.
+function showManualShareLinks(link, photoUrl) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#fff;border-radius:14px;padding:22px 20px;max-width:320px;width:100%;text-align:center;font-family:Arial,sans-serif;';
+  const p = document.createElement('p');
+  p.textContent = 'Не получилось отправить автоматически — откройте вручную по очереди' + (photoUrl ? ' (фото сохраните и прикрепите сами)' : '') + ':';
+  p.style.cssText = 'margin:0 0 16px;font-size:15px;color:#1C1917;';
+  box.appendChild(p);
+  const mkLink = (href, label, bg) => {
+    const a = document.createElement('a');
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = label;
+    a.style.cssText = `display:block;padding:12px;margin-bottom:10px;background:${bg};color:#fff;border-radius:10px;font-weight:700;text-decoration:none;font-size:15px;`;
+    return a;
+  };
+  if (link) box.appendChild(mkLink(link, photoUrl ? '1. Открыть WhatsApp' : 'Открыть WhatsApp', '#25D366'));
+  if (photoUrl) box.appendChild(mkLink(photoUrl, '2. Открыть накладную', '#1C1917'));
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.textContent = 'Закрыть';
+  closeBtn.style.cssText = 'margin-top:4px;padding:10px 16px;background:none;border:1px solid #ccc;border-radius:8px;font-size:14px;cursor:pointer;';
+  closeBtn.onclick = () => {
+    if (document.body.contains(overlay)) document.body.removeChild(overlay);
+  };
+  box.appendChild(closeBtn);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
 async function shareDebtReminder(d) {
   const text = debtReminderText(d);
   const link = waMeLink(d.contact_phone, text);
-  const openFallback = () => {
-    if (link) window.open(link, '_blank', 'noopener,noreferrer');
-    if (d.delivery_photo) {
-      window.open(d.delivery_photo, '_blank', 'noopener,noreferrer');
-      alert('Текст открыт в WhatsApp, накладная — отдельной вкладкой: на компьютере прикрепить фото автоматически нельзя, сохраните и прикрепите вручную.');
-    }
-  };
+  const openFallback = () => showManualShareLinks(link, d.delivery_photo);
   if (!d.delivery_photo) {
     openFallback();
     return;
