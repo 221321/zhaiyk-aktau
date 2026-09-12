@@ -2523,7 +2523,7 @@ function PhotoViewerOverlay({ src, onClose }) {
   );
 }
 
-function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, onEditDeliveredItems, onEditPrices, onAnnulOrder, currentUser, drivers, products }) {
+function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, onDeleteItem, onEditDeliveredItems, onEditPrices, onAnnulOrder, currentUser, drivers, products }) {
   // Позиции заявки хранят псевдоним товара (см. addToCart), а в накладной
   // должно быть название из 1С (см. buildWaybillInnerHtml) — карта код->
   // название из уже загруженного в кабинете каталога (products), которую
@@ -2540,6 +2540,7 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
   const [fixingWeightIndex, setFixingWeightIndex] = useState(null);
   const [weightInput, setWeightInput] = useState("");
   const [savingWeight, setSavingWeight] = useState(false);
+  const [deletingItemIndex, setDeletingItemIndex] = useState(null);
   const [viewPhoto, setViewPhoto] = useState(null);
   // Правка кол-ва по позициям уже ДОСТАВЛЕННОЙ заявки задним числом — см.
   // PUT /api/orders/:id/delivered-items на сервере. Доступно только admin
@@ -2743,7 +2744,28 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
           <div key={i} style={{marginBottom:8}}>
             <div style={{...S.row,fontSize:15}}>
               <span style={{color:C.textMid}}>{item.name}</span>
-              <span style={{color:C.textSub}}>{item.qty} × {item.price} ₸ = <strong style={{color:C.text}}>{(item.qty*item.price).toLocaleString()} ₸</strong></span>
+              <span style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{color:C.textSub}}>{item.qty} × {item.price} ₸ = <strong style={{color:C.text}}>{(item.qty*item.price).toLocaleString()} ₸</strong></span>
+                {onDeleteItem && ["new","in_transit"].includes(order.status) && items.length>1 && (
+                  // Удаление ЦЕЛОЙ строки — не путать с "исправить ошибку веса"
+                  // выше (та правит только цифру, эта убирает позицию совсем).
+                  // Нужно для ошибочно задвоенных строк одного товара (см.
+                  // проверку дублей при оформлении заявки) — раньше такую
+                  // строку было вообще никак не убрать после оформления.
+                  <button
+                    disabled={deletingItemIndex===i}
+                    title="Удалить позицию из заявки"
+                    style={{background:"none",border:"none",color:C.red||"#DC2626",cursor:deletingItemIndex===i?"wait":"pointer",fontSize:16,padding:"2px 4px",opacity:deletingItemIndex===i?0.5:1}}
+                    onClick={async()=>{
+                      if (!window.confirm(`Удалить позицию «${item.name}» из заявки №${order.id}? Сумма заявки пересчитается.`)) return;
+                      setDeletingItemIndex(i);
+                      try { await onDeleteItem(order.id, i); }
+                      catch(e) { alert(e.message); }
+                      setDeletingItemIndex(null);
+                    }}
+                  >🗑</button>
+                )}
+              </span>
             </div>
             {onFixItemCost && item.cost==null && (
               fixingCostIndex===i ? (
@@ -7179,6 +7201,16 @@ function AdminCabinet({ user, onLogout, desktop }) {
     loadOrders();
   };
 
+  // Полное удаление позиции из заявки (не только веса) — только admin, см.
+  // DELETE /api/orders/:orderId/items/:itemIndex на сервере. Нужно для
+  // случаев вроде задвоенной строки одного товара (см. проверку дублей при
+  // оформлении заявки), которую иначе никак не убрать после оформления.
+  const deleteOrderItem = async (orderId, itemIndex) => {
+    const updated = await apiCall('DELETE', `/api/orders/${orderId}/items/${itemIndex}`);
+    setSelectedOrder(updated);
+    loadOrders();
+  };
+
   // Исправление уже подтверждённого веса (человеческий фактор при
   // взвешивании) — доступно только admin/manager, см. проверку
   // canOverride в POST /api/orders/weights на сервере. Переиспользуем тот
@@ -8546,7 +8578,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return (
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
         <AutofillDecoy/>
-        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         {showNewOrderModal&&<NewOrderModal products={products} clients={clients} onClose={()=>setShowNewOrderModal(false)} onCreated={()=>{ setShowNewOrderModal(false); loadOrders(); }} isAdmin={user.role==="admin"}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
@@ -8577,7 +8609,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   return (
     <div style={{paddingBottom:72}}>
       <AutofillDecoy/>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
       {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
