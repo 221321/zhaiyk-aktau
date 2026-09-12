@@ -96,6 +96,25 @@ function debtReminderText(d) {
 // см. комментарий у toWhatsAppDigits). Теперь запись пишет sendReminder в
 // DebtsPanel, и только после того, как оператор сам подтвердит, что
 // отправил (см. waitForReturn там же).
+//
+// Кэш File-объектов накладных для shareDebtReminder ниже — на части
+// Android-телефонов navigator.share() бросает NotAllowedError ("Must be
+// handling a user gesture"), если между тапом и вызовом share() пройдёт
+// заметное время: именно столько занимал fetch фото прямо в момент клика.
+// DebtsPanel (см. loadDebts) запускает скачивание фото заранее, пока
+// оператор ещё просто смотрит список должников — к моменту клика файл
+// обычно уже готов в кэше, и share() вызывается почти сразу после жеста.
+const deliveryPhotoFileCache = new Map();
+function prefetchDeliveryPhotoFile(url, fileNameId) {
+  if (!url || deliveryPhotoFileCache.has(url)) return;
+  const filePromise = fetch(url).then(r => r.blob()).then(blob => new File([blob], `nakladnaya-${fileNameId}.jpg`, {
+    type: blob.type || 'image/jpeg'
+  })).catch(e => {
+    deliveryPhotoFileCache.delete(url);
+    throw e;
+  });
+  deliveryPhotoFileCache.set(url, filePromise);
+}
 async function shareDebtReminder(d) {
   const text = debtReminderText(d);
   const link = waMeLink(d.contact_phone, text);
@@ -111,11 +130,10 @@ async function shareDebtReminder(d) {
     return;
   }
   try {
-    const resp = await fetch(d.delivery_photo);
-    const blob = await resp.blob();
-    const file = new File([blob], `nakladnaya-${d.order_id || d.sale_id}.jpg`, {
-      type: blob.type || 'image/jpeg'
-    });
+    if (!deliveryPhotoFileCache.has(d.delivery_photo)) {
+      prefetchDeliveryPhotoFile(d.delivery_photo, d.order_id || d.sale_id);
+    }
+    const file = await deliveryPhotoFileCache.get(d.delivery_photo);
     if (navigator.canShare && navigator.canShare({
       files: [file]
     })) {
@@ -1831,6 +1849,13 @@ function DebtsPanel({
     try {
       const data = await apiCall('GET', '/api/debts');
       setDebts(data);
+      // Качаем фото накладных заранее, пока оператор ещё просто смотрит
+      // список — см. комментарий у deliveryPhotoFileCache/shareDebtReminder
+      // про NotAllowedError на Android, если качать фото только в момент
+      // клика "Написать в WhatsApp".
+      data.forEach(d => {
+        if (d.delivery_photo) prefetchDeliveryPhotoFile(d.delivery_photo, d.order_id || d.sale_id);
+      });
     } catch (e) {}
     setLoadingDebts(false);
   }, []);
