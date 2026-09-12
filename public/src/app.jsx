@@ -86,50 +86,15 @@ function debtReminderText(d) {
 // DebtsPanel, и только после того, как оператор сам подтвердит, что
 // отправил (см. waitForReturn там же).
 //
-// Кэш File-объектов накладных для shareDebtReminder ниже — на части
-// Android-телефонов navigator.share() бросает NotAllowedError ("Must be
-// handling a user gesture"), если между тапом и вызовом share() пройдёт
-// заметное время: именно столько занимал fetch фото прямо в момент клика.
-// DebtsPanel (см. loadDebts) запускает скачивание фото заранее, пока
-// оператор ещё просто смотрит список должников — к моменту клика файл
-// обычно уже готов в кэше, и share() вызывается почти сразу после жеста.
-const deliveryPhotoFileCache = new Map();
-// Не больше 3 фото качаем одновременно — при большом списке должников
-// резкий всплеск из десятков параллельных fetch/blob на слабых Android-
-// телефонах вешал/ронял вкладку браузера. Остальные ждут очереди и
-// стартуют по мере освобождения слотов (см. acquirePrefetchSlot ниже).
-const MAX_CONCURRENT_PHOTO_PREFETCH = 3;
-let activePhotoPrefetches = 0;
-const photoPrefetchWaiters = [];
-function acquirePrefetchSlot() {
-  return new Promise(resolve => {
-    if (activePhotoPrefetches < MAX_CONCURRENT_PHOTO_PREFETCH) { activePhotoPrefetches++; resolve(); }
-    else photoPrefetchWaiters.push(resolve);
-  });
-}
-function releasePrefetchSlot() {
-  activePhotoPrefetches--;
-  const next = photoPrefetchWaiters.shift();
-  if (next) { activePhotoPrefetches++; next(); }
-}
-function prefetchDeliveryPhotoFile(url, fileNameId) {
-  if (!url || deliveryPhotoFileCache.has(url)) return;
-  const filePromise = acquirePrefetchSlot()
-    .then(() => fetch(url))
-    .then(r => r.blob())
-    .then(blob => new File([blob], `nakladnaya-${fileNameId}.jpg`, { type: blob.type || 'image/jpeg' }))
-    .finally(releasePrefetchSlot)
-    .catch(e => { deliveryPhotoFileCache.delete(url); throw e; });
-  deliveryPhotoFileCache.set(url, filePromise);
-}
 // Раньше запасной путь сам вызывал window.open() для wa.me-ссылки и фото —
-// но к этому моменту мы уже внутри async-функции после await, и часть
-// браузеров (Safari на iPhone, тот же класс проблемы, что и NotAllowedError
-// у navigator.share на Android — см. комментарий у deliveryPhotoFileCache)
-// такие "программные" открытия молча блокирует ("Заблокировано N
-// всплывающих окон"), внешне выглядит как будто вообще ничего не
-// произошло. Вместо этого показываем оверлей с обычными ссылками — клик
-// по ним самим оператором браузер никогда не блокирует.
+// но к этому моменту мы уже внутри async-функции после await(fetch фото),
+// и часть браузеров (Safari на iPhone — тот же класс проблемы, что и
+// NotAllowedError у navigator.share() на Android, когда разрешение от
+// тапа истекает раньше, чем код успевает до него добраться) такие
+// "программные" открытия молча блокирует ("Заблокировано N всплывающих
+// окон"), внешне выглядит как будто вообще ничего не произошло. Вместо
+// этого показываем оверлей с обычными ссылками — клик по ним самим
+// оператором браузер никогда не блокирует.
 function showManualShareLinks(link, photoUrl) {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
@@ -163,10 +128,9 @@ async function shareDebtReminder(d) {
   const openFallback = () => showManualShareLinks(link, d.delivery_photo);
   if (!d.delivery_photo) { openFallback(); return; }
   try {
-    if (!deliveryPhotoFileCache.has(d.delivery_photo)) {
-      prefetchDeliveryPhotoFile(d.delivery_photo, d.order_id || d.sale_id);
-    }
-    const file = await deliveryPhotoFileCache.get(d.delivery_photo);
+    const resp = await fetch(d.delivery_photo);
+    const blob = await resp.blob();
+    const file = new File([blob], `nakladnaya-${d.order_id || d.sale_id}.jpg`, { type: blob.type || 'image/jpeg' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], text });
       return;
@@ -881,11 +845,6 @@ function DebtsPanel({ readOnly, role }) {
     try {
       const data = await apiCall('GET', '/api/debts');
       setDebts(data);
-      // Качаем фото накладных заранее, пока оператор ещё просто смотрит
-      // список — см. комментарий у deliveryPhotoFileCache/shareDebtReminder
-      // про NotAllowedError на Android, если качать фото только в момент
-      // клика "Написать в WhatsApp".
-      data.forEach(d => { if (d.delivery_photo) prefetchDeliveryPhotoFile(d.delivery_photo, d.order_id || d.sale_id); });
     } catch(e) {}
     setLoadingDebts(false);
   }, []);
