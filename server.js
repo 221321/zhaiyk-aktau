@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const low = require('lowdb');
 const FileSync = require('lowdb/adapters/FileSync');
 const webpush = require('web-push');
+const ExcelJS = require('exceljs');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -3264,6 +3265,274 @@ app.post('/api/reports/reconcile-1c', authMiddleware, (req, res) => {
 
   result.sort((a, b) => b.shortfall - a.shortfall);
   res.json(result);
+});
+
+// ===== АНАЛИТИКА С ПРОГНОЗОМ (один Excel-отчёт по кнопке для admin) =====
+// Три блока, которые реально можно посчитать по имеющимся данным без
+// внешнего BI и без ML — по просьбе владельца сделать "нажал кнопку — и
+// отчёт с прогнозом" (см. обсуждение в чате): тренд продаж, дата
+// закончится товар на складе, когда ждать деньги по текущим долгам.
+// Всё считается на лету из db.json при каждом запросе — данных для этого
+// немного (заявки/продажи/остатки/долги одной точки продаж), запрос не
+// частый (кнопка у admin), отдельно кэшировать нет смысла.
+
+// Простая линейная регрессия по индексу дня (0..n-1) — метод наименьших
+// квадратов. Осознанно без сезонных/ML-моделей: истории обычно недостаточно
+// (месяцы, не годы), а простой тренд + отдельно среднее по дню недели
+// (см. ниже) дают тот же практический результат нагляднее и без риска
+// переобучиться на шум.
+function linearRegression(ys) {
+  const n = ys.length;
+  if (n === 0) return { slope: 0, intercept: 0 };
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  for (let i = 0; i < n; i++) { sumX += i; sumY += ys[i]; sumXY += i * ys[i]; sumXX += i * i; }
+  const denom = n * sumXX - sumX * sumX;
+  const slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  return { slope, intercept };
+}
+
+function computeAnalyticsReport(days) {
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const fromDateObj = new Date(today);
+  fromDateObj.setDate(fromDateObj.getDate() - (days - 1));
+  const fromStr = fromDateObj.toISOString().slice(0, 10);
+
+  const orders = db.get('orders').value();
+  const sales = db.get('sales').value() || [];
+
+  // ---------- 1. Продажи и прогноз ----------
+  // Выручка — доставленные заявки + непроведённые в "отмена" продажи кассы
+  // (тот же принцип, что и в других отчётах: считаем только реально
+  // состоявшуюся реализацию, не "висящие" заявки).
+  const revenueByDate = {};
+  orders.filter(o => o.status === 'delivered').forEach(o => {
+    revenueByDate[o.date] = (revenueByDate[o.date] || 0) + (o.total || 0);
+  });
+  sales.filter(s => s.status !== 'voided').forEach(s => {
+    revenueByDate[s.date] = (revenueByDate[s.date] || 0) + (s.total || 0);
+  });
+
+  const salesSeries = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    salesSeries.push({ date: key, revenue: round2(revenueByDate[key] || 0) });
+  }
+  const revenues = salesSeries.map(r => r.revenue);
+  const { slope, intercept } = linearRegression(revenues);
+  // Прогноз не может уйти в минус — выручка за день физически не бывает
+  // отрицательной, отрицательный тренд просто выходит на 0.
+  const forecastForOffset = (k) => Math.max(0, intercept + slope * (revenues.length - 1 + k));
+  let forecast7 = 0, forecast30 = 0;
+  for (let k = 1; k <= 30; k++) {
+    const v = forecastForOffset(k);
+    if (k <= 7) forecast7 += v;
+    forecast30 += v;
+  }
+  const avgDaily = revenues.length ? revenues.reduce((a, b) => a + b, 0) / revenues.length : 0;
+
+  const DOW_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+  const dowSums = Array(7).fill(0), dowCounts = Array(7).fill(0);
+  salesSeries.forEach(r => {
+    const dow = new Date(r.date + 'T00:00:00Z').getUTCDay();
+    dowSums[dow] += r.revenue; dowCounts[dow]++;
+  });
+  const dowAverages = DOW_NAMES.map((name, i) => ({ day: name, avg: round2(dowCounts[i] ? dowSums[i] / dowCounts[i] : 0) }));
+
+  // ---------- 2. Остатки: прогноз "когда закончится товар" ----------
+  // computeMaterialStatementRows уже умеет считать реальный расход (без
+  // корректировок синка 1С, см. её комментарий) за период — переиспользуем
+  // её вместо повторного разбора stockLedger.
+  const stockRows = computeMaterialStatementRows(fromStr, todayStr);
+  const stockForecast = stockRows
+    .filter(r => r.closing > 0 || r.outcome > 0) // не засоряем отчёт товаром, который не двигался и которого нет
+    .map(r => {
+      const avgDailyOutcome = r.outcome / days;
+      const daysLeft = avgDailyOutcome > 0 ? r.closing / avgDailyOutcome : null;
+      let stockoutDate = null;
+      if (daysLeft != null) {
+        const d = new Date(today); d.setDate(d.getDate() + Math.floor(daysLeft));
+        stockoutDate = d.toISOString().slice(0, 10);
+      }
+      return {
+        code: r.code,
+        name: r.name,
+        unit: r.unit || 'кор',
+        balance: r.closing,
+        avgDailyOutcome: round2(avgDailyOutcome),
+        daysLeft: daysLeft != null ? Math.floor(daysLeft) : null,
+        stockoutDate,
+      };
+    })
+    .sort((a, b) => {
+      if (a.daysLeft == null) return 1;
+      if (b.daysLeft == null) return -1;
+      return a.daysLeft - b.daysLeft;
+    });
+
+  // ---------- 3. Долги: когда реально ждать деньги ----------
+  const settlements = db.get('debtSettlements').value();
+  const orderById = {}; orders.forEach(o => { orderById[o.id] = o; });
+  const saleById = {}; sales.forEach(s => { saleById[s.id] = s; });
+
+  // Медиана (не среднее — устойчивее к редким сильно просроченным долгам,
+  // которые исказили бы среднее) срока от возникновения долга до погашения
+  // по факту прошлых оплат — это и есть "обычный срок", на основе которого
+  // прогнозируем возврат текущей дебиторки.
+  const lags = [];
+  settlements.forEach(s => {
+    const src = s.order_id ? orderById[s.order_id] : (s.sale_id ? saleById[s.sale_id] : null);
+    if (!src || !src.date) return;
+    const lag = Math.round((new Date(s.date) - new Date(src.date)) / 86400000);
+    if (lag >= 0) lags.push(lag);
+  });
+  lags.sort((a, b) => a - b);
+  const medianLag = lags.length ? lags[Math.floor(lags.length / 2)] : 7; // истории ещё нет — берём тот же порог "просрочки", что и в /api/debts
+
+  const settledByOrder = {}, settledBySale = {};
+  settlements.forEach(s => {
+    if (s.order_id) settledByOrder[s.order_id] = (settledByOrder[s.order_id] || 0) + s.amount;
+    if (s.sale_id) settledBySale[s.sale_id] = (settledBySale[s.sale_id] || 0) + s.amount;
+  });
+  const daysAgoOf = (dateStr) => Math.floor((today - new Date(dateStr)) / 86400000);
+
+  const openDebts = [];
+  orders.filter(o => o.status === 'delivered' && (o.payment_debt || 0) > 0).forEach(o => {
+    const remaining = Math.max(0, (o.payment_debt || 0) - (settledByOrder[o.id] || 0));
+    if (remaining > 0) openDebts.push({ client_name: o.client_name, date: o.date, remaining, daysAgo: daysAgoOf(o.date) });
+  });
+  sales.filter(s => s.status !== 'voided' && (s.payment_debt || 0) > 0).forEach(s => {
+    const remaining = Math.max(0, (s.payment_debt || 0) - (settledBySale[s.id] || 0));
+    if (remaining > 0) openDebts.push({ client_name: s.client_name || 'Без клиента', date: s.date, remaining, daysAgo: daysAgoOf(s.date) });
+  });
+
+  // Долг, которому по типичному сроку осталось ждать <=7/<=30 дней (может
+  // быть и отрицательным — типичный срок уже прошёл, ждём "прямо сейчас"),
+  // считаем ожидаемым к поступлению в этом окне.
+  let expected7 = 0, expected30 = 0;
+  const overdueList = [];
+  openDebts.forEach(d => {
+    const remainingLag = medianLag - d.daysAgo;
+    if (remainingLag <= 7) expected7 += d.remaining;
+    if (remainingLag <= 30) expected30 += d.remaining;
+    if (d.daysAgo > 7) overdueList.push(d); // тот же порог "просрочки", что в /api/debts (overdue)
+  });
+  overdueList.sort((a, b) => b.daysAgo - a.daysAgo);
+  const totalDebt = openDebts.reduce((s, d) => s + d.remaining, 0);
+
+  return {
+    period: { from: fromStr, to: todayStr, days },
+    sales: { series: salesSeries, avgDaily: round2(avgDaily), forecast7: round2(forecast7), forecast30: round2(forecast30), dowAverages },
+    stock: stockForecast,
+    debts: {
+      medianLag,
+      totalDebt: round2(totalDebt),
+      expected7: round2(expected7),
+      expected30: round2(expected30),
+      overdue: overdueList.map(d => ({ ...d, remaining: round2(d.remaining) })),
+    },
+  };
+}
+
+async function buildAnalyticsWorkbook(days) {
+  const data = computeAnalyticsReport(days);
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Жайык Актау';
+  wb.created = new Date();
+
+  const headerFont = { bold: true };
+
+  // --- Лист 1: Продажи и прогноз ---
+  const wsSales = wb.addWorksheet('Продажи и прогноз');
+  wsSales.columns = [
+    { header: 'Дата', key: 'date', width: 14 },
+    { header: 'Выручка, ₸', key: 'revenue', width: 16 },
+  ];
+  data.sales.series.forEach(r => wsSales.addRow(r));
+  wsSales.getRow(1).font = headerFont;
+
+  let r = wsSales.rowCount + 2;
+  const addSummaryRow = (ws, row, label, value) => {
+    ws.getCell(`A${row}`).value = label;
+    ws.getCell(`B${row}`).value = value;
+  };
+  addSummaryRow(wsSales, r, `Средняя выручка в день (за ${data.period.days} дн.):`, data.sales.avgDaily); r++;
+  addSummaryRow(wsSales, r, 'Прогноз выручки на 7 дней:', data.sales.forecast7); r++;
+  addSummaryRow(wsSales, r, 'Прогноз выручки на 30 дней:', data.sales.forecast30); r += 2;
+  wsSales.getCell(`A${r}`).value = 'Средняя выручка по дню недели:';
+  wsSales.getCell(`A${r}`).font = headerFont; r++;
+  data.sales.dowAverages.forEach(d => { addSummaryRow(wsSales, r, d.day, d.avg); r++; });
+
+  // --- Лист 2: Остатки и прогноз расхода ---
+  const wsStock = wb.addWorksheet('Остатки и прогноз');
+  wsStock.columns = [
+    { header: 'Код', key: 'code', width: 10 },
+    { header: 'Товар', key: 'name', width: 34 },
+    { header: 'Ед.', key: 'unit', width: 7 },
+    { header: 'Остаток', key: 'balance', width: 11 },
+    { header: 'Расход/день', key: 'avgDailyOutcome', width: 13 },
+    { header: 'Хватит дней', key: 'daysLeft', width: 12 },
+    { header: 'Закончится', key: 'stockoutDate', width: 13 },
+  ];
+  data.stock.forEach(row => wsStock.addRow(row));
+  wsStock.getRow(1).font = headerFont;
+  // Подсвечиваем красным то, что заканчивается меньше чем через 3 дня —
+  // самое срочное для закупки.
+  data.stock.forEach((row, i) => {
+    if (row.daysLeft != null && row.daysLeft <= 3) {
+      wsStock.getRow(i + 2).eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE8E6' } }; });
+    }
+  });
+
+  // --- Лист 3: Долги и прогноз возврата ---
+  const wsDebts = wb.addWorksheet('Долги и прогноз');
+  addSummaryRow(wsDebts, 1, 'Текущая дебиторка, ₸:', data.debts.totalDebt);
+  addSummaryRow(wsDebts, 2, 'Обычный срок погашения долга, дней:', data.debts.medianLag);
+  addSummaryRow(wsDebts, 3, 'Ожидаем поступлений за 7 дней, ₸:', data.debts.expected7);
+  addSummaryRow(wsDebts, 4, 'Ожидаем поступлений за 30 дней, ₸:', data.debts.expected30);
+  for (let i = 1; i <= 4; i++) wsDebts.getCell(`A${i}`).font = headerFont;
+  wsDebts.getColumn(1).width = 34;
+  wsDebts.getColumn(2).width = 16;
+  wsDebts.getColumn(3).width = 16;
+  wsDebts.getColumn(4).width = 12;
+
+  let dr = 6;
+  wsDebts.getCell(`A${dr}`).value = `Просроченные долги (> 7 дней), ${data.debts.overdue.length} шт.:`;
+  wsDebts.getCell(`A${dr}`).font = headerFont; dr++;
+  wsDebts.getCell(`A${dr}`).value = 'Клиент';
+  wsDebts.getCell(`B${dr}`).value = 'Дата долга';
+  wsDebts.getCell(`C${dr}`).value = 'Дней просрочки';
+  wsDebts.getCell(`D${dr}`).value = 'Сумма, ₸';
+  wsDebts.getRow(dr).font = headerFont; dr++;
+  data.debts.overdue.forEach(d => {
+    wsDebts.getCell(`A${dr}`).value = d.client_name;
+    wsDebts.getCell(`B${dr}`).value = d.date;
+    wsDebts.getCell(`C${dr}`).value = d.daysAgo;
+    wsDebts.getCell(`D${dr}`).value = d.remaining;
+    dr++;
+  });
+
+  return wb.xlsx.writeBuffer();
+}
+
+// Доступ только admin — по решению владельца (см. обсуждение в чате),
+// самый закрытый вариант, как и остальные финансовые отчёты можно будет
+// расширить на manager позже, если понадобится.
+app.get('/api/reports/analytics.xlsx', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const days = Math.min(90, Math.max(7, parseInt(req.query.days) || 30));
+  try {
+    const buffer = await buildAnalyticsWorkbook(days);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="analitika-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    res.send(Buffer.from(buffer));
+  } catch (e) {
+    res.status(500).json({ error: 'Не удалось сформировать отчёт: ' + e.message });
+  }
 });
 
 // Ручная правка остатка со склада — ЗАПРЕЩЕНА по решению владельца:
