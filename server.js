@@ -447,6 +447,28 @@ app.post('/api/orders', authMiddleware, (req, res) => {
     };
   });
 
+  // Один и тот же товар двумя отдельными строками в заявке — почти всегда
+  // случайность торгового (дважды нажал "добавить"), а не намеренное
+  // решение: цена/комиссия у товара одна на весь каталог, второй строкой
+  // ничего нового не выразить, только количество разъезжается на две части.
+  // Опасно это не само по себе, а тем, что взвешивание (POST
+  // /api/orders/weights) и печать накладной ищут позицию по коду — вторая
+  // строка с тем же кодом либо не находится вовсе, либо запись веса тихо
+  // уходит не в ту строку (см. живой случай — заявка №22854, где вторая
+  // "Нагетсы Qualiko 1кг" так и осталась навсегда неподтверждённой).
+  // Проверяем только для торгового/магазина — admin/manager позже могут
+  // самостоятельно поправить состав уже оформленной заявки.
+  if (['sales', 'senior_sales', 'store'].includes(req.user.role)) {
+    const seenCodes = new Set();
+    for (const it of finalItems) {
+      if (!it.code) continue;
+      if (seenCodes.has(it.code)) {
+        return res.status(400).json({ error: `Товар "${it.name}" добавлен в заявку дважды — объедините в одну строку` });
+      }
+      seenCodes.add(it.code);
+    }
+  }
+
   // Развесной товар (priced_by_weight): 1С коробов не считает вообще, только
   // кг (см. /api/stock/sync ниже) — короба́ в stock.qty никем не
   // поддерживаются, проверять по ним нечего. Торговый указывает ПРИМЕРНОЕ
@@ -597,6 +619,19 @@ app.put('/api/orders/:id/items', authMiddleware, (req, res) => {
       boxes: isWeightItem ? (it.boxes != null ? Number(it.boxes) : (Number(it.qty) || 0)) : undefined,
     };
   });
+
+  // Тот же дубль-код, что и при создании (см. POST /api/orders) — тут его
+  // так же легко внести при правке состава.
+  if (['sales', 'senior_sales', 'store'].includes(req.user.role)) {
+    const seenCodes = new Set();
+    for (const it of finalItems) {
+      if (!it.code) continue;
+      if (seenCodes.has(it.code)) {
+        return res.status(400).json({ error: `Товар "${it.name}" добавлен в заявку дважды — объедините в одну строку` });
+      }
+      seenCodes.add(it.code);
+    }
+  }
 
   // Доступный остаток БЕЗ учёта резерва этой же заявки — иначе собственный
   // текущий резерв заявки засчитался бы как "занято" и мешал бы, например,
@@ -1324,6 +1359,41 @@ app.put('/api/orders/:orderId/items/:itemIndex/cost', authMiddleware, (req, res)
   if (!items[itemIndex]) return res.status(404).json({ error: 'Позиция не найдена' });
   items[itemIndex].cost = newCost;
   db.get('orders').find({ id: orderId }).assign({ items }).write();
+  res.json(db.get('orders').find({ id: orderId }).value());
+});
+
+// Полное удаление ОДНОЙ позиции из уже оформленной заявки — только admin.
+// Нужно для случаев вроде заявки №22854: товар задвоили отдельной строкой
+// по ошибке (см. POST /api/orders — теперь такое ловится при оформлении,
+// но старые заявки, оформленные до фикса, остались как есть), и саму
+// лишнюю строку, а не только её вес, нужно убрать. PUT /api/orders/:id/items
+// (полная замена состава) для этого не годится — доступен только пока
+// заявка "new", а к моменту, когда дубль замечают на взвешивании, заявка
+// уже обычно "in_transit" (взята водителем). Доступно до доставки
+// включительно — после неё стоимость уже списана со склада и сверена с
+// оплатой (см. PUT /api/orders/:id/status), удалять строку из-под этого
+// нельзя без отдельного отката, как остальные правки после доставки.
+app.delete('/api/orders/:orderId/items/:itemIndex', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Удалять позиции заявки может только администратор' });
+  }
+  const orderId = parseInt(req.params.orderId);
+  const itemIndex = parseInt(req.params.itemIndex);
+  const order = db.get('orders').find({ id: orderId }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+  if (!['new', 'in_transit'].includes(order.status)) {
+    return res.status(400).json({ error: `Удалить позицию можно только пока заявка не доставлена (сейчас "${order.status}")` });
+  }
+  const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+  if (!items[itemIndex]) return res.status(404).json({ error: 'Позиция не найдена' });
+  if (items.length <= 1) {
+    return res.status(400).json({ error: 'В заявке должна остаться хотя бы одна позиция — отзовите заявку целиком, если она не нужна' });
+  }
+  const [removed] = items.splice(itemIndex, 1);
+  const newTotal = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+  const newCommissionTotal = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.commission) || 0), 0);
+  db.get('orders').find({ id: orderId }).assign({ items, total: newTotal, commission_total: newCommissionTotal }).write();
+  console.log(`[orders] ${new Date().toISOString()} admin ${req.user.name} удалил позицию "${removed.name}" из заявки №${orderId}`);
   res.json(db.get('orders').find({ id: orderId }).value());
 });
 

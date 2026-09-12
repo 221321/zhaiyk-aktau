@@ -4587,6 +4587,7 @@ function OrderDetail({
   onDeleteOrder,
   onFixItemCost,
   onFixItemWeight,
+  onDeleteItem,
   onEditDeliveredItems,
   onEditPrices,
   onAnnulOrder,
@@ -4612,6 +4613,7 @@ function OrderDetail({
   const [fixingWeightIndex, setFixingWeightIndex] = useState(null);
   const [weightInput, setWeightInput] = useState("");
   const [savingWeight, setSavingWeight] = useState(false);
+  const [deletingItemIndex, setDeletingItemIndex] = useState(null);
   const [viewPhoto, setViewPhoto] = useState(null);
   // Правка кол-ва по позициям уже ДОСТАВЛЕННОЙ заявки задним числом — см.
   // PUT /api/orders/:id/delivered-items на сервере. Доступно только admin
@@ -4977,13 +4979,48 @@ function OrderDetail({
     }
   }, item.name), /*#__PURE__*/React.createElement("span", {
     style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
       color: C.textSub
     }
   }, item.qty, " \xD7 ", item.price, " \u20B8 = ", /*#__PURE__*/React.createElement("strong", {
     style: {
       color: C.text
     }
-  }, (item.qty * item.price).toLocaleString(), " \u20B8"))), onFixItemCost && item.cost == null && (fixingCostIndex === i ? /*#__PURE__*/React.createElement("div", {
+  }, (item.qty * item.price).toLocaleString(), " \u20B8")), onDeleteItem && ["new", "in_transit"].includes(order.status) && items.length > 1 &&
+  /*#__PURE__*/
+  // Удаление ЦЕЛОЙ строки — не путать с "исправить ошибку веса"
+  // выше (та правит только цифру, эта убирает позицию совсем).
+  // Нужно для ошибочно задвоенных строк одного товара (см.
+  // проверку дублей при оформлении заявки) — раньше такую
+  // строку было вообще никак не убрать после оформления.
+  React.createElement("button", {
+    disabled: deletingItemIndex === i,
+    title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u043F\u043E\u0437\u0438\u0446\u0438\u044E \u0438\u0437 \u0437\u0430\u044F\u0432\u043A\u0438",
+    style: {
+      background: "none",
+      border: "none",
+      color: C.red || "#DC2626",
+      cursor: deletingItemIndex === i ? "wait" : "pointer",
+      fontSize: 16,
+      padding: "2px 4px",
+      opacity: deletingItemIndex === i ? 0.5 : 1
+    },
+    onClick: async () => {
+      if (!window.confirm(`Удалить позицию «${item.name}» из заявки №${order.id}? Сумма заявки пересчитается.`)) return;
+      setDeletingItemIndex(i);
+      try {
+        await onDeleteItem(order.id, i);
+      } catch (e) {
+        alert(e.message);
+      }
+      setDeletingItemIndex(null);
+    }
+  }, "\uD83D\uDDD1"))), onFixItemCost && item.cost == null && (fixingCostIndex === i ? /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 6,
@@ -14722,6 +14759,16 @@ function AdminCabinet({
     loadOrders();
   };
 
+  // Полное удаление позиции из заявки (не только веса) — только admin, см.
+  // DELETE /api/orders/:orderId/items/:itemIndex на сервере. Нужно для
+  // случаев вроде задвоенной строки одного товара (см. проверку дублей при
+  // оформлении заявки), которую иначе никак не убрать после оформления.
+  const deleteOrderItem = async (orderId, itemIndex) => {
+    const updated = await apiCall('DELETE', `/api/orders/${orderId}/items/${itemIndex}`);
+    setSelectedOrder(updated);
+    loadOrders();
+  };
+
   // Исправление уже подтверждённого веса (человеческий фактор при
   // взвешивании) — доступно только admin/manager, см. проверку
   // canOverride в POST /api/orders/weights на сервере. Переиспользуем тот
@@ -17766,6 +17813,7 @@ function AdminCabinet({
       onDeleteOrder: handleDelete,
       onFixItemCost: user.role !== "operator" ? fixItemCost : undefined,
       onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
+      onDeleteItem: user.role === "admin" ? deleteOrderItem : undefined,
       onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
       onEditPrices: user.role === "admin" ? editPrices : undefined,
       onAnnulOrder: user.role === "admin" ? annulOrder : undefined,
@@ -17861,6 +17909,7 @@ function AdminCabinet({
     onDeleteOrder: handleDelete,
     onFixItemCost: user.role !== "operator" ? fixItemCost : undefined,
     onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
+    onDeleteItem: user.role === "admin" ? deleteOrderItem : undefined,
     onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
     onEditPrices: user.role === "admin" ? editPrices : undefined,
     onAnnulOrder: user.role === "admin" ? annulOrder : undefined,
