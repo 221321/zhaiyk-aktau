@@ -1365,6 +1365,14 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
   // по ходу пачки: если в одной пачке две правки идут по одному коду в
   // разных заявках, вторая должна видеть остаток уже с учётом первой.
   const weightAvailableMap = computeAvailableWeightKg();
+  // Только для текста ошибки ниже — физический остаток по коду (то, что
+  // склад видит на "Остатках"), чтобы объяснить разницу с "доступно": сам
+  // по себе физический остаток может быть немаленьким, но большая его часть
+  // уже взвешена по другим ещё не доставленным заявкам (см. deltaKg/avail
+  // ниже) — без этого склад видит только "не хватает остатка" и не
+  // понимает, откуда взялось маленькое "доступно" при немаленьком остатке.
+  const rawWeightMap = {};
+  db.get('stock').value().forEach(s => { if (s.weight_kg != null) rawWeightMap[s.code] = Number(s.weight_kg) || 0; });
   // Флаг is_weight_item — снимок на момент СОЗДАНИЯ заявки (см. POST
   // /api/orders): у заявок, оформленных до того, как товар отметили
   // "Весовой" в карточке (или до того, как это поле вообще появилось),
@@ -1440,7 +1448,14 @@ app.post('/api/orders/weights', authMiddleware, (req, res) => {
     if (Object.prototype.hasOwnProperty.call(weightAvailableMap, code)) {
       const avail = weightAvailableMap[code];
       if (deltaKg > avail) {
-        errors.push(`"${item.name}" в заявке №${orderId}: не хватает остатка по весу (нужно ещё ${(deltaKg - avail).toLocaleString()} кг, доступно ${avail.toLocaleString()} кг)`);
+        const raw = rawWeightMap[code];
+        // raw > avail (обычно так и есть — свободно не может быть больше
+        // физического) поясняем, куда делась разница: она уже взвешена по
+        // другим заявкам, которые ещё не доставлены (см. computeAvailableWeightKg).
+        const explain = (raw != null && raw > avail)
+          ? `; физический остаток по 1С ${raw.toLocaleString()} кг, из них ${(raw - avail).toLocaleString()} кг уже взвешено по другим ещё не доставленным заявкам`
+          : '';
+        errors.push(`"${item.name}" в заявке №${orderId}: не хватает остатка по весу (нужно ещё ${(deltaKg - avail).toLocaleString()} кг, доступно ${avail.toLocaleString()} кг${explain})`);
         return;
       }
       weightAvailableMap[code] = avail - deltaKg;
