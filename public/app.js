@@ -14082,6 +14082,37 @@ function AdminCabinet({
   desktop
 }) {
   const [tab, setTab] = useState("all");
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  // Excel-отчёт с прогнозом (продажи/остатки/долги, см. GET
+  // /api/reports/analytics.xlsx) — бинарный файл за авторизованным
+  // эндпоинтом, поэтому обычная <a href> ссылка не подходит (нет токена в
+  // заголовке); скачиваем через fetch+blob, как shareWaybillPdf выше для PDF.
+  const downloadAnalyticsReport = async () => {
+    setAnalyticsLoading(true);
+    try {
+      const resp = await fetch('/api/reports/analytics.xlsx', {
+        headers: {
+          'Authorization': `Bearer ${getToken()}`
+        }
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `Ошибка ${resp.status}`);
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `analitika-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e) {
+      alert('Не удалось сформировать отчёт: ' + e.message);
+    }
+    setAnalyticsLoading(false);
+  };
   const [filter, setFilter] = useState("all");
   const [driverFilter, setDriverFilter] = useState("");
   const [salesFilter, setSalesFilter] = useState("");
@@ -15758,7 +15789,20 @@ function AdminCabinet({
     onOpen: setSelectedOrder
   }))), tab === "report" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
-  }, "\u041E\u0442\u0447\u0451\u0442"), dateRangeInputs, /*#__PURE__*/React.createElement("div", {
+  }, "\u041E\u0442\u0447\u0451\u0442"), user.role === "admin" && /*#__PURE__*/React.createElement("button", {
+    onClick: downloadAnalyticsReport,
+    disabled: analyticsLoading,
+    style: {
+      ...S.btnOutline,
+      width: "auto",
+      padding: "9px 16px",
+      fontSize: 14,
+      marginTop: 0,
+      marginBottom: 16,
+      opacity: analyticsLoading ? 0.6 : 1,
+      cursor: analyticsLoading ? "not-allowed" : "pointer"
+    }
+  }, analyticsLoading ? "⏳ Формируем..." : "📈 Аналитика и прогноз (Excel)"), dateRangeInputs, /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.statsRow,
       gridTemplateColumns: desktop ? "repeat(5, minmax(0,1fr))" : "1fr 1fr",

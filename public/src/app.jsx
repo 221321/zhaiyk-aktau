@@ -6710,6 +6710,30 @@ function CashierCabinet({ user, onLogout }) {
 
 function AdminCabinet({ user, onLogout, desktop }) {
   const [tab, setTab] = useState("all");
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  // Excel-отчёт с прогнозом (продажи/остатки/долги, см. GET
+  // /api/reports/analytics.xlsx) — бинарный файл за авторизованным
+  // эндпоинтом, поэтому обычная <a href> ссылка не подходит (нет токена в
+  // заголовке); скачиваем через fetch+blob, как shareWaybillPdf выше для PDF.
+  const downloadAnalyticsReport = async () => {
+    setAnalyticsLoading(true);
+    try {
+      const resp = await fetch('/api/reports/analytics.xlsx', { headers: { 'Authorization': `Bearer ${getToken()}` } });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `Ошибка ${resp.status}`);
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `analitika-${new Date().toISOString().slice(0,10)}.xlsx`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch(e) {
+      alert('Не удалось сформировать отчёт: ' + e.message);
+    }
+    setAnalyticsLoading(false);
+  };
   const [filter, setFilter] = useState("all");
   const [driverFilter, setDriverFilter] = useState("");
   const [salesFilter, setSalesFilter] = useState("");
@@ -7776,6 +7800,11 @@ function AdminCabinet({ user, onLogout, desktop }) {
       </>}
       {tab==="report"&&<>
         {!desktop&&<p style={S.sectionTitle}>Отчёт</p>}
+        {user.role==="admin"&&(
+          <button onClick={downloadAnalyticsReport} disabled={analyticsLoading} style={{...S.btnOutline,width:"auto",padding:"9px 16px",fontSize:14,marginTop:0,marginBottom:16,opacity:analyticsLoading?0.6:1,cursor:analyticsLoading?"not-allowed":"pointer"}}>
+            {analyticsLoading?"⏳ Формируем...":"📈 Аналитика и прогноз (Excel)"}
+          </button>
+        )}
         {dateRangeInputs}
         <div style={{...S.statsRow, gridTemplateColumns: desktop?"repeat(5, minmax(0,1fr))":"1fr 1fr", maxWidth: desktop?900:"none"}}>
           <div style={S.statCard()}><p style={S.statNum()}>{stats.total}</p><p style={S.statLabel}>Всего</p></div>
