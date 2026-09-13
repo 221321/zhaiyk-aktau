@@ -4659,6 +4659,7 @@ function OrderDetail({
   onDeleteOrder,
   onFixItemCost,
   onFixItemWeight,
+  onFixItemQty,
   onDeleteItem,
   onEditDeliveredItems,
   onEditPrices,
@@ -4686,6 +4687,13 @@ function OrderDetail({
   const [fixingWeightIndex, setFixingWeightIndex] = useState(null);
   const [weightInput, setWeightInput] = useState("");
   const [savingWeight, setSavingWeight] = useState(false);
+  // Исправление количества штучного (не весового) товара, пока заявка не
+  // доставлена — тот же принцип, что и fixingWeightIndex выше, только для
+  // позиций без взвешивания (см. PUT /api/orders/:orderId/items/:itemIndex/qty
+  // на сервере, onFixItemQty передаётся только из AdminCabinet и только admin).
+  const [fixingQtyIndex, setFixingQtyIndex] = useState(null);
+  const [qtyInput, setQtyInput] = useState("");
+  const [savingQty, setSavingQty] = useState(false);
   const [deletingItemIndex, setDeletingItemIndex] = useState(null);
   const [viewPhoto, setViewPhoto] = useState(null);
   // Правка кол-ва по позициям уже ДОСТАВЛЕННОЙ заявки задним числом — см.
@@ -5292,7 +5300,85 @@ function OrderDetail({
       setFixingWeightIndex(i);
       setWeightInput(String(item.qty));
     }
-  }, "\u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u043E\u0448\u0438\u0431\u043A\u0443 \u0432\u0435\u0441\u0430")))))), /*#__PURE__*/React.createElement("hr", {
+  }, "\u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u043E\u0448\u0438\u0431\u043A\u0443 \u0432\u0435\u0441\u0430")))), !item.is_weight_item && onFixItemQty && ["new", "in_transit"].includes(order.status) && (
+  // Тот же принцип, что и "исправить ошибку веса" выше, но для
+  // штучного товара (масло, сыр и т.п.) — у него нет этапа
+  // взвешивания на складе, но ошибиться в количестве коробов
+  // склад может так же легко (см. PUT
+  // /api/orders/:orderId/items/:itemIndex/qty на сервере).
+  fixingQtyIndex === i ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginTop: 6
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "0",
+    step: "1",
+    autoFocus: true,
+    style: {
+      ...S.input,
+      padding: "6px 8px",
+      fontSize: 14
+    },
+    placeholder: "\u041F\u0440\u0430\u0432\u0438\u043B\u044C\u043D\u043E\u0435 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E",
+    value: qtyInput,
+    onChange: e => setQtyInput(e.target.value),
+    onFocus: e => e.target.select()
+  }), /*#__PURE__*/React.createElement("button", {
+    disabled: savingQty || !qtyInput,
+    style: {
+      ...S.btnPrimary,
+      width: "auto",
+      marginTop: 0,
+      padding: "6px 14px",
+      fontSize: 14,
+      opacity: savingQty || !qtyInput ? 0.5 : 1
+    },
+    onClick: async () => {
+      if (!window.confirm(`Исправить количество «${item.name}» на ${qtyInput}? Сумма заявки пересчитается.`)) return;
+      setSavingQty(true);
+      try {
+        await onFixItemQty(order.id, i, Number(qtyInput));
+        setFixingQtyIndex(null);
+        setQtyInput("");
+      } catch (e) {
+        alert(e.message);
+      }
+      setSavingQty(false);
+    }
+  }, savingQty ? "..." : "Сохранить"), /*#__PURE__*/React.createElement("button", {
+    disabled: savingQty,
+    style: {
+      ...S.btnSecondary,
+      width: "auto",
+      marginTop: 0,
+      padding: "6px 14px",
+      fontSize: 14
+    },
+    onClick: () => {
+      setFixingQtyIndex(null);
+      setQtyInput("");
+    }
+  }, "\u041E\u0442\u043C\u0435\u043D\u0430")) : /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "4px 0 0",
+      fontSize: 13,
+      color: C.textFaint
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.navy,
+      fontWeight: 600,
+      cursor: "pointer",
+      textDecoration: "underline"
+    },
+    onClick: () => {
+      setFixingQtyIndex(i);
+      setQtyInput(String(item.qty));
+    }
+  }, "\u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E"))))), /*#__PURE__*/React.createElement("hr", {
     style: S.divider
   }), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -15065,6 +15151,17 @@ function AdminCabinet({
     if (updated) setSelectedOrder(updated);
   };
 
+  // Исправление количества штучного товара, пока заявка не доставлена — см.
+  // PUT /api/orders/:orderId/items/:itemIndex/qty на сервере.
+  const fixItemQty = async (orderId, itemIndex, qty) => {
+    const res = await apiCall('PUT', `/api/orders/${orderId}/items/${itemIndex}/qty`, {
+      qty
+    });
+    setSelectedOrder(res);
+    loadOrders();
+    return res;
+  };
+
   // Правка кол-ва по позициям уже ДОСТАВЛЕННОЙ заявки задним числом — см.
   // PUT /api/orders/:id/delivered-items на сервере (доступ там тоже
   // проверяется, здесь только для того, чтобы кнопка вообще не
@@ -18117,6 +18214,7 @@ function AdminCabinet({
       onDeleteOrder: handleDelete,
       onFixItemCost: user.role !== "operator" ? fixItemCost : undefined,
       onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
+      onFixItemQty: user.role === "admin" ? fixItemQty : undefined,
       onDeleteItem: user.role === "admin" ? deleteOrderItem : undefined,
       onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
       onEditPrices: user.role === "admin" ? editPrices : undefined,
@@ -18214,6 +18312,7 @@ function AdminCabinet({
     onDeleteOrder: handleDelete,
     onFixItemCost: user.role !== "operator" ? fixItemCost : undefined,
     onFixItemWeight: user.role === "admin" ? fixItemWeight : undefined,
+    onFixItemQty: user.role === "admin" ? fixItemQty : undefined,
     onDeleteItem: user.role === "admin" ? deleteOrderItem : undefined,
     onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
     onEditPrices: user.role === "admin" ? editPrices : undefined,

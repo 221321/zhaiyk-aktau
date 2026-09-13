@@ -1441,6 +1441,51 @@ app.put('/api/orders/:orderId/items/:itemIndex/cost', authMiddleware, (req, res)
   res.json(db.get('orders').find({ id: orderId }).value());
 });
 
+// Правка количества ОДНОЙ позиции штучного (не весового) товара в уже
+// оформленной заявке, пока она не доставлена — тот же принцип, что и
+// "исправить ошибку веса" у весового товара (см. POST /api/orders/weights
+// выше), только для обычных штучных позиций (масло, сыр и т.п.). У них нет
+// отдельного этапа взвешивания на складе, и раньше поправить ошибку в
+// количестве после того, как заявка ушла в доставку, было нечем —
+// PUT /api/orders/:id/items (полная замена состава) работает только для
+// статуса "new", а склад ошибается в подсчёте штук ничуть не реже, чем в
+// весе. Только admin — тот же уровень доступа, что и у override веса.
+app.put('/api/orders/:orderId/items/:itemIndex/qty', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Менять количество может только администратор' });
+  }
+  const orderId = parseInt(req.params.orderId);
+  const itemIndex = parseInt(req.params.itemIndex);
+  const order = db.get('orders').find({ id: orderId }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+  if (!['new', 'in_transit'].includes(order.status)) {
+    return res.status(400).json({ error: `Менять количество можно только пока заявка не доставлена (сейчас "${order.status}")` });
+  }
+  const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+  const item = items[itemIndex];
+  if (!item) return res.status(404).json({ error: 'Позиция не найдена' });
+  if (item.is_weight_item) {
+    return res.status(400).json({ error: 'Весовой товар правится через "исправить ошибку веса", не здесь' });
+  }
+  const newQty = Number(req.body.qty);
+  if (!Number.isFinite(newQty) || newQty <= 0) {
+    return res.status(400).json({ error: 'Некорректное количество' });
+  }
+  // Доступный остаток БЕЗ учёта резерва этой же заявки (та же логика, что и
+  // в PUT /api/orders/:id/items) — иначе собственный текущий резерв заявки
+  // засчитался бы как "занято" и мешал бы, например, просто увеличить кол-во.
+  const availableMap = computeAvailableStock(orderId);
+  const avail = availableMap[item.code] != null ? availableMap[item.code] : 0;
+  if (newQty > avail) {
+    return res.status(400).json({ error: `Недостаточно остатка: "${item.name}" (доступно ${avail})` });
+  }
+  items[itemIndex] = { ...item, qty: newQty };
+  const newTotal = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+  const newCommissionTotal = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.commission) || 0), 0);
+  db.get('orders').find({ id: orderId }).assign({ items, total: newTotal, commission_total: newCommissionTotal }).write();
+  res.json(db.get('orders').find({ id: orderId }).value());
+});
+
 // Полное удаление ОДНОЙ позиции из уже оформленной заявки — только admin.
 // Нужно для случаев вроде заявки №22854: товар задвоили отдельной строкой
 // по ошибке (см. POST /api/orders — теперь такое ловится при оформлении,
