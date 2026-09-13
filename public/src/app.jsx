@@ -2587,7 +2587,7 @@ function PhotoViewerOverlay({ src, onClose }) {
   );
 }
 
-function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, onDeleteItem, onEditDeliveredItems, onEditPrices, onEditPayment, onAnnulOrder, currentUser, drivers, products }) {
+function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, onFixItemQty, onDeleteItem, onEditDeliveredItems, onEditPrices, onEditPayment, onAnnulOrder, currentUser, drivers, products }) {
   // Позиции заявки хранят псевдоним товара (см. addToCart), а в накладной
   // должно быть название из 1С (см. buildWaybillInnerHtml) — карта код->
   // название из уже загруженного в кабинете каталога (products), которую
@@ -2604,6 +2604,13 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
   const [fixingWeightIndex, setFixingWeightIndex] = useState(null);
   const [weightInput, setWeightInput] = useState("");
   const [savingWeight, setSavingWeight] = useState(false);
+  // Исправление количества штучного (не весового) товара, пока заявка не
+  // доставлена — тот же принцип, что и fixingWeightIndex выше, только для
+  // позиций без взвешивания (см. PUT /api/orders/:orderId/items/:itemIndex/qty
+  // на сервере, onFixItemQty передаётся только из AdminCabinet и только admin).
+  const [fixingQtyIndex, setFixingQtyIndex] = useState(null);
+  const [qtyInput, setQtyInput] = useState("");
+  const [savingQty, setSavingQty] = useState(false);
   const [deletingItemIndex, setDeletingItemIndex] = useState(null);
   const [viewPhoto, setViewPhoto] = useState(null);
   // Правка кол-ва по позициям уже ДОСТАВЛЕННОЙ заявки задним числом — см.
@@ -2909,6 +2916,30 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
                   {onFixItemWeight && ["new","in_transit"].includes(order.status) && (
                     <> — <span style={{color:C.navy,fontWeight:600,cursor:"pointer",textDecoration:"underline"}} onClick={()=>{setFixingWeightIndex(i);setWeightInput(String(item.qty));}}>исправить ошибку веса</span></>
                   )}
+                </p>
+              )
+            )}
+            {!item.is_weight_item && onFixItemQty && ["new","in_transit"].includes(order.status) && (
+              // Тот же принцип, что и "исправить ошибку веса" выше, но для
+              // штучного товара (масло, сыр и т.п.) — у него нет этапа
+              // взвешивания на складе, но ошибиться в количестве коробов
+              // склад может так же легко (см. PUT
+              // /api/orders/:orderId/items/:itemIndex/qty на сервере).
+              fixingQtyIndex===i ? (
+                <div style={{display:"flex",gap:6,marginTop:6}}>
+                  <input type="number" min="0" step="1" autoFocus style={{...S.input,padding:"6px 8px",fontSize:14}} placeholder="Правильное количество" value={qtyInput} onChange={e=>setQtyInput(e.target.value)} onFocus={e=>e.target.select()}/>
+                  <button disabled={savingQty||!qtyInput} style={{...S.btnPrimary,width:"auto",marginTop:0,padding:"6px 14px",fontSize:14,opacity:(savingQty||!qtyInput)?0.5:1}} onClick={async()=>{
+                    if (!window.confirm(`Исправить количество «${item.name}» на ${qtyInput}? Сумма заявки пересчитается.`)) return;
+                    setSavingQty(true);
+                    try { await onFixItemQty(order.id, i, Number(qtyInput)); setFixingQtyIndex(null); setQtyInput(""); }
+                    catch(e) { alert(e.message); }
+                    setSavingQty(false);
+                  }}>{savingQty?"...":"Сохранить"}</button>
+                  <button disabled={savingQty} style={{...S.btnSecondary,width:"auto",marginTop:0,padding:"6px 14px",fontSize:14}} onClick={()=>{setFixingQtyIndex(null);setQtyInput("");}}>Отмена</button>
+                </div>
+              ) : (
+                <p style={{margin:"4px 0 0",fontSize:13,color:C.textFaint}}>
+                  <span style={{color:C.navy,fontWeight:600,cursor:"pointer",textDecoration:"underline"}} onClick={()=>{setFixingQtyIndex(i);setQtyInput(String(item.qty));}}>исправить количество</span>
                 </p>
               )
             )}
@@ -7384,6 +7415,15 @@ function AdminCabinet({ user, onLogout, desktop }) {
     if (updated) setSelectedOrder(updated);
   };
 
+  // Исправление количества штучного товара, пока заявка не доставлена — см.
+  // PUT /api/orders/:orderId/items/:itemIndex/qty на сервере.
+  const fixItemQty = async (orderId, itemIndex, qty) => {
+    const res = await apiCall('PUT', `/api/orders/${orderId}/items/${itemIndex}/qty`, { qty });
+    setSelectedOrder(res);
+    loadOrders();
+    return res;
+  };
+
   // Правка кол-ва по позициям уже ДОСТАВЛЕННОЙ заявки задним числом — см.
   // PUT /api/orders/:id/delivered-items на сервере (доступ там тоже
   // проверяется, здесь только для того, чтобы кнопка вообще не
@@ -8752,7 +8792,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return (
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
         <AutofillDecoy/>
-        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onEditPayment={user.role==="admin"?editPayment:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onFixItemQty={user.role==="admin"?fixItemQty:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onEditPayment={user.role==="admin"?editPayment:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         {showNewOrderModal&&<NewOrderModal products={products} clients={clients} onClose={()=>setShowNewOrderModal(false)} onCreated={()=>{ setShowNewOrderModal(false); loadOrders(); }} isAdmin={user.role==="admin"}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
@@ -8783,7 +8823,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   return (
     <div style={{paddingBottom:72}}>
       <AutofillDecoy/>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onEditPayment={user.role==="admin"?editPayment:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onFixItemQty={user.role==="admin"?fixItemQty:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onEditPayment={user.role==="admin"?editPayment:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
       {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
