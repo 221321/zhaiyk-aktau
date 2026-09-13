@@ -4213,7 +4213,28 @@ const WAYBILL_PAIR_STYLE = WAYBILL_STYLE + `
     .printScope .waybillSlot table.expfields td.expfields-label{padding-right:12px;}
     .printScope .waybillSlot .miniqr img{width:36px; height:36px;}
     .printScope .waybillSlot .miniqr p{font-size:6px;}
-    @media print { .printScope .waybillSheet{page-break-after:always;} .printScope .waybillSheet:last-child{page-break-after:auto;} }`;
+    /* Раньше 3 накладные занимали фиксированную высоту (~774px из
+       ~1000-1046px печатной области), а остаток листа оставался пустым —
+       клиенту это не нравилось (см. живой фидбэк с видео). Пробовали
+       min-height:100vh на .waybillSheet (в @media print у Chrome это высота
+       ОДНОЙ печатной страницы) — но вместе с display:flex на элементе,
+       у которого ЕСТЬ page-break-after, Chrome считает высоту фрагмента
+       неверно и добавляет пустую вторую страницу (проверено рендером в
+       headless Chromium через Playwright, см. историю правки). Поэтому
+       .waybillSheet остаётся обычным блоком (просто page-break-after, как
+       было раньше) — растягиваем только .waybillSlot внутри него, а точную
+       высоту (min-height) на каждый .waybillSlot проставляет сам JS
+       (см. printWaybillsBatch, slotMinHeight) по факту числа накладных в
+       группе — 1, 2 или 3 не помещается в одну и ту же высоту поровну.
+       Значения подобраны и проверены печатью в PDF (headless Chromium,
+       с учётом полей страницы 10мм) так, чтобы группа гарантированно
+       умещалась на одном листе A4 с запасом, даже если у принтера поля
+       больше, чем у браузера по умолчанию. */
+    @media print {
+      .printScope .waybillSheet{page-break-after:always;}
+      .printScope .waybillSheet:last-child{page-break-after:auto;}
+      .printScope .waybillSlot{display:flex; flex-direction:column; justify-content:center;}
+    }`;
 
 // Загрузочный лист — экран для склада/водителя, обычно открывается на
 // телефоне (не для печати на бумаге, как накладная, поэтому кнопка
@@ -4371,11 +4392,21 @@ function printWaybillsBatch(orders, dogovornikCodes, productNameByCode) {
   });
   // "Расходная накладная" заметно компактнее формы З-2 — на уменьшенном
   // масштабе WAYBILL_PAIR_STYLE три штуки с запасом умещаются на одном
-  // листе A4 (проверено: ~258px каждая, 850px на три с линиями отреза
-  // против ~1000-1046px печатной области), поэтому режем по 3, а не по 2.
+  // листе A4, поэтому режем по 3, а не по 2. min-height каждого слота
+  // подобран под ФАКТИЧЕСКОЕ число накладных в группе (последняя группа
+  // часто неполная — 1 или 2, а не 3) — иначе при 1-2 накладных пустое
+  // место осталось бы почти всё (см. комментарий у WAYBILL_PAIR_STYLE).
+  // Значения проверены рендером в headless Chromium (печать в PDF с полями
+  // страницы 10мм) — с запасом умещаются на одном листе A4.
+  const SLOT_MIN_HEIGHT_BY_GROUP_SIZE = {
+    1: '230mm',
+    2: '110mm',
+    3: '70mm'
+  };
   for (let i = 0; i < regularOrders.length; i += 3) {
     const group = regularOrders.slice(i, i + 3);
-    const slots = group.map((o, idx) => (idx > 0 ? '<div class="cutline">✂ линия отреза</div>' : '') + `<div class="waybillSlot">${buildExpenseWaybillInnerHtml(o, productNameByCode)}</div>`).join('');
+    const slotMinHeight = SLOT_MIN_HEIGHT_BY_GROUP_SIZE[group.length] || '70mm';
+    const slots = group.map((o, idx) => (idx > 0 ? '<div class="cutline">✂ линия отреза</div>' : '') + `<div class="waybillSlot" style="min-height:${slotMinHeight}">${buildExpenseWaybillInnerHtml(o, productNameByCode)}</div>`).join('');
     sheets.push(`<div class="waybillSheet" style="margin-bottom:32px;">${slots}</div>`);
   }
   openPrintOverlay(sheets.join(''), WAYBILL_PAIR_STYLE, true);
