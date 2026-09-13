@@ -2766,6 +2766,16 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
   // напечатать всё равно — по просьбе владельца печатается только то,
   // что уже прошло проверку зав. складом, см. printWaybillsBatch).
   const pendingWeightItems = items.filter(it=>it.is_weight_item && !it.weight_confirmed);
+  // Несовпадение суммы заявки с уже принятой оплатой (нал+QR+долг) — обычно
+  // возникает после правки количества/цены задним числом (см.
+  // payment_mismatch у PUT /api/orders/:id/delivered-items и .../prices):
+  // эти правки НАМЕРЕННО не трогают нал/QR/долг сами (иначе задним числом
+  // тихо переписывались бы касса и долг клиента), только один раз
+  // предупреждают алертом сразу после сохранения — который легко
+  // пропустить или закрыть не читая. Показываем это же предупреждение
+  // постоянно в самой карточке, пока админ не сверит оплату вручную (см.
+  // "Исправить способ оплаты" ниже).
+  const paymentMismatch = order.status==="delivered" && Math.abs(((order.payment_cash||0)+(order.payment_qr||0)+(order.payment_debt||0)) - (order.total||0)) > 1;
   const confirmPrintIfPending = (fn) => {
     if (pendingWeightItems.length>0) {
       alert(`Печать недоступна: вес по ${pendingWeightItems.length===1?'позиции':'позициям'} (${pendingWeightItems.map(it=>it.name).join(', ')}) ещё не подтверждён складом.`);
@@ -2823,6 +2833,11 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
               const unit = oi.is_weight_item ? 'кг' : 'шт';
               return `${oi.name} (заказано ${orderedQty} ${unit}, принято ${deliveredQty} ${unit})`;
             }).filter(Boolean).join('; ')}
+          </div>
+        )}
+        {paymentMismatch&&(
+          <div style={{background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:10,padding:"10px 12px",marginBottom:12,fontSize:14,color:C.red,fontWeight:600}}>
+            ⚠️ Сумма заявки ({(order.total||0).toLocaleString()} ₸) не совпадает с уже принятой оплатой (нал+QR+долг = {((order.payment_cash||0)+(order.payment_qr||0)+(order.payment_debt||0)).toLocaleString()} ₸) — вероятно, после правки количества/цены. Долг клиента, если он есть, тоже мог остаться прежним. Сверьте вручную кнопкой «Исправить способ оплаты» ниже.
           </div>
         )}
         {currentUser.role!=="driver" && (
