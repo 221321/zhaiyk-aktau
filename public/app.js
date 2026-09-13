@@ -4662,6 +4662,7 @@ function OrderDetail({
   onDeleteItem,
   onEditDeliveredItems,
   onEditPrices,
+  onEditPayment,
   onAnnulOrder,
   currentUser,
   drivers,
@@ -4702,6 +4703,20 @@ function OrderDetail({
   const [priceInputs, setPriceInputs] = useState({});
   const [priceReason, setPriceReason] = useState("");
   const [savingPrices, setSavingPrices] = useState(false);
+  // Правка распределения оплаты (нал/QR/долг) уже ДОСТАВЛЕННОЙ заявки — не
+  // сумма заявки, только способ оплаты (см. PUT /api/orders/:id/payment на
+  // сервере, onEditPayment передаётся только из AdminCabinet и только admin).
+  // Нужно, когда водитель при закрытии перепутал способ оплаты (например,
+  // часть клиент перевёл на Kaspi, а водитель нажал "всё налом").
+  const [editingPayment, setEditingPayment] = useState(false);
+  const [paymentInputs, setPaymentInputs] = useState({
+    cash: "",
+    qr: "",
+    debt: ""
+  });
+  const [paymentReason, setPaymentReason] = useState("");
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [paymentHistoryOpen, setPaymentHistoryOpen] = useState(false);
   // Аннулирование уже ДОСТАВЛЕННОЙ заявки целиком — только admin (см. PUT
   // /api/orders/:id/annul на сервере, onAnnulOrder передаётся только из
   // AdminCabinet и только ему). В отличие от "Исправить доставленное
@@ -4810,6 +4825,42 @@ function OrderDetail({
       alert(e.message);
     }
     setSavingPrices(false);
+  };
+  const startEditingPayment = () => {
+    setPaymentInputs({
+      cash: String(order.payment_cash || 0),
+      qr: String(order.payment_qr || 0),
+      debt: String(order.payment_debt || 0)
+    });
+    setPaymentReason("");
+    setEditingPayment(true);
+  };
+  const savePayment = async () => {
+    if (savingPayment) return;
+    const cash = Number(paymentInputs.cash),
+      qr = Number(paymentInputs.qr),
+      debt = Number(paymentInputs.debt);
+    if (![cash, qr, debt].every(v => Number.isFinite(v) && v >= 0)) {
+      alert('Укажите корректные суммы (нал/QR/долг)');
+      return;
+    }
+    const sum = cash + qr + debt;
+    if (Math.abs(sum - (order.total || 0)) > 1) {
+      alert(`Сумма нал+QR+долг (${sum.toLocaleString()} ₸) должна совпадать с итогом заявки (${(order.total || 0).toLocaleString()} ₸)`);
+      return;
+    }
+    if (!window.confirm(`Изменить распределение оплаты по заявке № ${order.id}? Сама сумма заявки не меняется, только способ оплаты.`)) return;
+    setSavingPayment(true);
+    try {
+      const res = await onEditPayment(order.id, cash, qr, debt, paymentReason);
+      setEditingPayment(false);
+      if (res && res.cash_already_handed_over) {
+        alert('Готово. Обратите внимание: нал по этой заявке уже входит в одну из сдач наличности водителем — сверьте эту сдачу вручную, она автоматически не пересчиталась.');
+      }
+    } catch (e) {
+      alert(e.message);
+    }
+    setSavingPayment(false);
   };
   const saveAnnul = async () => {
     if (savingAnnul) return;
@@ -5688,7 +5739,130 @@ function OrderDetail({
       flex: 1
     },
     onClick: () => setEditingDelivered(false)
-  }, "\u041E\u0442\u043C\u0435\u043D\u0430")))), currentUser.role === "admin" && Array.isArray(order.items_edits) && order.items_edits.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\u041E\u0442\u043C\u0435\u043D\u0430")))), currentUser.role === "admin" && onEditPayment && order.status === "delivered" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 20,
+      paddingTop: 16,
+      borderTop: `1px dashed ${C.border}`
+    }
+  }, !editingPayment ? /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnOutline,
+      borderColor: "#7C3AED",
+      color: "#7C3AED",
+      width: "100%"
+    },
+    onClick: startEditingPayment
+  }, "\uD83D\uDCB3 \u0418\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0441\u043F\u043E\u0441\u043E\u0431 \u043E\u043F\u043B\u0430\u0442\u044B") : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 8px",
+      fontSize: 15,
+      fontWeight: 700,
+      color: C.navy
+    }
+  }, "\u0420\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u043E\u043F\u043B\u0430\u0442\u044B"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 10px",
+      fontSize: 13,
+      color: C.textFaint
+    }
+  }, "\u0414\u043B\u044F \u0441\u043B\u0443\u0447\u0430\u0435\u0432, \u043A\u043E\u0433\u0434\u0430 \u0432\u043E\u0434\u0438\u0442\u0435\u043B\u044C \u043F\u0435\u0440\u0435\u043F\u0443\u0442\u0430\u043B \u0441\u043F\u043E\u0441\u043E\u0431 \u043E\u043F\u043B\u0430\u0442\u044B (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u0447\u0430\u0441\u0442\u044C \u043A\u043B\u0438\u0435\u043D\u0442 \u043F\u0435\u0440\u0435\u0432\u0451\u043B \u043D\u0430 Kaspi, \u0430 \u043E\u043D \u043D\u0430\u0436\u0430\u043B \"\u0432\u0441\u0451 \u043D\u0430\u043B\u043E\u043C\"). \u0421\u0430\u043C\u0430 \u0441\u0443\u043C\u043C\u0430 \u0437\u0430\u044F\u0432\u043A\u0438 \u043D\u0435 \u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u2014 \u043D\u0430\u043B+QR+\u0434\u043E\u043B\u0433 \u0434\u043E\u043B\u0436\u043D\u044B \u0441\u043E\u0432\u043F\u0430\u0441\u0442\u044C \u0441 \u0438\u0442\u043E\u0433\u043E\u043C ", (order.total || 0).toLocaleString(), " \u20B8."), [["cash", "Наличные"], ["qr", "QR / Kaspi"], ["debt", "Долг"]].map(([key, label]) => /*#__PURE__*/React.createElement("div", {
+    key: key,
+    style: {
+      ...S.row,
+      marginBottom: 8,
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      color: C.text,
+      flex: 1
+    }
+  }, label), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "0",
+    value: paymentInputs[key],
+    onFocus: e => e.target.select(),
+    onChange: e => setPaymentInputs(a => ({
+      ...a,
+      [key]: e.target.value
+    })),
+    style: {
+      ...S.input,
+      width: 110,
+      padding: "7px 8px",
+      fontSize: 15,
+      fontWeight: 700,
+      textAlign: "right"
+    }
+  }))), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 10px",
+      fontSize: 13,
+      color: C.textFaint,
+      textAlign: "right"
+    }
+  }, "\u0421\u0443\u043C\u043C\u0430: ", ((Number(paymentInputs.cash) || 0) + (Number(paymentInputs.qr) || 0) + (Number(paymentInputs.debt) || 0)).toLocaleString(), " \u20B8 \u0438\u0437 ", (order.total || 0).toLocaleString(), " \u20B8"), /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      marginBottom: 10
+    },
+    placeholder: "\u041F\u0440\u0438\u0447\u0438\u043D\u0430 \u043F\u0440\u0430\u0432\u043A\u0438 (\u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
+    value: paymentReason,
+    onChange: e => setPaymentReason(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    disabled: savingPayment,
+    style: {
+      ...S.btnPrimary,
+      flex: 1,
+      marginTop: 0,
+      opacity: savingPayment ? 0.5 : 1
+    },
+    onClick: savePayment
+  }, savingPayment ? "Сохранение..." : "Сохранить"), /*#__PURE__*/React.createElement("button", {
+    disabled: savingPayment,
+    style: {
+      ...S.btnSecondary,
+      flex: 1
+    },
+    onClick: () => setEditingPayment(false)
+  }, "\u041E\u0442\u043C\u0435\u043D\u0430"))), Array.isArray(order.payment_edits) && order.payment_edits.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 14,
+      fontWeight: 600,
+      color: C.navy,
+      cursor: "pointer",
+      textDecoration: "underline"
+    },
+    onClick: () => setPaymentHistoryOpen(o => !o)
+  }, paymentHistoryOpen ? "▲ Скрыть историю правок оплаты" : `▼ История правок оплаты (${order.payment_edits.length})`), paymentHistoryOpen && order.payment_edits.slice().reverse().map((e, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      marginTop: 8,
+      padding: "8px 10px",
+      borderRadius: 8,
+      background: C.surface,
+      border: `1px solid ${C.border}`,
+      fontSize: 13,
+      color: C.textSub
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 600,
+      color: C.text
+    }
+  }, "\uD83D\uDCB3 ", e.by_name, " \xB7 ", fmtDT(e.at)), /*#__PURE__*/React.createElement("div", null, "\u041D\u0430\u043B ", (e.before.cash || 0).toLocaleString(), "\u2192", (e.after.cash || 0).toLocaleString(), " \xB7 QR ", (e.before.qr || 0).toLocaleString(), "\u2192", (e.after.qr || 0).toLocaleString(), " \xB7 \u0414\u043E\u043B\u0433 ", (e.before.debt || 0).toLocaleString(), "\u2192", (e.after.debt || 0).toLocaleString()), e.reason && /*#__PURE__*/React.createElement("div", null, "\u041F\u0440\u0438\u0447\u0438\u043D\u0430: ", e.reason))))), currentUser.role === "admin" && Array.isArray(order.items_edits) && order.items_edits.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 14
     }
@@ -14919,6 +15093,20 @@ function AdminCabinet({
     return res;
   };
 
+  // Правка распределения оплаты (нал/QR/долг) уже ДОСТАВЛЕННОЙ заявки —
+  // только admin, см. PUT /api/orders/:id/payment на сервере.
+  const editPayment = async (orderId, cash, qr, debt, reason) => {
+    const res = await apiCall('PUT', `/api/orders/${orderId}/payment`, {
+      cash,
+      qr,
+      debt,
+      reason
+    });
+    setSelectedOrder(res);
+    loadOrders();
+    return res;
+  };
+
   // Аннулирование уже ДОСТАВЛЕННОЙ заявки целиком — только admin, см. PUT
   // /api/orders/:id/annul на сервере (там же и все проверки/откаты:
   // остаток на склад, долг/касса/бонус торгового перестают её учитывать).
@@ -17932,6 +18120,7 @@ function AdminCabinet({
       onDeleteItem: user.role === "admin" ? deleteOrderItem : undefined,
       onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
       onEditPrices: user.role === "admin" ? editPrices : undefined,
+      onEditPayment: user.role === "admin" ? editPayment : undefined,
       onAnnulOrder: user.role === "admin" ? annulOrder : undefined,
       currentUser: user,
       drivers: users.filter(u => u.role === "driver" && u.active !== false),
@@ -18028,6 +18217,7 @@ function AdminCabinet({
     onDeleteItem: user.role === "admin" ? deleteOrderItem : undefined,
     onEditDeliveredItems: user.role === "admin" ? editDeliveredItems : undefined,
     onEditPrices: user.role === "admin" ? editPrices : undefined,
+    onEditPayment: user.role === "admin" ? editPayment : undefined,
     onAnnulOrder: user.role === "admin" ? annulOrder : undefined,
     currentUser: user,
     drivers: users.filter(u => u.role === "driver" && u.active !== false),

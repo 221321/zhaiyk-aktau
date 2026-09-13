@@ -2587,7 +2587,7 @@ function PhotoViewerOverlay({ src, onClose }) {
   );
 }
 
-function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, onDeleteItem, onEditDeliveredItems, onEditPrices, onAnnulOrder, currentUser, drivers, products }) {
+function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemCost, onFixItemWeight, onDeleteItem, onEditDeliveredItems, onEditPrices, onEditPayment, onAnnulOrder, currentUser, drivers, products }) {
   // Позиции заявки хранят псевдоним товара (см. addToCart), а в накладной
   // должно быть название из 1С (см. buildWaybillInnerHtml) — карта код->
   // название из уже загруженного в кабинете каталога (products), которую
@@ -2621,6 +2621,16 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
   const [priceInputs, setPriceInputs] = useState({});
   const [priceReason, setPriceReason] = useState("");
   const [savingPrices, setSavingPrices] = useState(false);
+  // Правка распределения оплаты (нал/QR/долг) уже ДОСТАВЛЕННОЙ заявки — не
+  // сумма заявки, только способ оплаты (см. PUT /api/orders/:id/payment на
+  // сервере, onEditPayment передаётся только из AdminCabinet и только admin).
+  // Нужно, когда водитель при закрытии перепутал способ оплаты (например,
+  // часть клиент перевёл на Kaspi, а водитель нажал "всё налом").
+  const [editingPayment, setEditingPayment] = useState(false);
+  const [paymentInputs, setPaymentInputs] = useState({ cash: "", qr: "", debt: "" });
+  const [paymentReason, setPaymentReason] = useState("");
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [paymentHistoryOpen, setPaymentHistoryOpen] = useState(false);
   // Аннулирование уже ДОСТАВЛЕННОЙ заявки целиком — только admin (см. PUT
   // /api/orders/:id/annul на сервере, onAnnulOrder передаётся только из
   // AdminCabinet и только ему). В отличие от "Исправить доставленное
@@ -2708,6 +2718,28 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
       }
     } catch(e) { alert(e.message); }
     setSavingPrices(false);
+  };
+  const startEditingPayment = () => {
+    setPaymentInputs({ cash: String(order.payment_cash||0), qr: String(order.payment_qr||0), debt: String(order.payment_debt||0) });
+    setPaymentReason("");
+    setEditingPayment(true);
+  };
+  const savePayment = async () => {
+    if (savingPayment) return;
+    const cash = Number(paymentInputs.cash), qr = Number(paymentInputs.qr), debt = Number(paymentInputs.debt);
+    if (![cash,qr,debt].every(v=>Number.isFinite(v)&&v>=0)) { alert('Укажите корректные суммы (нал/QR/долг)'); return; }
+    const sum = cash + qr + debt;
+    if (Math.abs(sum - (order.total||0)) > 1) { alert(`Сумма нал+QR+долг (${sum.toLocaleString()} ₸) должна совпадать с итогом заявки (${(order.total||0).toLocaleString()} ₸)`); return; }
+    if (!window.confirm(`Изменить распределение оплаты по заявке № ${order.id}? Сама сумма заявки не меняется, только способ оплаты.`)) return;
+    setSavingPayment(true);
+    try {
+      const res = await onEditPayment(order.id, cash, qr, debt, paymentReason);
+      setEditingPayment(false);
+      if (res && res.cash_already_handed_over) {
+        alert('Готово. Обратите внимание: нал по этой заявке уже входит в одну из сдач наличности водителем — сверьте эту сдачу вручную, она автоматически не пересчиталась.');
+      }
+    } catch(e) { alert(e.message); }
+    setSavingPayment(false);
   };
   const saveAnnul = async () => {
     if (savingAnnul) return;
@@ -3014,6 +3046,46 @@ function OrderDetail({ order, onClose, onUpdateStatus, onDeleteOrder, onFixItemC
                   <button disabled={savingDeliveredItems} style={{...S.btnPrimary,flex:1,marginTop:0,opacity:savingDeliveredItems?0.5:1}} onClick={saveDeliveredItems}>{savingDeliveredItems?"Сохранение...":"Сохранить"}</button>
                   <button disabled={savingDeliveredItems} style={{...S.btnSecondary,flex:1}} onClick={()=>setEditingDelivered(false)}>Отмена</button>
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+        {currentUser.role==="admin" && onEditPayment && order.status==="delivered" && (
+          <div style={{marginTop:20,paddingTop:16,borderTop:`1px dashed ${C.border}`}}>
+            {!editingPayment ? (
+              <button style={{...S.btnOutline,borderColor:"#7C3AED",color:"#7C3AED",width:"100%"}} onClick={startEditingPayment}>💳 Исправить способ оплаты</button>
+            ) : (
+              <div>
+                <p style={{margin:"0 0 8px",fontSize:15,fontWeight:700,color:C.navy}}>Распределение оплаты</p>
+                <p style={{margin:"0 0 10px",fontSize:13,color:C.textFaint}}>Для случаев, когда водитель перепутал способ оплаты (например, часть клиент перевёл на Kaspi, а он нажал "всё налом"). Сама сумма заявки не меняется — нал+QR+долг должны совпасть с итогом {(order.total||0).toLocaleString()} ₸.</p>
+                {[["cash","Наличные"],["qr","QR / Kaspi"],["debt","Долг"]].map(([key,label])=>(
+                  <div key={key} style={{...S.row,marginBottom:8,gap:8}}>
+                    <span style={{fontSize:14,color:C.text,flex:1}}>{label}</span>
+                    <input type="number" min="0" value={paymentInputs[key]} onFocus={e=>e.target.select()}
+                      onChange={e=>setPaymentInputs(a=>({...a,[key]:e.target.value}))}
+                      style={{...S.input,width:110,padding:"7px 8px",fontSize:15,fontWeight:700,textAlign:"right"}}/>
+                  </div>
+                ))}
+                <p style={{margin:"0 0 10px",fontSize:13,color:C.textFaint,textAlign:"right"}}>
+                  Сумма: {((Number(paymentInputs.cash)||0)+(Number(paymentInputs.qr)||0)+(Number(paymentInputs.debt)||0)).toLocaleString()} ₸ из {(order.total||0).toLocaleString()} ₸
+                </p>
+                <input style={{...S.input,marginBottom:10}} placeholder="Причина правки (необязательно)" value={paymentReason} onChange={e=>setPaymentReason(e.target.value)}/>
+                <div style={{display:"flex",gap:8}}>
+                  <button disabled={savingPayment} style={{...S.btnPrimary,flex:1,marginTop:0,opacity:savingPayment?0.5:1}} onClick={savePayment}>{savingPayment?"Сохранение...":"Сохранить"}</button>
+                  <button disabled={savingPayment} style={{...S.btnSecondary,flex:1}} onClick={()=>setEditingPayment(false)}>Отмена</button>
+                </div>
+              </div>
+            )}
+            {Array.isArray(order.payment_edits) && order.payment_edits.length>0 && (
+              <div style={{marginTop:14}}>
+                <p style={{margin:0,fontSize:14,fontWeight:600,color:C.navy,cursor:"pointer",textDecoration:"underline"}} onClick={()=>setPaymentHistoryOpen(o=>!o)}>{paymentHistoryOpen?"▲ Скрыть историю правок оплаты":`▼ История правок оплаты (${order.payment_edits.length})`}</p>
+                {paymentHistoryOpen && order.payment_edits.slice().reverse().map((e,i)=>(
+                  <div key={i} style={{marginTop:8,padding:"8px 10px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,fontSize:13,color:C.textSub}}>
+                    <div style={{fontWeight:600,color:C.text}}>💳 {e.by_name} · {fmtDT(e.at)}</div>
+                    <div>Нал {(e.before.cash||0).toLocaleString()}→{(e.after.cash||0).toLocaleString()} · QR {(e.before.qr||0).toLocaleString()}→{(e.after.qr||0).toLocaleString()} · Долг {(e.before.debt||0).toLocaleString()}→{(e.after.debt||0).toLocaleString()}</div>
+                    {e.reason&&<div>Причина: {e.reason}</div>}
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -7334,6 +7406,15 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return res;
   };
 
+  // Правка распределения оплаты (нал/QR/долг) уже ДОСТАВЛЕННОЙ заявки —
+  // только admin, см. PUT /api/orders/:id/payment на сервере.
+  const editPayment = async (orderId, cash, qr, debt, reason) => {
+    const res = await apiCall('PUT', `/api/orders/${orderId}/payment`, { cash, qr, debt, reason });
+    setSelectedOrder(res);
+    loadOrders();
+    return res;
+  };
+
   // Аннулирование уже ДОСТАВЛЕННОЙ заявки целиком — только admin, см. PUT
   // /api/orders/:id/annul на сервере (там же и все проверки/откаты:
   // остаток на склад, долг/касса/бонус торгового перестают её учитывать).
@@ -8671,7 +8752,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     return (
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
         <AutofillDecoy/>
-        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
+        {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onEditPayment={user.role==="admin"?editPayment:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
         {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
         {showNewOrderModal&&<NewOrderModal products={products} clients={clients} onClose={()=>setShowNewOrderModal(false)} onCreated={()=>{ setShowNewOrderModal(false); loadOrders(); }} isAdmin={user.role==="admin"}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
@@ -8702,7 +8783,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   return (
     <div style={{paddingBottom:72}}>
       <AutofillDecoy/>
-      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
+      {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onEditPayment={user.role==="admin"?editPayment:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
       {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}

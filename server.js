@@ -1334,6 +1334,84 @@ app.put('/api/orders/:id/prices', authMiddleware, (req, res) => {
   });
 });
 
+// Правка РАСПРЕДЕЛЕНИЯ оплаты (нал/QR/долг) уже ДОСТАВЛЕННОЙ заявки —
+// сама сумма заявки (order.total) не меняется, только на что она разложена.
+// Нужно, когда водитель при закрытии заявки перепутал способ оплаты
+// (например, клиент часть перевёл на Kaspi, а водитель по невнимательности
+// нажал "вся сумма налом", см. живой случай с реальным скриншотом от
+// водителя) — итоговая сумма верна, а разбивка нет. Только admin, тот же
+// уровень доступа, что и у PUT /api/orders/:id/prices — это тоже финансовая
+// правка задним числом.
+app.put('/api/orders/:id/payment', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Менять распределение оплаты может только администратор' });
+  }
+  const orderId = parseInt(req.params.id);
+  const order = db.get('orders').find({ id: orderId }).value();
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена' });
+  if (order.status !== 'delivered') {
+    return res.status(400).json({ error: 'Менять распределение оплаты можно только у доставленной заявки' });
+  }
+
+  const cash = Number(req.body.cash);
+  const qr = Number(req.body.qr);
+  const debt = Number(req.body.debt);
+  if (![cash, qr, debt].every(Number.isFinite) || cash < 0 || qr < 0 || debt < 0) {
+    return res.status(400).json({ error: 'Некорректные суммы оплаты' });
+  }
+  const newSum = cash + qr + debt;
+  const total = order.total || 0;
+  if (Math.abs(newSum - total) > 1) {
+    return res.status(400).json({ error: `Сумма оплаты (${newSum}) должна совпадать с итогом заявки (${total}) — эта правка только перераспределяет способ оплаты, а не меняет саму сумму` });
+  }
+
+  // Долг уже мог быть частично погашен (см. POST /api/debt-settlements) —
+  // нельзя задним числом поставить долг меньше уже зачтённой суммы, иначе
+  // "остаток" по этой заявке в GET /api/debts станет отрицательным по
+  // смыслу (см. remaining = Math.max(0, payment_debt - settled) там же).
+  const alreadySettled = db.get('debtSettlements').value()
+    .filter(s => s.order_id === orderId)
+    .reduce((s, x) => s + x.amount, 0);
+  if (debt < alreadySettled) {
+    return res.status(400).json({ error: `Нельзя поставить долг ${debt.toLocaleString()} ₸ — по этой заявке уже погашено ${alreadySettled.toLocaleString()} ₸` });
+  }
+
+  const before = { cash: order.payment_cash || 0, qr: order.payment_qr || 0, debt: order.payment_debt || 0 };
+  if (before.cash === cash && before.qr === qr && before.debt === debt) {
+    return res.json(order);
+  }
+
+  const patch = {
+    payment_cash: cash,
+    payment_qr: qr,
+    payment_debt: debt,
+    payment_last_edited_by_id: req.user.id,
+    payment_last_edited_by_name: req.user.name,
+    payment_last_edited_at: new Date().toISOString(),
+  };
+  const edits = Array.isArray(order.payment_edits) ? order.payment_edits.slice() : [];
+  edits.push({
+    at: patch.payment_last_edited_at,
+    by_id: req.user.id,
+    by_name: req.user.name,
+    reason: (req.body.reason || '').trim(),
+    before,
+    after: { cash, qr, debt },
+  });
+  patch.payment_edits = edits;
+
+  db.get('orders').find({ id: orderId }).assign(patch).write();
+  const updated = db.get('orders').find({ id: orderId }).value();
+
+  res.json({
+    ...updated,
+    // Нал этой заявки мог уже уйти в сдачу налички водителем (см.
+    // cash_handover_id/computeDriverPendingCash) — сама сдача этой правкой
+    // не пересчитывается автоматически, предупреждаем админа сверить вручную.
+    cash_already_handed_over: !!order.cash_handover_id && before.cash !== cash,
+  });
+});
+
 // Ручная правка закупочной цены ОДНОЙ позиции в уже оформленной заявке —
 // нужна для позиций без кода товара (см. POST /api/orders): такую позицию
 // вписали в заявку свободным текстом мимо каталога (это теперь запрещено
