@@ -4187,32 +4187,32 @@ const WAYBILL_STYLE = `
 // просто перенесёт остаток на следующую, без потери содержимого.
 const WAYBILL_PAIR_STYLE = WAYBILL_STYLE + `
     .printScope .waybillSheet{margin-bottom:0;}
-    .printScope .waybillSlot{font-size:9px; padding:10px 14px;}
-    .printScope .waybillSlot .topright{font-size:8px; margin-bottom:6px;}
-    .printScope .waybillSlot h1{font-size:11px; margin:8px 0;}
+    .printScope .waybillSlot{font-size:11px; padding:12px 16px;}
+    .printScope .waybillSlot .topright{font-size:10px; margin-bottom:6px;}
+    .printScope .waybillSlot h1{font-size:13px; margin:8px 0;}
     .printScope .waybillSlot table{margin:6px 0;}
-    .printScope .waybillSlot th,.printScope .waybillSlot td{padding:2px 4px; font-size:8px;}
+    .printScope .waybillSlot th,.printScope .waybillSlot td{padding:3px 5px; font-size:10px;}
     .printScope .waybillSlot .headrow{margin-top:8px;}
     .printScope .waybillSlot .headrow > div{padding:4px;}
-    .printScope .waybillSlot .headrow .label{font-size:7px; margin-bottom:2px;}
-    .printScope .waybillSlot .totals{margin-top:6px; font-size:9px;}
+    .printScope .waybillSlot .headrow .label{font-size:9px; margin-bottom:2px;}
+    .printScope .waybillSlot .totals{margin-top:6px; font-size:11px;}
     .printScope .waybillSlot .totals p{margin:3px 0;}
     .printScope .waybillSlot .signcols{gap:8px;}
     .printScope .waybillSlot .sign{margin-top:10px;}
     .printScope .waybillSlot .sign p{margin:8px 0 2px;}
     .printScope .waybillSlot .signline{min-width:110px;}
-    .printScope .waybillSlot .headrow .miniqr img{width:38px; height:38px;}
-    .printScope .waybillSlot .headrow .miniqr p{font-size:6px;}
+    .printScope .waybillSlot .headrow .miniqr img{width:46px; height:46px;}
+    .printScope .waybillSlot .headrow .miniqr p{font-size:8px;}
     .printScope .cutline{text-align:center; font-size:10px; color:#888; margin:8px 0; border-top:1px dashed #999; position:relative; top:-1px;}
     /* Уменьшенный "Расходной накладной" (см. buildExpenseWaybillInnerHtml)
        при печати парой на лист — та же логика уменьшения, что и у формы
        З-2 выше, только для собственных классов этого бланка. */
-    .printScope .waybillSlot .exphead{font-size:11px; padding-bottom:5px; margin-bottom:8px;}
+    .printScope .waybillSlot .exphead{font-size:13px; padding-bottom:5px; margin-bottom:8px;}
     .printScope .waybillSlot .exptop{margin-bottom:8px;}
-    .printScope .waybillSlot table.expfields td{font-size:8px; padding:1px 0;}
+    .printScope .waybillSlot table.expfields td{font-size:10px; padding:1px 0;}
     .printScope .waybillSlot table.expfields td.expfields-label{padding-right:12px;}
-    .printScope .waybillSlot .miniqr img{width:36px; height:36px;}
-    .printScope .waybillSlot .miniqr p{font-size:6px;}
+    .printScope .waybillSlot .miniqr img{width:44px; height:44px;}
+    .printScope .waybillSlot .miniqr p{font-size:8px;}
     /* Раньше 3 накладные занимали фиксированную высоту (~774px из
        ~1000-1046px печатной области), а остаток листа оставался пустым —
        клиенту это не нравилось (см. живой фидбэк с видео). Пробовали
