@@ -178,13 +178,14 @@ const SC = { new: "#DA1A10", in_transit: "#B45309", delivered: "#15803D", cancel
 const SB = { new: "#FCEBEA", in_transit: "#FBF3E6", delivered: "#EAF5EE", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6", annulled: "#FEE2E2" };
 
 const C = {
-  navy:"#1C1917", accent:"#1DA851", accentDark:"#157E3C", redSoft:"#FCEBEA",
+  navy:"#1C1917", accent:"#DA1A10", accentDark:"#A4140C", redSoft:"#FCEBEA",
   white:"#FFFFFF", surface:"#F5F3F0",
   border:"#E7E3DE", text:"#1C1917", textMid:"#44403C", textSub:"#79716B", textFaint:"#A8A29E",
   green:"#15803D", amber:"#B45309", red:"#DC2626",
-  // "Новых"/"Ожидают" в статистике — отдельный от бренда цвет (раньше accent
-  // и он же совпадал с этим статусом; после ребрендинга в зелёный оставляем
-  // тёплый оттенок, иначе не отличить от зелёного "Доставлено" рядом).
+  // "Новых"/"Ожидают" в статистике — отдельный от бренда токен, а не прямая
+  // ссылка на C.accent: цвет бренда менялся (зелёный → снова красный), а
+  // этот статус должен оставаться тёплым красным независимо от бренда,
+  // иначе не отличить от зелёного "Доставлено" рядом.
   pending:"#DA1A10",
   cashGreen:"#DCFCE7", qrBlue:"#DBEAFE", debtAmber:"#FEF3C7",
 };
@@ -198,7 +199,7 @@ const S = {
   logoSub: { fontSize:13, color:C.accent, margin:"0 0 32px", fontWeight:700, letterSpacing:"0.14em", textTransform:"uppercase" },
   label: { display:"block", fontSize:14, fontWeight:600, color:C.textMid, marginBottom:6, letterSpacing:"0.04em", textTransform:"uppercase" },
   input: { width:"100%", padding:"13px 14px", border:`1.5px solid ${C.border}`, borderRadius:10, fontSize:18, outline:"none", boxSizing:"border-box", background:C.white, color:C.text },
-  btnPrimary: { width:"100%", padding:"15px", background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontSize:18, fontWeight:800, cursor:"pointer", marginTop:4, boxShadow:"0 6px 18px rgba(29,168,81,0.28)" },
+  btnPrimary: { width:"100%", padding:"15px", background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontSize:18, fontWeight:800, cursor:"pointer", marginTop:4, boxShadow:"0 6px 18px rgba(218,26,16,0.28)" },
   errorBox: { background:"#FEF2F2", color:C.red, border:"1px solid #FECACA", padding:"10px 13px", borderRadius:8, fontSize:15, marginBottom:16 },
   header: { background:C.white, color:C.text, padding:"0 18px", height:62, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100, borderBottom:`1px solid ${C.border}` },
   headerMark: { fontFamily:"'Inter', sans-serif", fontSize:19, fontWeight:800, letterSpacing:"-0.01em", color:C.navy, lineHeight:1.1 },
@@ -231,7 +232,7 @@ const S = {
   revenueCard: { background:C.white, border:`1px solid ${C.border}`, borderRadius:R, padding:"16px", marginBottom:12 },
   revenueLabel: { margin:"0 0 4px", fontSize:13, color:C.textSub, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" },
   revenueNum: { fontFamily:FH, margin:0, fontSize:28, fontWeight:800, color:C.accent, fontVariantNumeric:"tabular-nums" },
-  bigCreate: { display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", minHeight:56, background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontWeight:800, fontSize:19, cursor:"pointer", boxShadow:"0 6px 18px rgba(29,168,81,0.28)", marginBottom:16 },
+  bigCreate: { display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", minHeight:56, background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontWeight:800, fontSize:19, cursor:"pointer", boxShadow:"0 6px 18px rgba(218,26,16,0.28)", marginBottom:16 },
   bigCreatePlus: { width:26, height:26, borderRadius:"50%", background:"rgba(255,255,255,0.22)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:700, lineHeight:1 },
   // десктоп: сайдбар менеджера
   side: { width:240, flexShrink:0, background:C.white, color:C.text, padding:"26px 20px", display:"flex", flexDirection:"column", position:"sticky", top:0, height:"100vh", borderRight:`1px solid ${C.border}` },
@@ -7182,6 +7183,65 @@ function AdminCabinet({ user, onLogout, desktop }) {
     setSavingClientCode(null);
   };
 
+  // ===== КОНТРАГЕНТЫ, созданные на сайте (без 1С) — см. POST/GET
+  // /api/clients-web. Отдельная коллекция от `clients` (см. сервер) —
+  // здесь просто держим её в своём стейте и мержим с `clients` только на
+  // время живого дубль-поиска в форме создания, ничего в `clients`/
+  // loadClients выше не трогаем.
+  const [clientsWeb, setClientsWeb] = useState([]);
+  const loadClientsWeb = useCallback(async () => {
+    try { setClientsWeb(await apiCall('GET', '/api/clients-web')); } catch(e) {}
+  }, []);
+  useEffect(() => { loadClientsWeb(); }, []);
+
+  const [webClientSearch, setWebClientSearch] = useState("");
+  const [newWebClient, setNewWebClient] = useState({ entity_type: 'legal', name: '', phone: '', bin: '', address: '' });
+  const [creatingWebClient, setCreatingWebClient] = useState(false);
+  const [webClientDupeConfirmed, setWebClientDupeConfirmed] = useState(false);
+
+  const updateNewWebClient = (field, value) => { setNewWebClient(f => ({...f, [field]: value})); setWebClientDupeConfirmed(false); };
+
+  // Живой поиск похожих контрагентов среди ВСЕХ существующих — и
+  // синканных из 1С (`clients`), и уже созданных на сайте (`clientsWeb`),
+  // единым списком (см. бриф — не два раздельных поиска). Порядок
+  // сигналов по надёжности: точный БИН/ИИН, затем точный телефон, затем
+  // подстрока по названию — тот же паттерн includes(), что уже в поиске
+  // клиента при оформлении заявки выше (ReturnFormModal/NewOrderModal).
+  const webClientDupeMatches = useMemo(() => {
+    const name = newWebClient.name.trim().toLowerCase();
+    const phone = newWebClient.phone.trim();
+    const bin = newWebClient.bin.trim();
+    if (!name && !phone && !bin) return [];
+    const all = [
+      ...clients.map(c => ({ name: c.name, phone: c.contact_phone || '', bin: c.bin || '', code: c.code, source: '1С' })),
+      ...clientsWeb.filter(c => !c.archived).map(c => ({ name: c.name, phone: c.phone || '', bin: c.bin || '', code: c.code, source: 'Сайт' })),
+    ];
+    if (bin) {
+      const m = all.filter(c => c.bin && c.bin === bin);
+      if (m.length) return m;
+    }
+    if (phone) {
+      const m = all.filter(c => c.phone && c.phone === phone);
+      if (m.length) return m;
+    }
+    if (name.length >= 2) {
+      return all.filter(c => (c.name || '').toLowerCase().includes(name));
+    }
+    return [];
+  }, [newWebClient, clients, clientsWeb]);
+
+  const createWebClient = async () => {
+    if (!newWebClient.name.trim() || !newWebClient.phone.trim()) { alert('Укажите наименование и телефон'); return; }
+    setCreatingWebClient(true);
+    try {
+      await apiCall('POST', '/api/clients-web', newWebClient);
+      await loadClientsWeb();
+      setNewWebClient({ entity_type: 'legal', name: '', phone: '', bin: '', address: '' });
+      setWebClientDupeConfirmed(false);
+    } catch(e) { alert(e.message); }
+    setCreatingWebClient(false);
+  };
+
   const loadOrders = useCallback(async () => {
     try {
       const data = await apiCall('GET', '/api/orders');
@@ -7803,9 +7863,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const TABS = readOnlyOp
     ? [["all","📋","Заявки"],["cashbox","💵","Касса"]]
     : user.role==="manager"
-      ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"]]
-      : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотрудники"]];
-  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",employees:"Сотрудники"};
+      ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["clientsWeb","🏢","Контрагенты"]]
+      : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["clientsWeb","🏢","Контрагенты"],["employees","👤","Сотрудники"]];
+  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",clientsWeb:"Контрагенты",employees:"Сотрудники"};
 
   const dateRangeInputs = (
     <div style={{marginBottom:16,maxWidth:420}}>
@@ -8656,6 +8716,91 @@ function AdminCabinet({ user, onLogout, desktop }) {
             </div>
           </div>
         )}
+      </>}
+      {tab==="clientsWeb"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Контрагенты</p>}
+        <div style={{maxWidth: desktop?560:"none"}}>
+          <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
+            Контрагент, созданный здесь, ещё не в 1С — код (WEB-...) выдаёт сайт, чтобы позже бухгалтер принял его в 1С без коллизий. Физ.лица — без кода, просто отметка "создан в программе".
+          </p>
+          <div style={S.card}>
+            <p style={{...S.cardTitle,marginBottom:10}}>Новый контрагент</p>
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
+              {[["legal","Юр.лицо"],["individual","Физ.лицо"]].map(([v,l])=>(
+                <button key={v} type="button" onClick={()=>updateNewWebClient('entity_type',v)} style={{flex:1,padding:"9px 10px",borderRadius:8,border:`1.5px solid ${newWebClient.entity_type===v?C.navy:C.border}`,background:newWebClient.entity_type===v?C.navy:C.white,color:newWebClient.entity_type===v?C.white:C.textMid,fontSize:14,fontWeight:600,cursor:"pointer"}}>{l}</button>
+              ))}
+            </div>
+            <div style={S.formGroup}>
+              <label style={S.label}>Наименование *</label>
+              <input style={S.input} placeholder="Название или ФИО" value={newWebClient.name} onChange={e=>updateNewWebClient('name',e.target.value)}/>
+            </div>
+            <div style={S.formGroup}>
+              <label style={S.label}>Телефон *</label>
+              <div style={{display:"flex",gap:6}}>
+                <input style={{...S.input,flex:1}} placeholder="Телефон" value={newWebClient.phone} onChange={e=>updateNewWebClient('phone',e.target.value)}/>
+                {CONTACT_PICKER_SUPPORTED&&(
+                  <button type="button" title="Выбрать из контактов" onClick={()=>pickPhoneContact(({name,tel})=>{if(name&&!newWebClient.name)updateNewWebClient('name',name);if(tel)updateNewWebClient('phone',tel);})} style={{flexShrink:0,width:48,border:`1.5px solid ${C.border}`,borderRadius:10,background:C.white,fontSize:19,cursor:"pointer"}}>📇</button>
+                )}
+              </div>
+            </div>
+            <div style={S.formGroup}>
+              <label style={S.label}>БИН/ИИН</label>
+              <input style={S.input} placeholder="Необязательно" value={newWebClient.bin} onChange={e=>updateNewWebClient('bin',e.target.value)}/>
+            </div>
+            <div style={S.formGroup}>
+              <label style={S.label}>Адрес</label>
+              <input style={S.input} placeholder="Необязательно" value={newWebClient.address} onChange={e=>updateNewWebClient('address',e.target.value)}/>
+            </div>
+
+            {webClientDupeMatches.length>0&&!webClientDupeConfirmed&&(
+              <div style={{padding:"10px 12px",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,marginBottom:10}}>
+                <p style={{margin:"0 0 8px",fontSize:14,fontWeight:600,color:C.textMid}}>Похоже, такой контрагент уже есть:</p>
+                {webClientDupeMatches.slice(0,5).map((m,i)=>(
+                  <div key={i} style={{fontSize:13,color:C.textSub,marginBottom:4}}>
+                    <b>{m.name}</b>{m.phone?` · ${m.phone}`:''}{m.bin?` · БИН ${m.bin}`:''} <span style={{color:C.textFaint}}>({m.source}{m.code?`, ${m.code}`:''})</span>
+                  </div>
+                ))}
+                <div style={{display:"flex",gap:8,marginTop:8}}>
+                  <button type="button" onClick={()=>{setNewWebClient({ entity_type:'legal', name:'', phone:'', bin:'', address:'' }); setWebClientDupeConfirmed(false);}} style={{...S.btnSecondary,flex:1,marginTop:0}}>Да, это он — не создавать</button>
+                  <button type="button" onClick={()=>setWebClientDupeConfirmed(true)} style={{...S.btnSecondary,flex:1,marginTop:0}}>Нет, другой</button>
+                </div>
+              </div>
+            )}
+
+            <button
+              style={{...S.btnPrimary,opacity:(creatingWebClient||(webClientDupeMatches.length>0&&!webClientDupeConfirmed))?0.5:1}}
+              disabled={creatingWebClient||(webClientDupeMatches.length>0&&!webClientDupeConfirmed)}
+              onClick={createWebClient}
+            >{creatingWebClient?"Создаю...":"Создать"}</button>
+          </div>
+
+          <input
+            type="search"
+            style={{...S.input,margin:"16px 0"}}
+            placeholder="Поиск по названию, телефону, коду..."
+            value={webClientSearch}
+            onChange={e=>setWebClientSearch(e.target.value)}
+            autoComplete="off"
+            name="clients-web-search"
+          />
+          {(() => {
+            const q = webClientSearch.trim().toLowerCase();
+            const list = clientsWeb.filter(c => !q || (c.name||'').toLowerCase().includes(q) || (c.phone||'').includes(q) || (c.code||'').toLowerCase().includes(q) || (c.bin||'').includes(q));
+            if (list.length===0) return <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>{q?"Ничего не найдено":"Контрагентов, созданных на сайте, пока нет"}</div>;
+            return list.slice().reverse().map(c=>(
+              <div key={c.id} style={{...S.card,padding:10,marginBottom:6}}>
+                <div style={S.row}>
+                  <div>
+                    <p style={S.cardTitle}>{c.name}</p>
+                    <p style={S.cardSub}>{c.entity_type==='legal'?'Юр.лицо':'Физ.лицо'}{c.code?` · ${c.code}`:''} · {c.phone}{c.bin?` · БИН ${c.bin}`:''}</p>
+                    {c.address&&<p style={S.cardSub}>📍 {c.address}</p>}
+                    <p style={{...S.cardSub,color:C.textFaint}}>Создал: {c.created_by_name}, {new Date(c.created_at).toLocaleDateString('ru-RU')}</p>
+                  </div>
+                </div>
+              </div>
+            ));
+          })()}
+        </div>
       </>}
       {tab==="employees"&&<>
         {!desktop&&<p style={S.sectionTitle}>Сотрудники</p>}
