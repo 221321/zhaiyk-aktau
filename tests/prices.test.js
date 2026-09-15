@@ -17,7 +17,9 @@ test.before(async () => {
   driverToken = await login(server.baseUrl, 'driver1');
   adminToken = await login(server.baseUrl, 'admin');
   managerToken = await login(server.baseUrl, 'manager1');
-  await seedProduct(server.baseUrl, adminToken, { code: 'P001', name: 'Мука', qty: 100, price: 1000 });
+  // Остаток с большим запасом — этот файл создаёт много заявок/продаж по P001
+  // на одном сервере без сброса стока между тестами.
+  await seedProduct(server.baseUrl, adminToken, { code: 'P001', name: 'Мука', qty: 100000, price: 1000 });
 });
 
 test.after(() => server.stop());
@@ -105,4 +107,70 @@ test('торговый не может назначить произвольну
   }, salesToken);
   assert.equal(res.items[0].price, 1000);
   assert.equal(res.total, 10000);
+});
+
+// Комиссия (бонус сотруднику за единицу товара) — та же проблема, что и с
+// ценой: раньше бралась из того, что прислал фронт, и торговый мог сам себе
+// завысить бонус (см. enforceCatalogCommission). Она всегда из каталога,
+// без исключения даже для admin — свободно её никто не назначает.
+test('торговый не может завысить свою комиссию при создании заявки', async () => {
+  const order = await createOrder(server.baseUrl, salesToken, { items: [{ code: 'P001', name: 'Мука', qty: 10, price: 1000, commission: 999 }] });
+  assert.equal(order.items[0].commission, 5);
+  assert.equal(order.commission_total, 50);
+});
+
+test('торговый не может завысить свою комиссию при правке состава заявки', async () => {
+  const order = await createOrder(server.baseUrl, salesToken, { items: [{ code: 'P001', name: 'Мука', qty: 10, price: 1000, commission: 5 }] });
+  const res = await apiCall(server.baseUrl, 'PUT', `/api/orders/${order.id}/items`, {
+    items: [{ code: 'P001', name: 'Мука', qty: 10, price: 1000, commission: 999 }],
+  }, salesToken);
+  assert.equal(res.items[0].commission, 5);
+  assert.equal(res.commission_total, 50);
+});
+
+// POST /api/sales (продажа с кассы) — та же дыра: кассир/менеджер мог
+// вписать в чек любую цену позиции, сервер не сверял её с каталогом.
+test('менеджер не может назначить произвольную цену в продаже с кассы (POST /api/sales)', async () => {
+  // Оплата указана по РЕАЛЬНОЙ (каталожной) цене — сервер должен подставить
+  // именно её вместо присланной price:1, иначе сумма оплаты не совпала бы.
+  const sale = await apiCall(server.baseUrl, 'POST', '/api/sales', {
+    items: [{ code: 'P001', name: 'Мука', qty: 2, price: 1 }],
+    paymentCash: 2000, paymentQr: 0, paymentDebt: 0,
+  }, managerToken);
+  assert.equal(sale.items[0].price, 1000);
+  assert.equal(sale.total, 2000);
+});
+
+test('admin может назначить цену свободно в продаже с кассы', async () => {
+  const sale = await apiCall(server.baseUrl, 'POST', '/api/sales', {
+    items: [{ code: 'P001', name: 'Мука', qty: 2, price: 1 }],
+    paymentCash: 2, paymentQr: 0, paymentDebt: 0,
+  }, adminToken);
+  assert.equal(sale.items[0].price, 1);
+  assert.equal(sale.total, 2);
+});
+
+// POST /api/returns — водитель мог вписать в возврат по заявке любую цену
+// (влияет на сумму возврата/долг), сервер не сверял её ни с заявкой, ни с
+// каталогом.
+test('водитель не может завысить цену возврата по заявке — берётся цена самой заявки', async () => {
+  const order = await createOrder(server.baseUrl, salesToken, { items: [{ code: 'P001', name: 'Мука', qty: 10, price: 1000, commission: 5 }] });
+  await deliverOrder(server.baseUrl, driverToken, order.id, { cash: 10000, qr: 0, debt: 0 });
+  const ret = await apiCall(server.baseUrl, 'POST', '/api/returns', {
+    orderId: order.id,
+    items: [{ code: 'P001', name: 'Мука', qty: 1, price: 1 }],
+    refundCash: 1,
+  }, driverToken);
+  assert.equal(ret.items[0].price, 1000);
+  assert.equal(ret.total, 1000);
+});
+
+test('менеджер не может назначить произвольную цену возврата без заявки — цена из каталога', async () => {
+  const ret = await apiCall(server.baseUrl, 'POST', '/api/returns', {
+    clientName: 'Тестовый клиент',
+    items: [{ code: 'P001', name: 'Мука', qty: 1, price: 1 }],
+    refundCash: 1,
+  }, managerToken);
+  assert.equal(ret.items[0].price, 1000);
+  assert.equal(ret.total, 1000);
 });

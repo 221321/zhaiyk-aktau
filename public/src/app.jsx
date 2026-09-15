@@ -5812,7 +5812,7 @@ function CashcoreSettingsForm({ initial, onSave, onClose }) {
 // Касса — мгновенная продажа по каталогу (без адреса/времени доставки).
 // Пишет в /api/sales, которая делит остаток с обычными заявками и
 // сводится в тот же отчёт "Касса" — см. AdminCabinet.
-function PosSaleModal({ products, clients, onClose, onCompleted }) {
+function PosSaleModal({ products, clients, onClose, onCompleted, isAdmin }) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [cart, setCart] = useState([]);
@@ -6029,7 +6029,8 @@ function PosSaleModal({ products, clients, onClose, onCompleted }) {
                   }}
                   onFocus={e=>e.target.select()}
                 />
-                <input style={{...S.input,padding:"7px 6px",fontSize:15,textAlign:"right"}} type="number" value={l.price} onChange={e=>changePrice(l.code,e.target.value)} onFocus={e=>e.target.select()}/>
+                {/* Цену может свободно менять только admin — кассиру/менеджеру доступна только price1 из каталога (см. addToCart). */}
+                <input style={{...S.input,padding:"7px 6px",fontSize:15,textAlign:"right",background:isAdmin?C.white:C.surface,color:isAdmin?C.text:C.textSub}} type="number" value={l.price} disabled={!isAdmin} onChange={e=>changePrice(l.code,e.target.value)} onFocus={e=>e.target.select()}/>
                 <button onClick={()=>removeFromCart(l.code)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:16,color:C.textFaint}}>×</button>
               </div>
             ))}
@@ -6803,7 +6804,8 @@ function CashierCabinet({ user, onLogout }) {
                     }}
                     onFocus={e=>e.target.select()}
                   />
-                  <input style={{...S.input,padding:"7px 6px",fontSize:15,textAlign:"right"}} type="number" value={l.price} onChange={e=>changePrice(l.code,e.target.value)} onFocus={e=>e.target.select()}/>
+                  {/* Цену может свободно менять только admin — у кассира её нет в этом кабинете вообще. */}
+                  <input style={{...S.input,padding:"7px 6px",fontSize:15,textAlign:"right",background:C.surface,color:C.textSub}} type="number" value={l.price} disabled onChange={e=>changePrice(l.code,e.target.value)} onFocus={e=>e.target.select()}/>
                   <button onClick={()=>removeFromCart(l.code)} style={{width:28,height:34,border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,cursor:"pointer",fontSize:16,color:C.textFaint}}>×</button>
                 </div>
               ))}
@@ -8820,7 +8822,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
       <div style={{display:"flex",minHeight:"100vh",background:C.surface,alignItems:"flex-start"}}>
         <AutofillDecoy/>
         {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onFixItemQty={user.role==="admin"?fixItemQty:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onEditPayment={user.role==="admin"?editPayment:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
-        {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
+        {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }} isAdmin={user.role==="admin"}/>}
         {showNewOrderModal&&<NewOrderModal products={products} clients={clients} onClose={()=>setShowNewOrderModal(false)} onCreated={()=>{ setShowNewOrderModal(false); loadOrders(); }} isAdmin={user.role==="admin"}/>}
         {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
         {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
@@ -8851,7 +8853,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     <div style={{paddingBottom:72}}>
       <AutofillDecoy/>
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onFixItemQty={user.role==="admin"?fixItemQty:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onEditPayment={user.role==="admin"?editPayment:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
-      {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }}/>}
+      {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }} isAdmin={user.role==="admin"}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
       {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
       <div style={S.page}>

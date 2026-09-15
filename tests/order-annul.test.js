@@ -24,9 +24,9 @@ test.after(() => server.stop());
 
 test('annul — возвращает остаток на склад, обнуляет бонус, убирает заявку из долгов', async () => {
   await seedProducts(server.baseUrl, admin, [{ code: 'A1', name: 'Товар A1', price: 100, qty: 100, commission: 7 }]);
-  // commission на позиции — для sales-заявки это то, что прислал сам
-  // фронт (в отличие от store-заявки, где сервер сам подставляет из
-  // карточки товара, см. POST /api/orders), поэтому указываем явно, иначе
+  // commission на позиции сервер всегда подставляет сам из каталога (см.
+  // enforceCatalogCommission в POST /api/orders) — значение 7 здесь должно
+  // совпасть с commission, заданной в seedProducts выше, иначе
   // commission_total у заявки будет 0 и до аннулирования не от чего
   // отличать "обнулили".
   const order = await createOrder(server.baseUrl, sales, {

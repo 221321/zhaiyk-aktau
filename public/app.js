@@ -11802,7 +11802,8 @@ function PosSaleModal({
   products,
   clients,
   onClose,
-  onCompleted
+  onCompleted,
+  isAdmin
 }) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
@@ -12293,10 +12294,13 @@ function PosSaleModal({
       ...S.input,
       padding: "7px 6px",
       fontSize: 15,
-      textAlign: "right"
+      textAlign: "right",
+      background: isAdmin ? C.white : C.surface,
+      color: isAdmin ? C.text : C.textSub
     },
     type: "number",
     value: l.price,
+    disabled: !isAdmin,
     onChange: e => changePrice(l.code, e.target.value),
     onFocus: e => e.target.select()
   }), /*#__PURE__*/React.createElement("button", {
@@ -14167,10 +14171,13 @@ function CashierCabinet({
       ...S.input,
       padding: "7px 6px",
       fontSize: 15,
-      textAlign: "right"
+      textAlign: "right",
+      background: C.surface,
+      color: C.textSub
     },
     type: "number",
     value: l.price,
+    disabled: true,
     onChange: e => changePrice(l.code, e.target.value),
     onFocus: e => e.target.select()
   }), /*#__PURE__*/React.createElement("button", {
@@ -18266,7 +18273,8 @@ function AdminCabinet({
       onCompleted: () => {
         setShowPosModal(false);
         loadSales();
-      }
+      },
+      isAdmin: user.role === "admin"
     }), showNewOrderModal && /*#__PURE__*/React.createElement(NewOrderModal, {
       products: products,
       clients: clients,
@@ -18364,7 +18372,8 @@ function AdminCabinet({
     onCompleted: () => {
       setShowPosModal(false);
       loadSales();
-    }
+    },
+    isAdmin: user.role === "admin"
   }), showReturnModal && /*#__PURE__*/React.createElement(ReturnFormModal, {
     user: user,
     onClose: () => setShowReturnModal(false),
