@@ -7035,6 +7035,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [newWebClient, setNewWebClient] = useState({ name: '', phone: '', bin: '', address: '' });
   const [creatingWebClient, setCreatingWebClient] = useState(false);
   const [webClientDupeConfirmed, setWebClientDupeConfirmed] = useState(false);
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [showAllClientsList, setShowAllClientsList] = useState(false);
 
   const updateNewWebClient = (field, value) => { setNewWebClient(f => ({...f, [field]: value})); setWebClientDupeConfirmed(false); };
 
@@ -7073,10 +7075,18 @@ function AdminCabinet({ user, onLogout, desktop }) {
     try {
       await apiCall('POST', '/api/clients-web', newWebClient);
       await loadClientsWeb();
+      await loadClients();
       setNewWebClient({ name: '', phone: '', bin: '', address: '' });
       setWebClientDupeConfirmed(false);
+      setShowClientModal(false);
     } catch(e) { alert(e.message); }
     setCreatingWebClient(false);
+  };
+
+  const openClientModal = () => {
+    setNewWebClient({ name: '', phone: '', bin: '', address: '' });
+    setWebClientDupeConfirmed(false);
+    setShowClientModal(true);
   };
 
   // ===== НОМЕНКЛАТУРА, созданная на сайте (без 1С) — см. POST/GET
@@ -9038,55 +9048,11 @@ function AdminCabinet({ user, onLogout, desktop }) {
           <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
             Контрагент, созданный здесь, ещё не в 1С — код (WEB-...) выдаёт сайт, чтобы позже бухгалтер принял его в 1С без коллизий.
           </p>
-          <div style={S.card}>
-            <p style={{...S.cardTitle,marginBottom:10}}>Новый контрагент</p>
-            <div style={S.formGroup}>
-              <label style={S.label}>Наименование *</label>
-              <input style={S.input} placeholder="Название или ФИО" value={newWebClient.name} onChange={e=>updateNewWebClient('name',e.target.value)}/>
-            </div>
-            <div style={S.formGroup}>
-              <label style={S.label}>Телефон *</label>
-              <div style={{display:"flex",gap:6}}>
-                <input style={{...S.input,flex:1}} placeholder="Телефон" value={newWebClient.phone} onChange={e=>updateNewWebClient('phone',e.target.value)}/>
-                {CONTACT_PICKER_SUPPORTED&&(
-                  <button type="button" title="Выбрать из контактов" onClick={()=>pickPhoneContact(({name,tel})=>{if(name&&!newWebClient.name)updateNewWebClient('name',name);if(tel)updateNewWebClient('phone',tel);})} style={{flexShrink:0,width:48,border:`1.5px solid ${C.border}`,borderRadius:10,background:C.white,fontSize:19,cursor:"pointer"}}>📇</button>
-                )}
-              </div>
-            </div>
-            <div style={S.formGroup}>
-              <label style={S.label}>БИН/ИИН</label>
-              <input style={S.input} placeholder="Необязательно" value={newWebClient.bin} onChange={e=>updateNewWebClient('bin',e.target.value)}/>
-            </div>
-            <div style={S.formGroup}>
-              <label style={S.label}>Адрес</label>
-              <input style={S.input} placeholder="Необязательно" value={newWebClient.address} onChange={e=>updateNewWebClient('address',e.target.value)}/>
-            </div>
-
-            {webClientDupeMatches.length>0&&!webClientDupeConfirmed&&(
-              <div style={{padding:"10px 12px",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,marginBottom:10}}>
-                <p style={{margin:"0 0 8px",fontSize:14,fontWeight:600,color:C.textMid}}>Похоже, такой контрагент уже есть:</p>
-                {webClientDupeMatches.slice(0,5).map((m,i)=>(
-                  <div key={i} style={{fontSize:13,color:C.textSub,marginBottom:4}}>
-                    <b>{m.name}</b>{m.phone?` · ${m.phone}`:''}{m.bin?` · БИН ${m.bin}`:''} <span style={{color:C.textFaint}}>({m.source}{m.code?`, ${m.code}`:''})</span>
-                  </div>
-                ))}
-                <div style={{display:"flex",gap:8,marginTop:8}}>
-                  <button type="button" onClick={()=>{setNewWebClient({ name:'', phone:'', bin:'', address:'' }); setWebClientDupeConfirmed(false);}} style={{...S.btnSecondary,flex:1,marginTop:0}}>Да, это он — не создавать</button>
-                  <button type="button" onClick={()=>setWebClientDupeConfirmed(true)} style={{...S.btnSecondary,flex:1,marginTop:0}}>Нет, другой</button>
-                </div>
-              </div>
-            )}
-
-            <button
-              style={{...S.btnPrimary,opacity:(creatingWebClient||(webClientDupeMatches.length>0&&!webClientDupeConfirmed))?0.5:1}}
-              disabled={creatingWebClient||(webClientDupeMatches.length>0&&!webClientDupeConfirmed)}
-              onClick={createWebClient}
-            >{creatingWebClient?"Создаю...":"Создать"}</button>
-          </div>
+          <button style={{...S.btnPrimary,marginBottom:16}} onClick={openClientModal}>+ Создать контрагента</button>
 
           <input
             type="search"
-            style={{...S.input,margin:"16px 0"}}
+            style={{...S.input,marginBottom:12}}
             placeholder="Поиск по всем контрагентам — название, телефон, код..."
             value={webClientSearch}
             onChange={e=>setWebClientSearch(e.target.value)}
@@ -9095,41 +9061,102 @@ function AdminCabinet({ user, onLogout, desktop }) {
           />
           {(() => {
             const q = webClientSearch.trim().toLowerCase();
-            // Без запроса — как раньше, только созданные здесь (с "кто и
-            // когда"). С запросом — ищем среди ВСЕХ контрагентов (1С + сайт,
-            // clients уже включает и то, и другое, см. GET /api/clients) —
-            // иначе непонятно, почему в разделе "Контрагенты" поиск не
-            // находит контрагента из 1С.
-            if (!q) {
-              if (clientsWeb.length===0) return <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>Контрагентов, созданных на сайте, пока нет</div>;
-              return clientsWeb.slice().reverse().map(c=>(
-                <div key={c.code||c.id} style={{...S.card,padding:10,marginBottom:6}}>
+            if (q) {
+              const matched = clients.filter(c => (c.name||'').toLowerCase().includes(q) || (c.contact_phone||'').includes(q) || (c.code||'').toLowerCase().includes(q) || (c.bin||'').includes(q));
+              if (matched.length===0) return <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>Ничего не найдено</div>;
+              return matched.map(c=>(
+                <div key={c.code} style={{...S.card,padding:10,marginBottom:6}}>
                   <div style={S.row}>
                     <div>
                       <p style={S.cardTitle}>{c.name}</p>
-                      <p style={S.cardSub}>{c.code?`${c.code} · `:''}{c.phone}{c.bin?` · БИН ${c.bin}`:''}</p>
+                      <p style={S.cardSub}>{c.code?`${c.code} · `:''}{c.contact_phone}{c.bin?` · БИН ${c.bin}`:''} <span style={{color:C.textFaint}}>({c.is_site_created?'Сайт':'1С'})</span></p>
                       {c.address&&<p style={S.cardSub}>📍 {c.address}</p>}
-                      <p style={{...S.cardSub,color:C.textFaint}}>Создал: {c.created_by_name}, {new Date(c.created_at).toLocaleDateString('ru-RU')}</p>
                     </div>
                   </div>
                 </div>
               ));
             }
-            const matched = clients.filter(c => (c.name||'').toLowerCase().includes(q) || (c.contact_phone||'').includes(q) || (c.code||'').toLowerCase().includes(q) || (c.bin||'').includes(q));
-            if (matched.length===0) return <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>Ничего не найдено</div>;
-            return matched.map(c=>(
-              <div key={c.code} style={{...S.card,padding:10,marginBottom:6}}>
-                <div style={S.row}>
-                  <div>
-                    <p style={S.cardTitle}>{c.name}</p>
-                    <p style={S.cardSub}>{c.code?`${c.code} · `:''}{c.contact_phone}{c.bin?` · БИН ${c.bin}`:''} <span style={{color:C.textFaint}}>({c.is_site_created?'Сайт':'1С'})</span></p>
-                    {c.address&&<p style={S.cardSub}>📍 {c.address}</p>}
-                  </div>
-                </div>
-              </div>
-            ));
+            // Без запроса — сворачиваемый список ВСЕХ контрагентов (1С +
+            // сайт, clients уже включает и то, и другое, см. GET /api/clients),
+            // свёрнут по умолчанию, чтобы вкладка не открывалась сразу
+            // длинным списком всех клиентов из 1С.
+            return (
+              <>
+                <button style={{background:"none",border:"none",color:C.textSub,fontSize:13,fontWeight:600,cursor:"pointer",textDecoration:"underline",marginBottom:8}} onClick={()=>setShowAllClientsList(v=>!v)}>
+                  {showAllClientsList?"Скрыть":"Показать"} всех контрагентов ({clients.length})
+                </button>
+                {showAllClientsList&&(clients.length===0
+                  ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>Контрагентов пока нет</div>
+                  : clients.slice().reverse().map(c=>(
+                    <div key={c.code} style={{...S.card,padding:10,marginBottom:6}}>
+                      <div style={S.row}>
+                        <div>
+                          <p style={S.cardTitle}>{c.name}</p>
+                          <p style={S.cardSub}>{c.code?`${c.code} · `:''}{c.contact_phone}{c.bin?` · БИН ${c.bin}`:''} <span style={{color:C.textFaint}}>({c.is_site_created?'Сайт':'1С'})</span></p>
+                          {c.address&&<p style={S.cardSub}>📍 {c.address}</p>}
+                        </div>
+                      </div>
+                    </div>
+                  )))}
+              </>
+            );
           })()}
         </div>
+
+        {showClientModal&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}} onClick={e=>{ if(e.target===e.currentTarget) setShowClientModal(false); }}>
+            <div style={{background:C.surface,margin:"16px auto",borderRadius:16,padding:20,maxWidth:480,minHeight:"calc(100vh - 32px)"}}>
+              <div style={{...S.row,marginBottom:16}}>
+                <p style={{margin:0,fontSize:20,fontWeight:800,fontFamily:FH,color:C.navy}}>🏢 Создать контрагента</p>
+                <button style={S.btnSecondary} onClick={()=>setShowClientModal(false)}>✕ Закрыть</button>
+              </div>
+              <div style={S.card}>
+                <div style={S.formGroup}>
+                  <label style={S.label}>Наименование *</label>
+                  <input style={S.input} placeholder="Название или ФИО" value={newWebClient.name} onChange={e=>updateNewWebClient('name',e.target.value)}/>
+                </div>
+                <div style={S.formGroup}>
+                  <label style={S.label}>Телефон *</label>
+                  <div style={{display:"flex",gap:6}}>
+                    <input style={{...S.input,flex:1}} placeholder="Телефон" value={newWebClient.phone} onChange={e=>updateNewWebClient('phone',e.target.value)}/>
+                    {CONTACT_PICKER_SUPPORTED&&(
+                      <button type="button" title="Выбрать из контактов" onClick={()=>pickPhoneContact(({name,tel})=>{if(name&&!newWebClient.name)updateNewWebClient('name',name);if(tel)updateNewWebClient('phone',tel);})} style={{flexShrink:0,width:48,border:`1.5px solid ${C.border}`,borderRadius:10,background:C.white,fontSize:19,cursor:"pointer"}}>📇</button>
+                    )}
+                  </div>
+                </div>
+                <div style={S.formGroup}>
+                  <label style={S.label}>БИН/ИИН</label>
+                  <input style={S.input} placeholder="Необязательно" value={newWebClient.bin} onChange={e=>updateNewWebClient('bin',e.target.value)}/>
+                </div>
+                <div style={S.formGroup}>
+                  <label style={S.label}>Адрес</label>
+                  <input style={S.input} placeholder="Необязательно" value={newWebClient.address} onChange={e=>updateNewWebClient('address',e.target.value)}/>
+                </div>
+
+                {webClientDupeMatches.length>0&&!webClientDupeConfirmed&&(
+                  <div style={{padding:"10px 12px",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,marginBottom:10}}>
+                    <p style={{margin:"0 0 8px",fontSize:14,fontWeight:600,color:C.textMid}}>Похоже, такой контрагент уже есть:</p>
+                    {webClientDupeMatches.slice(0,5).map((m,i)=>(
+                      <div key={i} style={{fontSize:13,color:C.textSub,marginBottom:4}}>
+                        <b>{m.name}</b>{m.phone?` · ${m.phone}`:''}{m.bin?` · БИН ${m.bin}`:''} <span style={{color:C.textFaint}}>({m.source}{m.code?`, ${m.code}`:''})</span>
+                      </div>
+                    ))}
+                    <div style={{display:"flex",gap:8,marginTop:8}}>
+                      <button type="button" onClick={()=>{setNewWebClient({ name:'', phone:'', bin:'', address:'' }); setWebClientDupeConfirmed(false); setShowClientModal(false);}} style={{...S.btnSecondary,flex:1,marginTop:0}}>Да, это он — не создавать</button>
+                      <button type="button" onClick={()=>setWebClientDupeConfirmed(true)} style={{...S.btnSecondary,flex:1,marginTop:0}}>Нет, другой</button>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  style={{...S.btnPrimary,opacity:(creatingWebClient||(webClientDupeMatches.length>0&&!webClientDupeConfirmed))?0.5:1}}
+                  disabled={creatingWebClient||(webClientDupeMatches.length>0&&!webClientDupeConfirmed)}
+                  onClick={createWebClient}
+                >{creatingWebClient?"Создаю...":"Создать"}</button>
+              </div>
+            </div>
+          </div>
+        )}
       </>}
       {tab==="employees"&&<>
         {!desktop&&<p style={S.sectionTitle}>Сотрудники</p>}

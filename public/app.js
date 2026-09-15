@@ -14533,6 +14533,8 @@ function AdminCabinet({
   });
   const [creatingWebClient, setCreatingWebClient] = useState(false);
   const [webClientDupeConfirmed, setWebClientDupeConfirmed] = useState(false);
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [showAllClientsList, setShowAllClientsList] = useState(false);
   const updateNewWebClient = (field, value) => {
     setNewWebClient(f => ({
       ...f,
@@ -14587,6 +14589,7 @@ function AdminCabinet({
     try {
       await apiCall('POST', '/api/clients-web', newWebClient);
       await loadClientsWeb();
+      await loadClients();
       setNewWebClient({
         name: '',
         phone: '',
@@ -14594,10 +14597,21 @@ function AdminCabinet({
         address: ''
       });
       setWebClientDupeConfirmed(false);
+      setShowClientModal(false);
     } catch (e) {
       alert(e.message);
     }
     setCreatingWebClient(false);
+  };
+  const openClientModal = () => {
+    setNewWebClient({
+      name: '',
+      phone: '',
+      bin: '',
+      address: ''
+    });
+    setWebClientDupeConfirmed(false);
+    setShowClientModal(true);
   };
 
   // ===== НОМЕНКЛАТУРА, созданная на сайте (без 1С) — см. POST/GET
@@ -18723,14 +18737,138 @@ function AdminCabinet({
       marginTop: desktop ? 0 : -8,
       marginBottom: 12
     }
-  }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442, \u0441\u043E\u0437\u0434\u0430\u043D\u043D\u044B\u0439 \u0437\u0434\u0435\u0441\u044C, \u0435\u0449\u0451 \u043D\u0435 \u0432 1\u0421 \u2014 \u043A\u043E\u0434 (WEB-...) \u0432\u044B\u0434\u0430\u0451\u0442 \u0441\u0430\u0439\u0442, \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u0437\u0436\u0435 \u0431\u0443\u0445\u0433\u0430\u043B\u0442\u0435\u0440 \u043F\u0440\u0438\u043D\u044F\u043B \u0435\u0433\u043E \u0432 1\u0421 \u0431\u0435\u0437 \u043A\u043E\u043B\u043B\u0438\u0437\u0438\u0439."), /*#__PURE__*/React.createElement("div", {
-    style: S.card
+  }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442, \u0441\u043E\u0437\u0434\u0430\u043D\u043D\u044B\u0439 \u0437\u0434\u0435\u0441\u044C, \u0435\u0449\u0451 \u043D\u0435 \u0432 1\u0421 \u2014 \u043A\u043E\u0434 (WEB-...) \u0432\u044B\u0434\u0430\u0451\u0442 \u0441\u0430\u0439\u0442, \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u0437\u0436\u0435 \u0431\u0443\u0445\u0433\u0430\u043B\u0442\u0435\u0440 \u043F\u0440\u0438\u043D\u044F\u043B \u0435\u0433\u043E \u0432 1\u0421 \u0431\u0435\u0437 \u043A\u043E\u043B\u043B\u0438\u0437\u0438\u0439."), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnPrimary,
+      marginBottom: 16
+    },
+    onClick: openClientModal
+  }, "+ \u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u0430"), /*#__PURE__*/React.createElement("input", {
+    type: "search",
+    style: {
+      ...S.input,
+      marginBottom: 12
+    },
+    placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u0432\u0441\u0435\u043C \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u0430\u043C \u2014 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435, \u0442\u0435\u043B\u0435\u0444\u043E\u043D, \u043A\u043E\u0434...",
+    value: webClientSearch,
+    onChange: e => setWebClientSearch(e.target.value),
+    autoComplete: "off",
+    name: "clients-web-search"
+  }), (() => {
+    const q = webClientSearch.trim().toLowerCase();
+    if (q) {
+      const matched = clients.filter(c => (c.name || '').toLowerCase().includes(q) || (c.contact_phone || '').includes(q) || (c.code || '').toLowerCase().includes(q) || (c.bin || '').includes(q));
+      if (matched.length === 0) return /*#__PURE__*/React.createElement("div", {
+        style: {
+          textAlign: "center",
+          padding: "16px 0",
+          color: C.textFaint,
+          fontSize: 15
+        }
+      }, "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E");
+      return matched.map(c => /*#__PURE__*/React.createElement("div", {
+        key: c.code,
+        style: {
+          ...S.card,
+          padding: 10,
+          marginBottom: 6
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: S.row
+      }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+        style: S.cardTitle
+      }, c.name), /*#__PURE__*/React.createElement("p", {
+        style: S.cardSub
+      }, c.code ? `${c.code} · ` : '', c.contact_phone, c.bin ? ` · БИН ${c.bin}` : '', " ", /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: C.textFaint
+        }
+      }, "(", c.is_site_created ? 'Сайт' : '1С', ")")), c.address && /*#__PURE__*/React.createElement("p", {
+        style: S.cardSub
+      }, "\uD83D\uDCCD ", c.address)))));
+    }
+    // Без запроса — сворачиваемый список ВСЕХ контрагентов (1С +
+    // сайт, clients уже включает и то, и другое, см. GET /api/clients),
+    // свёрнут по умолчанию, чтобы вкладка не открывалась сразу
+    // длинным списком всех клиентов из 1С.
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+      style: {
+        background: "none",
+        border: "none",
+        color: C.textSub,
+        fontSize: 13,
+        fontWeight: 600,
+        cursor: "pointer",
+        textDecoration: "underline",
+        marginBottom: 8
+      },
+      onClick: () => setShowAllClientsList(v => !v)
+    }, showAllClientsList ? "Скрыть" : "Показать", " \u0432\u0441\u0435\u0445 \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u043E\u0432 (", clients.length, ")"), showAllClientsList && (clients.length === 0 ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center",
+        padding: "16px 0",
+        color: C.textFaint,
+        fontSize: 15
+      }
+    }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u043E\u0432 \u043F\u043E\u043A\u0430 \u043D\u0435\u0442") : clients.slice().reverse().map(c => /*#__PURE__*/React.createElement("div", {
+      key: c.code,
+      style: {
+        ...S.card,
+        padding: 10,
+        marginBottom: 6
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: S.row
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+      style: S.cardTitle
+    }, c.name), /*#__PURE__*/React.createElement("p", {
+      style: S.cardSub
+    }, c.code ? `${c.code} · ` : '', c.contact_phone, c.bin ? ` · БИН ${c.bin}` : '', " ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.textFaint
+      }
+    }, "(", c.is_site_created ? 'Сайт' : '1С', ")")), c.address && /*#__PURE__*/React.createElement("p", {
+      style: S.cardSub
+    }, "\uD83D\uDCCD ", c.address)))))));
+  })()), showClientModal && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(28,25,23,0.45)",
+      zIndex: 200,
+      overflowY: "auto"
+    },
+    onClick: e => {
+      if (e.target === e.currentTarget) setShowClientModal(false);
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.surface,
+      margin: "16px auto",
+      borderRadius: 16,
+      padding: 20,
+      maxWidth: 480,
+      minHeight: "calc(100vh - 32px)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.row,
+      marginBottom: 16
+    }
   }, /*#__PURE__*/React.createElement("p", {
     style: {
-      ...S.cardTitle,
-      marginBottom: 10
+      margin: 0,
+      fontSize: 20,
+      fontWeight: 800,
+      fontFamily: FH,
+      color: C.navy
     }
-  }, "\u041D\u043E\u0432\u044B\u0439 \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442"), /*#__PURE__*/React.createElement("div", {
+  }, "\uD83C\uDFE2 \u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u0430"), /*#__PURE__*/React.createElement("button", {
+    style: S.btnSecondary,
+    onClick: () => setShowClientModal(false)
+  }, "\u2715 \u0417\u0430\u043A\u0440\u044B\u0442\u044C")), /*#__PURE__*/React.createElement("div", {
+    style: S.card
+  }, /*#__PURE__*/React.createElement("div", {
     style: S.formGroup
   }, /*#__PURE__*/React.createElement("label", {
     style: S.label
@@ -18835,6 +18973,7 @@ function AdminCabinet({
         address: ''
       });
       setWebClientDupeConfirmed(false);
+      setShowClientModal(false);
     },
     style: {
       ...S.btnSecondary,
@@ -18856,85 +18995,7 @@ function AdminCabinet({
     },
     disabled: creatingWebClient || webClientDupeMatches.length > 0 && !webClientDupeConfirmed,
     onClick: createWebClient
-  }, creatingWebClient ? "Создаю..." : "Создать")), /*#__PURE__*/React.createElement("input", {
-    type: "search",
-    style: {
-      ...S.input,
-      margin: "16px 0"
-    },
-    placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u0432\u0441\u0435\u043C \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u0430\u043C \u2014 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435, \u0442\u0435\u043B\u0435\u0444\u043E\u043D, \u043A\u043E\u0434...",
-    value: webClientSearch,
-    onChange: e => setWebClientSearch(e.target.value),
-    autoComplete: "off",
-    name: "clients-web-search"
-  }), (() => {
-    const q = webClientSearch.trim().toLowerCase();
-    // Без запроса — как раньше, только созданные здесь (с "кто и
-    // когда"). С запросом — ищем среди ВСЕХ контрагентов (1С + сайт,
-    // clients уже включает и то, и другое, см. GET /api/clients) —
-    // иначе непонятно, почему в разделе "Контрагенты" поиск не
-    // находит контрагента из 1С.
-    if (!q) {
-      if (clientsWeb.length === 0) return /*#__PURE__*/React.createElement("div", {
-        style: {
-          textAlign: "center",
-          padding: "16px 0",
-          color: C.textFaint,
-          fontSize: 15
-        }
-      }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u043E\u0432, \u0441\u043E\u0437\u0434\u0430\u043D\u043D\u044B\u0445 \u043D\u0430 \u0441\u0430\u0439\u0442\u0435, \u043F\u043E\u043A\u0430 \u043D\u0435\u0442");
-      return clientsWeb.slice().reverse().map(c => /*#__PURE__*/React.createElement("div", {
-        key: c.code || c.id,
-        style: {
-          ...S.card,
-          padding: 10,
-          marginBottom: 6
-        }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: S.row
-      }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
-        style: S.cardTitle
-      }, c.name), /*#__PURE__*/React.createElement("p", {
-        style: S.cardSub
-      }, c.code ? `${c.code} · ` : '', c.phone, c.bin ? ` · БИН ${c.bin}` : ''), c.address && /*#__PURE__*/React.createElement("p", {
-        style: S.cardSub
-      }, "\uD83D\uDCCD ", c.address), /*#__PURE__*/React.createElement("p", {
-        style: {
-          ...S.cardSub,
-          color: C.textFaint
-        }
-      }, "\u0421\u043E\u0437\u0434\u0430\u043B: ", c.created_by_name, ", ", new Date(c.created_at).toLocaleDateString('ru-RU'))))));
-    }
-    const matched = clients.filter(c => (c.name || '').toLowerCase().includes(q) || (c.contact_phone || '').includes(q) || (c.code || '').toLowerCase().includes(q) || (c.bin || '').includes(q));
-    if (matched.length === 0) return /*#__PURE__*/React.createElement("div", {
-      style: {
-        textAlign: "center",
-        padding: "16px 0",
-        color: C.textFaint,
-        fontSize: 15
-      }
-    }, "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E");
-    return matched.map(c => /*#__PURE__*/React.createElement("div", {
-      key: c.code,
-      style: {
-        ...S.card,
-        padding: 10,
-        marginBottom: 6
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: S.row
-    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
-      style: S.cardTitle
-    }, c.name), /*#__PURE__*/React.createElement("p", {
-      style: S.cardSub
-    }, c.code ? `${c.code} · ` : '', c.contact_phone, c.bin ? ` · БИН ${c.bin}` : '', " ", /*#__PURE__*/React.createElement("span", {
-      style: {
-        color: C.textFaint
-      }
-    }, "(", c.is_site_created ? 'Сайт' : '1С', ")")), c.address && /*#__PURE__*/React.createElement("p", {
-      style: S.cardSub
-    }, "\uD83D\uDCCD ", c.address)))));
-  })())), tab === "employees" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
+  }, creatingWebClient ? "Создаю..." : "Создать"))))), tab === "employees" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0438"), /*#__PURE__*/React.createElement("div", {
     style: {
