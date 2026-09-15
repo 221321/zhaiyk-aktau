@@ -1338,6 +1338,7 @@ function ReturnFormModal({ user, onClose, onCreated }) {
   const [reason, setReason] = useState('');
   const [refundCash, setRefundCash] = useState('');
   const [refundQr, setRefundQr] = useState('');
+  const [refundDebt, setRefundDebt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -1352,7 +1353,7 @@ function ReturnFormModal({ user, onClose, onCreated }) {
       let payload;
       if (mode==="order") {
         const items = orderItems.filter(it=>Number(returnQtys[it.code])>0).map(it=>({code:it.code,name:it.name,price:it.price,qty:Number(returnQtys[it.code])}));
-        payload = { orderId:selectedOrder.id, items, reason, refundCash:Number(refundCash)||0, refundQr:Number(refundQr)||0 };
+        payload = { orderId:selectedOrder.id, items, reason, refundCash:Number(refundCash)||0, refundQr:Number(refundQr)||0, refundDebt:Number(refundDebt)||0 };
       } else {
         const client = clients.find(c=>c.code===clientCode);
         const items = freeRows.filter(r=>r.name.trim()&&Number(r.qty)>0).map(r=>({name:r.name.trim(),qty:Number(r.qty),price:Number(r.price)||0}));
@@ -1473,7 +1474,7 @@ function ReturnFormModal({ user, onClose, onCreated }) {
           <textarea style={S.textarea} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Например: товар испорчен, привезли лишнее и т.п."/>
         </div>
 
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
+        <div style={{display:"grid",gridTemplateColumns: mode==="order"&&selectedOrder&&(selectedOrder.payment_debt>0)?"1fr 1fr 1fr":"1fr 1fr",gap:8,marginTop:10}}>
           <div>
             <label style={S.label}>Вернуть налом, ₸</label>
             <input type="number" style={S.input} placeholder="0" value={refundCash} onChange={e=>setRefundCash(e.target.value)}/>
@@ -1482,7 +1483,16 @@ function ReturnFormModal({ user, onClose, onCreated }) {
             <label style={S.label}>Вернуть на QR/карту, ₸</label>
             <input type="number" style={S.input} placeholder="0" value={refundQr} onChange={e=>setRefundQr(e.target.value)}/>
           </div>
+          {mode==="order"&&selectedOrder&&(selectedOrder.payment_debt>0)&&(
+            <div>
+              <label style={S.label}>Списать долгом, ₸</label>
+              <input type="number" style={S.input} placeholder="0" value={refundDebt} onChange={e=>setRefundDebt(e.target.value)}/>
+            </div>
+          )}
         </div>
+        {mode==="order"&&selectedOrder&&(selectedOrder.payment_debt>0)&&(
+          <p style={{margin:"6px 0 0",fontSize:13,color:C.textFaint}}>Товар продан в долг — вместо возврата денег можно просто уменьшить долг клиента на стоимость возвращённого.</p>
+        )}
 
         {error && <p style={{...S.errorBox,marginTop:12,marginBottom:0}}>{error}</p>}
 
@@ -7638,7 +7648,12 @@ function AdminCabinet({ user, onLogout, desktop }) {
       const bucket = s.order_id ? settledByOrder : settledBySale;
       const key = s.order_id || s.sale_id;
       if (!bucket[key]) bucket[key] = { cash: 0, qr: 0, total: 0 };
-      if (s.method === 'qr') bucket[key].qr += s.amount; else bucket[key].cash += s.amount;
+      // method:'return' — долг списан возвратом товара (см. POST
+      // /api/returns, refund_debt), а не реально полученными деньгами —
+      // засчитываем только в уменьшение долга (total), но НЕ в кассу,
+      // иначе касса за период была бы больше, чем реально принесли.
+      if (s.method === 'qr') bucket[key].qr += s.amount;
+      else if (s.method !== 'return') bucket[key].cash += s.amount;
       bucket[key].total += s.amount;
     });
     const orderSettledCash = o => (settledByOrder[o.id]||{}).cash || 0;
@@ -7648,6 +7663,21 @@ function AdminCabinet({ user, onLogout, desktop }) {
     const saleSettledQr = s => (settledBySale[s.id]||{}).qr || 0;
     const saleRemainingDebt = s => Math.max(0, (s.payment_debt||0) - ((settledBySale[s.id]||{}).total||0));
 
+    // Возврат наличкой/QR клиенту (см. POST /api/returns, refund_cash/
+    // refund_qr) — водитель/касса физически отдали часть денег обратно,
+    // значит по этой заявке реально получено меньше, чем payment_cash/qr на
+    // ней. Считаем по order_id (возврат по продаже кассы, sale_id, сейчас не
+    // поддержан на сервере — см. POST /api/returns).
+    const refundedByOrder = {};
+    returnsList.forEach(r => {
+      if (!r.order_id) return;
+      if (!refundedByOrder[r.order_id]) refundedByOrder[r.order_id] = { cash: 0, qr: 0 };
+      refundedByOrder[r.order_id].cash += Number(r.refund_cash) || 0;
+      refundedByOrder[r.order_id].qr += Number(r.refund_qr) || 0;
+    });
+    const orderRefundedCash = o => (refundedByOrder[o.id]||{}).cash || 0;
+    const orderRefundedQr = o => (refundedByOrder[o.id]||{}).qr || 0;
+
     const periodOrders = orders.filter(o=>o.date>=dateFrom&&o.date<=dateTo);
     const stats = {
       total:periodOrders.length,
@@ -7656,8 +7686,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
       cancelled:periodOrders.filter(o=>o.status==="cancelled").length,
       returned:periodOrders.filter(o=>o.status==="returned").length,
       revenue:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.total||0),0),
-      cashTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_cash||0)+orderSettledCash(o),0),
-      qrTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_qr||0)+orderSettledQr(o),0),
+      cashTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_cash||0)+orderSettledCash(o)-orderRefundedCash(o),0),
+      qrTotal:periodOrders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.payment_qr||0)+orderSettledQr(o)-orderRefundedQr(o),0),
       debtTotal:periodOrders.reduce((s,o)=>s+orderRemainingDebt(o),0),
     };
     const deliveredOrders = periodOrders.filter(o=>o.status==="delivered");
