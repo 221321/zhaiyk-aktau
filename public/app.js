@@ -9514,18 +9514,7 @@ const ProductAliasCard = memo(function ProductAliasCard({
     disabled: locked,
     checked: pricedByWeight,
     onChange: e => onChange(p.code, 'priced_by_weight', e.target.checked)
-  }), "\u0412\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440 (\u0446\u0435\u043D\u0430 \u0437\u0430 \u043A\u0433, \u043A\u043E\u043B-\u0432\u043E \u0432 \u0437\u0430\u044F\u0432\u043A\u0435 \u2014 \u0434\u043E \u0444\u0430\u043A\u0442. \u0432\u0437\u0432\u0435\u0448\u0438\u0432\u0430\u043D\u0438\u044F \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435)"), weightUnitMismatch(p.unit, pricedByWeight) && /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: "0 0 6px",
-      fontSize: 12,
-      fontWeight: 700,
-      color: "#92400E",
-      background: "#FFFBEB",
-      border: "1px solid #FDE68A",
-      padding: "5px 8px",
-      borderRadius: 6
-    }
-  }, "\u26A0 \u0412 1\u0421 \u0435\u0434\u0438\u043D\u0438\u0446\u0430 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F \u0442\u043E\u0432\u0430\u0440\u0430 \u2014 \xAB", p.unit, "\xBB, \u0430 \u0433\u0430\u043B\u043E\u0447\u043A\u0430 \"\u0412\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440\" \u0437\u0434\u0435\u0441\u044C ", pricedByWeight ? 'включена' : 'выключена', ". \u0415\u0441\u043B\u0438 \u044D\u0442\u043E \u043D\u0435 \u0432\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440 (\u0448\u0442\u0443\u043A\u0438/\u043A\u043E\u0440\u043E\u0431\u0430), 1\u0421 \u0438 \u0441\u0430\u0439\u0442 \u0431\u0443\u0434\u0443\u0442 \u0440\u0430\u0441\u0445\u043E\u0434\u0438\u0442\u044C\u0441\u044F \u0432 \u043E\u0441\u0442\u0430\u0442\u043A\u0430\u0445."), pricedByWeight && /*#__PURE__*/React.createElement("div", {
+  }), "\u0412\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440 (\u0446\u0435\u043D\u0430 \u0437\u0430 \u043A\u0433, \u043A\u043E\u043B-\u0432\u043E \u0432 \u0437\u0430\u044F\u0432\u043A\u0435 \u2014 \u0434\u043E \u0444\u0430\u043A\u0442. \u0432\u0437\u0432\u0435\u0448\u0438\u0432\u0430\u043D\u0438\u044F \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435)"), pricedByWeight && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -9901,23 +9890,7 @@ function ProductAliasesPanel({
       marginTop: desktop ? 0 : -8,
       marginBottom: 12
     }
-  }, "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438\u0437 1\u0421 \u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043E\u0442 \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0438 \u043A \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0435 \u2014 \u0437\u0430\u0434\u0430\u0439 \u0437\u0434\u0435\u0441\u044C \u043F\u043E\u0441\u0442\u043E\u044F\u043D\u043D\u043E\u0435 \u0438\u043C\u044F, \u043A\u043E\u0442\u043E\u0440\u043E\u0435 \u0443\u0432\u0438\u0434\u044F\u0442 \u0442\u043E\u0440\u0433\u043F\u0440\u0435\u0434\u044B."), mismatchCount > 0 && /*#__PURE__*/React.createElement("button", {
-    onClick: () => setOnlyMismatch(v => !v),
-    style: {
-      display: "block",
-      width: "100%",
-      textAlign: "left",
-      marginBottom: 12,
-      padding: "10px 12px",
-      borderRadius: 10,
-      border: `1px solid ${onlyMismatch ? "#92400E" : "#FDE68A"}`,
-      background: onlyMismatch ? "#92400E" : "#FFFBEB",
-      color: onlyMismatch ? "#fff" : "#92400E",
-      fontSize: 13,
-      fontWeight: 700,
-      cursor: "pointer"
-    }
-  }, "\u26A0 ", mismatchCount, " ", mismatchCount === 1 ? 'товар' : 'товаров', ": \u0435\u0434\u0438\u043D\u0438\u0446\u0430 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F \u0438\u0437 1\u0421 \u043D\u0435 \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u0435\u0442 \u0441 \u0433\u0430\u043B\u043E\u0447\u043A\u043E\u0439 \"\u0412\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440\" \u2014 \u0440\u0438\u0441\u043A \u0440\u0430\u0441\u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0430 \u043E\u0441\u0442\u0430\u0442\u043A\u0430. ", onlyMismatch ? 'Показать все товары' : 'Показать только их'), /*#__PURE__*/React.createElement("input", {
+  }, "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438\u0437 1\u0421 \u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043E\u0442 \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0438 \u043A \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0435 \u2014 \u0437\u0430\u0434\u0430\u0439 \u0437\u0434\u0435\u0441\u044C \u043F\u043E\u0441\u0442\u043E\u044F\u043D\u043D\u043E\u0435 \u0438\u043C\u044F, \u043A\u043E\u0442\u043E\u0440\u043E\u0435 \u0443\u0432\u0438\u0434\u044F\u0442 \u0442\u043E\u0440\u0433\u043F\u0440\u0435\u0434\u044B."), /*#__PURE__*/React.createElement("input", {
     type: "search",
     style: {
       ...S.input,
@@ -14715,6 +14688,8 @@ function AdminCabinet({
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receiptDocNumber, setReceiptDocNumber] = useState("");
   const [receiptSupplier, setReceiptSupplier] = useState("");
+  const [receiptSupplierCode, setReceiptSupplierCode] = useState("");
+  const [showReceiptSupplierDrop, setShowReceiptSupplierDrop] = useState(false);
   const [receiptDate, setReceiptDate] = useState(todayStr2);
   const newReceiptLine = () => ({
     uid: Math.random(),
@@ -14747,6 +14722,7 @@ function AdminCabinet({
   const openReceiptModal = () => {
     setReceiptDocNumber("");
     setReceiptSupplier("");
+    setReceiptSupplierCode("");
     setReceiptDate(todayStr2);
     setReceiptLines([newReceiptLine()]);
     setShowReceiptModal(true);
@@ -14756,11 +14732,17 @@ function AdminCabinet({
       alert('Добавьте хотя бы одну позицию с количеством');
       return;
     }
+    // Реально двигает остаток одним нажатием — переспрашиваем, чтобы
+    // случайный клик (или клик раньше, чем заметили опечатку в количестве)
+    // не прибавил лишнее к складу молча.
+    const summary = filledReceiptLines.map(l => `${l.name} +${l.qty}`).join('\n');
+    if (!window.confirm(`Оприходовать?\n\n${summary}${receiptGrandTotal > 0 ? `\n\nИтого: ${receiptGrandTotal.toLocaleString()} ₸` : ''}`)) return;
     setSavingReceipt(true);
     try {
       await apiCall('POST', '/api/stock-receipts', {
         doc_number: receiptDocNumber,
         supplier: receiptSupplier,
+        supplier_code: receiptSupplierCode,
         date: receiptDate,
         items: filledReceiptLines.map(l => ({
           code: l.code,
@@ -14794,6 +14776,9 @@ function AdminCabinet({
   const [showWriteOffModal, setShowWriteOffModal] = useState(false);
   const [writeOffReason, setWriteOffReason] = useState("supplier_return");
   const [writeOffDocNumber, setWriteOffDocNumber] = useState("");
+  const [writeOffSupplier, setWriteOffSupplier] = useState("");
+  const [writeOffSupplierCode, setWriteOffSupplierCode] = useState("");
+  const [showWriteOffSupplierDrop, setShowWriteOffSupplierDrop] = useState(false);
   const [writeOffNote, setWriteOffNote] = useState("");
   const [writeOffDate, setWriteOffDate] = useState(todayStr2);
   const newWriteOffLine = () => ({
@@ -14827,6 +14812,8 @@ function AdminCabinet({
   const openWriteOffModal = () => {
     setWriteOffReason("supplier_return");
     setWriteOffDocNumber("");
+    setWriteOffSupplier("");
+    setWriteOffSupplierCode("");
     setWriteOffNote("");
     setWriteOffDate(todayStr2);
     setWriteOffLines([newWriteOffLine()]);
@@ -14837,11 +14824,17 @@ function AdminCabinet({
       alert('Добавьте хотя бы одну позицию с количеством');
       return;
     }
+    // Списание необратимо уменьшает остаток — переспрашиваем перед
+    // применением, тот же принцип, что и в "Поступлении".
+    const summary = filledWriteOffLines.map(l => `${l.name} -${l.qty}`).join('\n');
+    if (!window.confirm(`Списать?\n\n${summary}${writeOffGrandTotal > 0 ? `\n\nИтого: ${writeOffGrandTotal.toLocaleString()} ₸` : ''}`)) return;
     setSavingWriteOff(true);
     try {
       await apiCall('POST', '/api/stock-write-offs', {
         reason: writeOffReason,
         doc_number: writeOffDocNumber,
+        supplier: writeOffSupplier,
+        supplier_code: writeOffSupplierCode,
         note: writeOffNote,
         date: writeOffDate,
         items: filledWriteOffLines.map(l => ({
@@ -17340,27 +17333,7 @@ function AdminCabinet({
     },
     disabled: creatingWebProduct || webProductDupeMatches.length > 0 && !webProductDupeConfirmed,
     onClick: createWebProduct
-  }, creatingWebProduct ? "Создаю..." : "Создать")))), (() => {
-    const mismatchCount = products.filter(p => weightUnitMismatch(p.unit, !!p.priced_by_weight)).length;
-    if (!mismatchCount) return null;
-    return /*#__PURE__*/React.createElement("button", {
-      onClick: () => setOnlyMismatch(v => !v),
-      style: {
-        display: "block",
-        width: "100%",
-        textAlign: "left",
-        marginBottom: 12,
-        padding: "10px 12px",
-        borderRadius: 10,
-        border: `1px solid ${onlyMismatch ? "#92400E" : "#FDE68A"}`,
-        background: onlyMismatch ? "#92400E" : "#FFFBEB",
-        color: onlyMismatch ? "#fff" : "#92400E",
-        fontSize: 13,
-        fontWeight: 700,
-        cursor: "pointer"
-      }
-    }, "\u26A0 ", mismatchCount, " ", mismatchCount === 1 ? 'товар' : 'товаров', ": \u0435\u0434\u0438\u043D\u0438\u0446\u0430 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F \u0438\u0437 1\u0421 \u043D\u0435 \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u0435\u0442 \u0441 \u0433\u0430\u043B\u043E\u0447\u043A\u043E\u0439 \"\u0412\u0435\u0441\u043E\u0432\u043E\u0439 \u0442\u043E\u0432\u0430\u0440\" \u2014 \u0440\u0438\u0441\u043A \u0440\u0430\u0441\u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0430 \u043E\u0441\u0442\u0430\u0442\u043A\u0430. ", onlyMismatch ? 'Показать все товары' : 'Показать только их');
-  })(), /*#__PURE__*/React.createElement("input", {
+  }, creatingWebProduct ? "Создаю..." : "Создать")))), /*#__PURE__*/React.createElement("input", {
     type: "search",
     style: {
       ...S.input,
@@ -18155,15 +18128,54 @@ function AdminCabinet({
     placeholder: "\u2116 \u043D\u0430\u043A\u043B\u0430\u0434\u043D\u043E\u0439",
     value: receiptDocNumber,
     onChange: e => setReceiptDocNumber(e.target.value)
-  }), /*#__PURE__*/React.createElement("input", {
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
-      ...S.input,
+      position: "relative",
       flex: "1 1 160px"
-    },
-    placeholder: "\u041F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A",
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u041F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A (\u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442)",
     value: receiptSupplier,
-    onChange: e => setReceiptSupplier(e.target.value)
-  }), /*#__PURE__*/React.createElement("input", {
+    onChange: e => {
+      setReceiptSupplier(e.target.value);
+      setReceiptSupplierCode("");
+      setShowReceiptSupplierDrop(true);
+    },
+    onFocus: () => setShowReceiptSupplierDrop(true),
+    onBlur: () => setTimeout(() => setShowReceiptSupplierDrop(false), 180)
+  }), showReceiptSupplierDrop && receiptSupplier.trim().length > 0 && (() => {
+    const q = receiptSupplier.trim().toLowerCase();
+    const matched = clients.filter(c => c.name.toLowerCase().includes(q));
+    return matched.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        right: 0,
+        background: C.white,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+        zIndex: 50,
+        maxHeight: 200,
+        overflowY: "auto"
+      }
+    }, matched.slice(0, 20).map(c => /*#__PURE__*/React.createElement("div", {
+      key: c.code,
+      onMouseDown: () => {
+        setReceiptSupplier(c.name);
+        setReceiptSupplierCode(c.code);
+        setShowReceiptSupplierDrop(false);
+      },
+      style: {
+        padding: "9px 12px",
+        cursor: "pointer",
+        borderBottom: `1px solid ${C.border}`,
+        fontSize: 14
+      }
+    }, c.name)));
+  })()), /*#__PURE__*/React.createElement("input", {
     style: {
       ...S.input,
       flex: "0 1 150px"
@@ -18359,7 +18371,7 @@ function AdminCabinet({
     }
   }, /*#__PURE__*/React.createElement("p", {
     style: S.cardTitle
-  }, WRITE_OFF_REASONS.find(([v]) => v === w.reason)?.[1] || w.reason, w.doc_number ? ` · № ${w.doc_number}` : ''), /*#__PURE__*/React.createElement("p", {
+  }, WRITE_OFF_REASONS.find(([v]) => v === w.reason)?.[1] || w.reason, w.doc_number ? ` · № ${w.doc_number}` : '', w.supplier ? ` · ${w.supplier}` : ''), /*#__PURE__*/React.createElement("p", {
     style: S.cardSub
   }, w.date, " \xB7 ", w.items.map(it => `${it.name} -${it.qty}${it.is_weight_item ? ' кг' : ''}${it.price ? ` × ${it.price.toLocaleString()} ₸ = ${it.line_total.toLocaleString()} ₸` : ''}`).join(', ')), w.total > 0 && /*#__PURE__*/React.createElement("p", {
     style: {
@@ -18452,7 +18464,54 @@ function AdminCabinet({
     placeholder: "\u2116 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u0430 (\u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
     value: writeOffDocNumber,
     onChange: e => setWriteOffDocNumber(e.target.value)
-  }), /*#__PURE__*/React.createElement("input", {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative",
+      flex: "1 1 160px"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442 (\u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
+    value: writeOffSupplier,
+    onChange: e => {
+      setWriteOffSupplier(e.target.value);
+      setWriteOffSupplierCode("");
+      setShowWriteOffSupplierDrop(true);
+    },
+    onFocus: () => setShowWriteOffSupplierDrop(true),
+    onBlur: () => setTimeout(() => setShowWriteOffSupplierDrop(false), 180)
+  }), showWriteOffSupplierDrop && writeOffSupplier.trim().length > 0 && (() => {
+    const q = writeOffSupplier.trim().toLowerCase();
+    const matched = clients.filter(c => c.name.toLowerCase().includes(q));
+    return matched.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        right: 0,
+        background: C.white,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+        zIndex: 50,
+        maxHeight: 200,
+        overflowY: "auto"
+      }
+    }, matched.slice(0, 20).map(c => /*#__PURE__*/React.createElement("div", {
+      key: c.code,
+      onMouseDown: () => {
+        setWriteOffSupplier(c.name);
+        setWriteOffSupplierCode(c.code);
+        setShowWriteOffSupplierDrop(false);
+      },
+      style: {
+        padding: "9px 12px",
+        cursor: "pointer",
+        borderBottom: `1px solid ${C.border}`,
+        fontSize: 14
+      }
+    }, c.name)));
+  })()), /*#__PURE__*/React.createElement("input", {
     style: {
       ...S.input,
       flex: "0 1 150px"

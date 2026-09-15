@@ -158,3 +158,19 @@ test('GET /api/stock-receipts возвращает историю приходо
   assert.ok(Array.isArray(list));
   assert.ok(list.some(r => r.doc_number === 'НВ-001'));
 });
+
+test('поставщик — сохраняет код контрагента, если выбран из списка', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', {
+    supplier: 'ТОО Ромашка', supplier_code: 'WEB-000001', items: [{ code: 'R1', qty: 1 }],
+  }, adminToken);
+  assert.equal(receipt.supplier, 'ТОО Ромашка');
+  assert.equal(receipt.supplier_code, 'WEB-000001');
+});
+
+test('поставщик — необязателен, без выбора код null', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', {
+    items: [{ code: 'R1', qty: 1 }],
+  }, adminToken);
+  assert.equal(receipt.supplier, '');
+  assert.equal(receipt.supplier_code, null);
+});

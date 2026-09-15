@@ -89,3 +89,17 @@ test('GET /api/stock-write-offs возвращает историю', async () =
   assert.ok(Array.isArray(list));
   assert.ok(list.some(w => w.doc_number === 'ВЗ-1'));
 });
+
+test('поставщик (контрагент) — сохраняется вместе с кодом, необязателен', async () => {
+  const wo = await apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', {
+    reason: 'supplier_return', supplier: 'ИП Тестовый', supplier_code: 'WEB-000005', items: [{ code: 'W1', qty: 1 }],
+  }, adminToken);
+  assert.equal(wo.supplier, 'ИП Тестовый');
+  assert.equal(wo.supplier_code, 'WEB-000005');
+
+  const woNoSupplier = await apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', {
+    reason: 'damage', items: [{ code: 'W1', qty: 1 }],
+  }, adminToken);
+  assert.equal(woNoSupplier.supplier, '');
+  assert.equal(woNoSupplier.supplier_code, null);
+});

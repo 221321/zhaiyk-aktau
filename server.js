@@ -2468,7 +2468,33 @@ app.get('/api/clients', authMiddleware, (req, res) => {
       is_dogovornik: !!(tagMap[c.code] && tagMap[c.code].is_dogovornik)
     };
   });
-  res.json(result);
+
+  // Контрагенты, созданные на сайте (см. /api/clients-web) — по просьбе
+  // владельца теперь тоже видны везде, где выбирают контрагента (заявка,
+  // возврат, поставщик в приходе/списании), не только в разделе
+  // "Контрагенты". Безопасно слить сюда: в отличие от товаров, код
+  // контрагента в заявке ничем не проверяется (свободное поле), остатка
+  // не касается — риска, что кто-то не сможет оформить заявку, нет.
+  const webClients = db.get('clientsWeb').value()
+    .filter(c => !c.archived)
+    .map(c => {
+      const rec = addrMap[c.code];
+      const hasAddress = !!(rec && rec.address && rec.address.trim());
+      const contact = contactMap[c.code];
+      return {
+        code: c.code,
+        name: c.name,
+        bin: c.bin || '',
+        address: hasAddress ? rec.address : (c.address || ''),
+        has_address: hasAddress,
+        contact_name: contact ? contact.name : '',
+        contact_phone: contact ? contact.phone : (c.phone || ''),
+        is_dogovornik: !!(tagMap[c.code] && tagMap[c.code].is_dogovornik),
+        is_site_created: true,
+      };
+    });
+
+  res.json([...result, ...webClients]);
 });
 
 // Пометка "Договорник" — ярлык поверх контрагента (см. clientTags выше),
@@ -3141,7 +3167,7 @@ app.post('/api/stock-receipts', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const { doc_number, supplier, date, items } = req.body || {};
+  const { doc_number, supplier, supplier_code, date, items } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Нет позиций в приходе' });
   }
@@ -3220,6 +3246,7 @@ app.post('/api/stock-receipts', authMiddleware, (req, res) => {
     id,
     doc_number: (doc_number || '').trim(),
     supplier: (supplier || '').trim(),
+    supplier_code: (supplier_code || '').trim() || null,
     date: date || new Date().toISOString().slice(0, 10),
     items: receiptItems,
     total: round2(receiptItems.reduce((s, it) => s + it.line_total, 0)),
@@ -3253,7 +3280,7 @@ app.post('/api/stock-write-offs', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const { reason, doc_number, note, date, items } = req.body || {};
+  const { reason, doc_number, supplier, supplier_code, note, date, items } = req.body || {};
   if (!WRITE_OFF_REASONS.includes(reason)) {
     return res.status(400).json({ error: 'Не указана причина списания' });
   }
@@ -3316,6 +3343,8 @@ app.post('/api/stock-write-offs', authMiddleware, (req, res) => {
     id,
     reason,
     doc_number: (doc_number || '').trim(),
+    supplier: (supplier || '').trim(),
+    supplier_code: (supplier_code || '').trim() || null,
     note: (note || '').trim(),
     date: date || new Date().toISOString().slice(0, 10),
     items: writeOffItems,
