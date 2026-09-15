@@ -6209,7 +6209,10 @@ function SalesCabinet({
       code: prod.code,
       name: prod.name,
       unit: prod.unit,
-      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : "",
+      // Цену может свободно менять только admin (см. disabled на инпуте цены
+      // ниже) — при одном уровне каталога подставляем его, при нескольких
+      // ждём выбор кнопкой, а без уровней вовсе — базовую цену из каталога.
+      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : prod.priceOptions && prod.priceOptions.length > 1 ? "" : prod.price,
       search: prod.name,
       showDrop: false,
       qty: "",
@@ -6357,7 +6360,10 @@ function SalesCabinet({
       code: prod.code,
       name: prod.name,
       unit: prod.unit,
-      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : "",
+      // Цену может свободно менять только admin (см. disabled на инпуте цены
+      // ниже) — при одном уровне каталога подставляем его, при нескольких
+      // ждём выбор кнопкой, а без уровней вовсе — базовую цену из каталога.
+      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : prod.priceOptions && prod.priceOptions.length > 1 ? "" : prod.price,
       search: prod.name,
       showDrop: false,
       qty: "",
@@ -6652,13 +6658,14 @@ function SalesCabinet({
         padding: "8px 6px",
         fontSize: 15,
         textAlign: "right",
-        background: line.priceOptions && line.priceOptions.length > 0 ? C.surface : C.white,
-        color: line.priceOptions && line.priceOptions.length > 0 ? C.textSub : C.text
+        background: C.surface,
+        color: C.textSub
       },
       placeholder: "\u0446\u0435\u043D\u0430",
       value: line.price,
       type: "number",
-      disabled: line.priceOptions && line.priceOptions.length > 0,
+      disabled: true // цену может менять только admin
+      ,
       onChange: e => updateEditLine(line.uid, {
         price: e.target.value
       }),
@@ -7495,13 +7502,14 @@ function SalesCabinet({
         padding: "8px 6px",
         fontSize: 15,
         textAlign: "right",
-        background: line.priceOptions && line.priceOptions.length > 0 ? C.surface : C.white,
-        color: line.priceOptions && line.priceOptions.length > 0 ? C.textSub : C.text
+        background: C.surface,
+        color: C.textSub
       },
       placeholder: "\u0446\u0435\u043D\u0430",
       value: line.price,
       type: "number",
-      disabled: line.priceOptions && line.priceOptions.length > 0,
+      disabled: true // цену может менять только admin
+      ,
       onChange: e => updateLine(line.uid, {
         price: e.target.value
       }),
@@ -12600,7 +12608,10 @@ function NewOrderModal({
       code: prod.code,
       name: prod.name,
       unit: prod.unit,
-      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : "",
+      // Цену может свободно менять только admin (см. disabled на инпуте цены
+      // ниже) — при одном уровне каталога подставляем его, при нескольких
+      // ждём выбор кнопкой, а без уровней вовсе — базовую цену из каталога.
+      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : prod.priceOptions && prod.priceOptions.length > 1 ? "" : prod.price,
       search: prod.name,
       showDrop: false,
       qty: "",
@@ -13046,13 +13057,17 @@ function NewOrderModal({
         padding: "8px 6px",
         fontSize: 15,
         textAlign: "right",
-        background: !isAdmin && line.priceOptions && line.priceOptions.length > 0 ? C.surface : C.white,
-        color: !isAdmin && line.priceOptions && line.priceOptions.length > 0 ? C.textSub : C.text
+        background: !isAdmin ? C.surface : C.white,
+        color: !isAdmin ? C.textSub : C.text
       },
       placeholder: "\u0446\u0435\u043D\u0430",
       value: line.price,
-      type: "number",
-      disabled: !isAdmin && line.priceOptions && line.priceOptions.length > 0,
+      type: "number"
+      // Свободно менять цену при оформлении заявки может только
+      // admin — менеджеру доступен лишь выбор из уровней каталога
+      // (кнопки ниже).
+      ,
+      disabled: !isAdmin,
       onChange: e => updateLine(line.uid, {
         price: e.target.value
       }),
