@@ -14767,7 +14767,13 @@ function AdminCabinet({
   const filledReceiptLines = receiptLines.filter(l => l.code && Number(l.qty) > 0);
   const receiptGrandTotal = filledReceiptLines.reduce((s, l) => s + receiptLineTotal(l), 0);
   const openReceiptModal = existing => {
-    if (existing) {
+    // existing — только настоящая запись прихода (см. вызов из карточки
+    // истории). Если функцию по ошибке повесить прямо в onClick={...} без
+    // обёртки в стрелочную функцию, React передаёт сюда SyntheticEvent —
+    // .items на нём нет, поэтому проверяем именно это поле, а не просто
+    // truthy (событие клика тоже truthy и однажды уже уронило кнопку
+    // "+ Создать поступление" в проде).
+    if (existing && existing.items) {
       setEditingReceiptId(existing.id);
       setReceiptEditReason("");
       setReceiptDocNumber(existing.doc_number || "");
@@ -14895,7 +14901,9 @@ function AdminCabinet({
   const filledWriteOffLines = writeOffLines.filter(l => l.code && Number(l.qty) > 0);
   const writeOffGrandTotal = filledWriteOffLines.reduce((s, l) => s + writeOffLineTotal(l), 0);
   const openWriteOffModal = existing => {
-    if (existing) {
+    // existing.items — та же защита от SyntheticEvent, что и в
+    // openReceiptModal выше (см. комментарий там).
+    if (existing && existing.items) {
       setEditingWriteOffId(existing.id);
       setWriteOffEditReason("");
       setWriteOffReason(existing.reason);
@@ -18220,14 +18228,14 @@ function AdminCabinet({
       flex: "1 1 auto",
       marginTop: 0
     },
-    onClick: openReceiptModal
+    onClick: () => openReceiptModal()
   }, "+ \u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u0435"), /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnOutline,
       flex: "1 1 auto",
       marginTop: 0
     },
-    onClick: openWriteOffModal
+    onClick: () => openWriteOffModal()
   }, "+ \u0421\u043E\u0437\u0434\u0430\u0442\u044C \u0441\u043F\u0438\u0441\u0430\u043D\u0438\u0435")), /*#__PURE__*/React.createElement("input", {
     type: "search",
     style: {

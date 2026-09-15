@@ -7192,7 +7192,13 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const receiptGrandTotal = filledReceiptLines.reduce((s, l) => s + receiptLineTotal(l), 0);
 
   const openReceiptModal = (existing) => {
-    if (existing) {
+    // existing — только настоящая запись прихода (см. вызов из карточки
+    // истории). Если функцию по ошибке повесить прямо в onClick={...} без
+    // обёртки в стрелочную функцию, React передаёт сюда SyntheticEvent —
+    // .items на нём нет, поэтому проверяем именно это поле, а не просто
+    // truthy (событие клика тоже truthy и однажды уже уронило кнопку
+    // "+ Создать поступление" в проде).
+    if (existing && existing.items) {
       setEditingReceiptId(existing.id);
       setReceiptEditReason("");
       setReceiptDocNumber(existing.doc_number || "");
@@ -7274,7 +7280,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const writeOffGrandTotal = filledWriteOffLines.reduce((s, l) => s + writeOffLineTotal(l), 0);
 
   const openWriteOffModal = (existing) => {
-    if (existing) {
+    // existing.items — та же защита от SyntheticEvent, что и в
+    // openReceiptModal выше (см. комментарий там).
+    if (existing && existing.items) {
       setEditingWriteOffId(existing.id);
       setWriteOffEditReason("");
       setWriteOffReason(existing.reason); setWriteOffDocNumber(existing.doc_number || ""); setWriteOffSupplier(existing.supplier || ""); setWriteOffSupplierCode(existing.supplier_code || ""); setWriteOffNote(existing.note || ""); setWriteOffDate(existing.date || todayStr2);
@@ -8899,8 +8907,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
             Поступление — приход по накладной от поставщика, прибавляется к остатку. Списание — возврат поставщику или порча/брак, уменьшает остаток. Оба сразу видны в обычном каталоге.
           </p>
           <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-            <button style={{...S.btnPrimary,flex:"1 1 auto",marginTop:0}} onClick={openReceiptModal}>+ Создать поступление</button>
-            <button style={{...S.btnOutline,flex:"1 1 auto",marginTop:0}} onClick={openWriteOffModal}>+ Создать списание</button>
+            <button style={{...S.btnPrimary,flex:"1 1 auto",marginTop:0}} onClick={()=>openReceiptModal()}>+ Создать поступление</button>
+            <button style={{...S.btnOutline,flex:"1 1 auto",marginTop:0}} onClick={()=>openWriteOffModal()}>+ Создать списание</button>
           </div>
 
           <input
