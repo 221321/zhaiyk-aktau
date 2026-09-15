@@ -126,3 +126,46 @@ test('смена роли — отклоняет недопустимое зна
   // Остальные сотрудники не задеты
   assert.equal(after.find(u => u.login === 'new_driver').role, 'driver');
 });
+
+// Реальный случай из прода: сотрудника завели с логином "Админ" (как
+// набрали в форме, с заглавной буквы) — при входе логином "админ"
+// (строчными) получали "Неверный логин или пароль", хотя аккаунт
+// существовал. Логин должен сравниваться без учёта регистра и пробелов —
+// и при входе, и при проверке "логин уже занят" на создании.
+test('вход с логином в другом регистре — работает', async () => {
+  await apiCall(server.baseUrl, 'POST', '/api/users', {
+    login: 'Админ_Тест', password: 'qwerty1', name: 'Регистр Тест', role: 'cashier',
+  }, adminToken);
+
+  const res1 = await apiCall(server.baseUrl, 'POST', '/api/login', { login: 'админ_тест', password: 'qwerty1' });
+  assert.ok(res1.token, 'вход строчными буквами должен сработать для логина, заведённого с заглавной');
+  await apiCall(server.baseUrl, 'POST', '/api/logout', undefined, res1.token);
+
+  const res2 = await apiCall(server.baseUrl, 'POST', '/api/login', { login: 'АДМИН_ТЕСТ', password: 'qwerty1' });
+  assert.ok(res2.token, 'вход буквами другого регистра тоже должен сработать');
+  await apiCall(server.baseUrl, 'POST', '/api/logout', undefined, res2.token);
+});
+
+test('вход с пробелами вокруг логина — работает', async () => {
+  const res = await apiCall(server.baseUrl, 'POST', '/api/login', { login: '  админ_тест  ', password: 'qwerty1' });
+  assert.ok(res.token);
+  await apiCall(server.baseUrl, 'POST', '/api/logout', undefined, res.token);
+});
+
+test('создание с логином, отличающимся только регистром от существующего — 400', async () => {
+  await assert.rejects(
+    apiCall(server.baseUrl, 'POST', '/api/users', { login: 'админ_тест', password: '1234', name: 'Дубль', role: 'driver' }, adminToken),
+    (err) => err.status === 400
+  );
+  await assert.rejects(
+    apiCall(server.baseUrl, 'POST', '/api/users', { login: '  Админ_Тест  ', password: '1234', name: 'Дубль2', role: 'driver' }, adminToken),
+    (err) => err.status === 400
+  );
+});
+
+test('логин с пробелами по краям обрезается при создании', async () => {
+  const rec = await apiCall(server.baseUrl, 'POST', '/api/users', {
+    login: '  spaced_login  ', password: '1234', name: 'Пробелы', role: 'driver',
+  }, adminToken);
+  assert.equal(rec.login, 'spaced_login');
+});

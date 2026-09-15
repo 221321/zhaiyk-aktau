@@ -250,7 +250,13 @@ app.get('/api/login-hints', (req, res) => {
 
 app.post('/api/login', (req, res) => {
   const { login, password } = req.body;
-  const user = db.get('users').find({ login }).value();
+  // Логин сравниваем без учёта регистра и лишних пробелов — иначе аккаунт,
+  // заведённый (или набранный при входе) как "Админ"/"админ "/" Админ",
+  // выглядит для человека одинаково, но не совпадёт при точном сравнении,
+  // и вход молча откажет с тем же текстом, что при неверном пароле (было
+  // ровно так: сотрудника завели, а войти под ним не получалось).
+  const loginNorm = (login || '').trim().toLowerCase();
+  const user = db.get('users').find(u => (u.login || '').trim().toLowerCase() === loginNorm).value();
   if (!user || !bcrypt.compareSync(password, user.password)) {
     return res.status(401).json({ error: 'Неверный логин или пароль' });
   }
@@ -1782,11 +1788,18 @@ app.post('/api/users', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const { login, password, name, role, region, employee_code, client_code } = req.body;
-  if (!login || !password || !name || !role) return res.status(400).json({ error: 'Заполните все поля' });
+  const { login: loginRaw, password, name, role, region, employee_code, client_code } = req.body;
+  if (!loginRaw || !password || !name || !role) return res.status(400).json({ error: 'Заполните все поля' });
+  const login = loginRaw.trim();
+  if (!login) return res.status(400).json({ error: 'Заполните все поля' });
   if (password.length < 4) return res.status(400).json({ error: 'Пароль должен быть не короче 4 символов' });
   if (role === 'store' && !client_code) return res.status(400).json({ error: 'Выберите магазин (клиента), к которому привязать кабинет' });
-  const exists = db.get('users').find({ login }).value();
+  // Без учёта регистра — та же нормализация, что и при входе (см. POST
+  // /api/login), иначе можно было бы завести второй аккаунт "Админ" рядом
+  // с уже существующим "админ", и при входе система молча путала бы, в
+  // какой из двух попадёт человек.
+  const loginNorm = login.toLowerCase();
+  const exists = db.get('users').find(u => (u.login || '').trim().toLowerCase() === loginNorm).value();
   if (exists) return res.status(400).json({ error: 'Логин уже занят' });
   const id = db.get('nextUserId').value();
   const user = { id, login, password: bcrypt.hashSync(password, 10), name, role, region: region || '', client_code: client_code || null, active: true, employee_code: employee_code || null };
