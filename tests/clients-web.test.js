@@ -88,3 +88,11 @@ test('/api/clients/sync (полная замена из 1С) не стирает
   const clients = await apiCall(server.baseUrl, 'GET', '/api/clients', undefined, adminToken);
   assert.ok(clients.some(c => c.code === '00000000177'), '/api/clients/sync продолжает работать как раньше');
 });
+
+test('GET /api/clients включает сайтовых контрагентов — доступны при оформлении заявки/прихода', async () => {
+  const clients = await apiCall(server.baseUrl, 'GET', '/api/clients', undefined, adminToken);
+  const web = clients.find(c => c.code === 'WEB-000001');
+  assert.ok(web, 'сайтовый контрагент должен быть виден в общем списке /api/clients');
+  assert.equal(web.name, 'ТОО Ромашка');
+  assert.equal(web.is_site_created, true);
+});

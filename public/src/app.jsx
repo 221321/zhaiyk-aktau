@@ -4702,11 +4702,6 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked: lockedProp,
         <input type="checkbox" disabled={locked} checked={pricedByWeight} onChange={e=>onChange(p.code,'priced_by_weight',e.target.checked)}/>
         Весовой товар (цена за кг, кол-во в заявке — до факт. взвешивания на складе)
       </label>
-      {weightUnitMismatch(p.unit, pricedByWeight)&&(
-        <p style={{margin:"0 0 6px",fontSize:12,fontWeight:700,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",padding:"5px 8px",borderRadius:6}}>
-          ⚠ В 1С единица измерения товара — «{p.unit}», а галочка "Весовой товар" здесь {pricedByWeight?'включена':'выключена'}. Если это не весовой товар (штуки/короба), 1С и сайт будут расходиться в остатках.
-        </p>
-      )}
       {pricedByWeight&&(
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
           <span style={{fontSize:13,color:locked?C.textFaint:C.textMid,whiteSpace:"nowrap"}}>Средний вес короба, кг</span>
@@ -4926,14 +4921,6 @@ function ProductAliasesPanel({ desktop }) {
         <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
           Название из 1С меняется от поставки к поставке — задай здесь постоянное имя, которое увидят торгпреды.
         </p>
-        {mismatchCount>0&&(
-          <button
-            onClick={()=>setOnlyMismatch(v=>!v)}
-            style={{display:"block",width:"100%",textAlign:"left",marginBottom:12,padding:"10px 12px",borderRadius:10,border:`1px solid ${onlyMismatch?"#92400E":"#FDE68A"}`,background:onlyMismatch?"#92400E":"#FFFBEB",color:onlyMismatch?"#fff":"#92400E",fontSize:13,fontWeight:700,cursor:"pointer"}}
-          >
-            ⚠ {mismatchCount} {mismatchCount===1?'товар':'товаров'}: единица измерения из 1С не совпадает с галочкой "Весовой товар" — риск рассинхрона остатка. {onlyMismatch?'Показать все товары':'Показать только их'}
-          </button>
-        )}
         <input
           type="search"
           style={{...S.input,marginBottom:12}}
@@ -7154,6 +7141,8 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receiptDocNumber, setReceiptDocNumber] = useState("");
   const [receiptSupplier, setReceiptSupplier] = useState("");
+  const [receiptSupplierCode, setReceiptSupplierCode] = useState("");
+  const [showReceiptSupplierDrop, setShowReceiptSupplierDrop] = useState(false);
   const [receiptDate, setReceiptDate] = useState(todayStr2);
   const newReceiptLine = () => ({ uid: Math.random(), code: "", name: "", unit: "", qty: "", price: "", search: "", showDrop: false });
   const [receiptLines, setReceiptLines] = useState([newReceiptLine()]);
@@ -7169,17 +7158,22 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const receiptGrandTotal = filledReceiptLines.reduce((s, l) => s + receiptLineTotal(l), 0);
 
   const openReceiptModal = () => {
-    setReceiptDocNumber(""); setReceiptSupplier(""); setReceiptDate(todayStr2);
+    setReceiptDocNumber(""); setReceiptSupplier(""); setReceiptSupplierCode(""); setReceiptDate(todayStr2);
     setReceiptLines([newReceiptLine()]);
     setShowReceiptModal(true);
   };
 
   const submitReceipt = async () => {
     if (filledReceiptLines.length === 0) { alert('Добавьте хотя бы одну позицию с количеством'); return; }
+    // Реально двигает остаток одним нажатием — переспрашиваем, чтобы
+    // случайный клик (или клик раньше, чем заметили опечатку в количестве)
+    // не прибавил лишнее к складу молча.
+    const summary = filledReceiptLines.map(l => `${l.name} +${l.qty}`).join('\n');
+    if (!window.confirm(`Оприходовать?\n\n${summary}${receiptGrandTotal>0?`\n\nИтого: ${receiptGrandTotal.toLocaleString()} ₸`:''}`)) return;
     setSavingReceipt(true);
     try {
       await apiCall('POST', '/api/stock-receipts', {
-        doc_number: receiptDocNumber, supplier: receiptSupplier, date: receiptDate,
+        doc_number: receiptDocNumber, supplier: receiptSupplier, supplier_code: receiptSupplierCode, date: receiptDate,
         items: filledReceiptLines.map(l => ({ code: l.code, qty: Number(l.qty), price: Number(l.price)||0 })),
       });
       await loadStockReceipts();
@@ -7203,6 +7197,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [showWriteOffModal, setShowWriteOffModal] = useState(false);
   const [writeOffReason, setWriteOffReason] = useState("supplier_return");
   const [writeOffDocNumber, setWriteOffDocNumber] = useState("");
+  const [writeOffSupplier, setWriteOffSupplier] = useState("");
+  const [writeOffSupplierCode, setWriteOffSupplierCode] = useState("");
+  const [showWriteOffSupplierDrop, setShowWriteOffSupplierDrop] = useState(false);
   const [writeOffNote, setWriteOffNote] = useState("");
   const [writeOffDate, setWriteOffDate] = useState(todayStr2);
   const newWriteOffLine = () => ({ uid: Math.random(), code: "", name: "", unit: "", qty: "", price: "", search: "", showDrop: false });
@@ -7219,17 +7216,21 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const writeOffGrandTotal = filledWriteOffLines.reduce((s, l) => s + writeOffLineTotal(l), 0);
 
   const openWriteOffModal = () => {
-    setWriteOffReason("supplier_return"); setWriteOffDocNumber(""); setWriteOffNote(""); setWriteOffDate(todayStr2);
+    setWriteOffReason("supplier_return"); setWriteOffDocNumber(""); setWriteOffSupplier(""); setWriteOffSupplierCode(""); setWriteOffNote(""); setWriteOffDate(todayStr2);
     setWriteOffLines([newWriteOffLine()]);
     setShowWriteOffModal(true);
   };
 
   const submitWriteOff = async () => {
     if (filledWriteOffLines.length === 0) { alert('Добавьте хотя бы одну позицию с количеством'); return; }
+    // Списание необратимо уменьшает остаток — переспрашиваем перед
+    // применением, тот же принцип, что и в "Поступлении".
+    const summary = filledWriteOffLines.map(l => `${l.name} -${l.qty}`).join('\n');
+    if (!window.confirm(`Списать?\n\n${summary}${writeOffGrandTotal>0?`\n\nИтого: ${writeOffGrandTotal.toLocaleString()} ₸`:''}`)) return;
     setSavingWriteOff(true);
     try {
       await apiCall('POST', '/api/stock-write-offs', {
-        reason: writeOffReason, doc_number: writeOffDocNumber, note: writeOffNote, date: writeOffDate,
+        reason: writeOffReason, doc_number: writeOffDocNumber, supplier: writeOffSupplier, supplier_code: writeOffSupplierCode, note: writeOffNote, date: writeOffDate,
         items: filledWriteOffLines.map(l => ({ code: l.code, qty: Number(l.qty), price: Number(l.price)||0 })),
       });
       await loadStockWriteOffs();
@@ -8446,18 +8447,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
               </div>
             </div>
           )}
-          {(() => {
-            const mismatchCount = products.filter(p => weightUnitMismatch(p.unit, !!p.priced_by_weight)).length;
-            if (!mismatchCount) return null;
-            return (
-              <button
-                onClick={()=>setOnlyMismatch(v=>!v)}
-                style={{display:"block",width:"100%",textAlign:"left",marginBottom:12,padding:"10px 12px",borderRadius:10,border:`1px solid ${onlyMismatch?"#92400E":"#FDE68A"}`,background:onlyMismatch?"#92400E":"#FFFBEB",color:onlyMismatch?"#fff":"#92400E",fontSize:13,fontWeight:700,cursor:"pointer"}}
-              >
-                ⚠ {mismatchCount} {mismatchCount===1?'товар':'товаров'}: единица измерения из 1С не совпадает с галочкой "Весовой товар" — риск рассинхрона остатка. {onlyMismatch?'Показать все товары':'Показать только их'}
-              </button>
-            );
-          })()}
           <input
             type="search"
             style={{...S.input,marginBottom:12}}
@@ -8816,7 +8805,27 @@ function AdminCabinet({ user, onLogout, desktop }) {
               <div style={S.card}>
                 <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
                   <input style={{...S.input,flex:"1 1 140px"}} placeholder="№ накладной" value={receiptDocNumber} onChange={e=>setReceiptDocNumber(e.target.value)}/>
-                  <input style={{...S.input,flex:"1 1 160px"}} placeholder="Поставщик" value={receiptSupplier} onChange={e=>setReceiptSupplier(e.target.value)}/>
+                  <div style={{position:"relative",flex:"1 1 160px"}}>
+                    <input
+                      style={S.input}
+                      placeholder="Поставщик (контрагент)"
+                      value={receiptSupplier}
+                      onChange={e=>{setReceiptSupplier(e.target.value);setReceiptSupplierCode("");setShowReceiptSupplierDrop(true);}}
+                      onFocus={()=>setShowReceiptSupplierDrop(true)}
+                      onBlur={()=>setTimeout(()=>setShowReceiptSupplierDrop(false),180)}
+                    />
+                    {showReceiptSupplierDrop&&receiptSupplier.trim().length>0&&(()=>{
+                      const q=receiptSupplier.trim().toLowerCase();
+                      const matched=clients.filter(c=>c.name.toLowerCase().includes(q));
+                      return matched.length>0&&(
+                        <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:200,overflowY:"auto"}}>
+                          {matched.slice(0,20).map(c=>(
+                            <div key={c.code} onMouseDown={()=>{setReceiptSupplier(c.name);setReceiptSupplierCode(c.code);setShowReceiptSupplierDrop(false);}} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:14}}>{c.name}</div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
                   <input style={{...S.input,flex:"0 1 150px"}} type="date" value={receiptDate} onChange={e=>setReceiptDate(e.target.value)}/>
                 </div>
 
@@ -8886,7 +8895,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
             ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>Списаний пока не было</div>
             : stockWriteOffs.slice().reverse().map(w=>(
               <div key={w.id} style={{...S.card,padding:10,marginBottom:6}}>
-                <p style={S.cardTitle}>{WRITE_OFF_REASONS.find(([v])=>v===w.reason)?.[1]||w.reason}{w.doc_number?` · № ${w.doc_number}`:''}</p>
+                <p style={S.cardTitle}>{WRITE_OFF_REASONS.find(([v])=>v===w.reason)?.[1]||w.reason}{w.doc_number?` · № ${w.doc_number}`:''}{w.supplier?` · ${w.supplier}`:''}</p>
                 <p style={S.cardSub}>{w.date} · {w.items.map(it=>`${it.name} -${it.qty}${it.is_weight_item?' кг':''}${it.price?` × ${it.price.toLocaleString()} ₸ = ${it.line_total.toLocaleString()} ₸`:''}`).join(', ')}</p>
                 {w.total>0&&<p style={{...S.cardSub,fontWeight:700,color:C.red}}>Итого: {w.total.toLocaleString()} ₸</p>}
                 {w.note&&<p style={S.cardSub}>{w.note}</p>}
@@ -8913,6 +8922,27 @@ function AdminCabinet({ user, onLogout, desktop }) {
                 </div>
                 <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
                   <input style={{...S.input,flex:"1 1 140px"}} placeholder="№ документа (необязательно)" value={writeOffDocNumber} onChange={e=>setWriteOffDocNumber(e.target.value)}/>
+                  <div style={{position:"relative",flex:"1 1 160px"}}>
+                    <input
+                      style={S.input}
+                      placeholder="Контрагент (необязательно)"
+                      value={writeOffSupplier}
+                      onChange={e=>{setWriteOffSupplier(e.target.value);setWriteOffSupplierCode("");setShowWriteOffSupplierDrop(true);}}
+                      onFocus={()=>setShowWriteOffSupplierDrop(true)}
+                      onBlur={()=>setTimeout(()=>setShowWriteOffSupplierDrop(false),180)}
+                    />
+                    {showWriteOffSupplierDrop&&writeOffSupplier.trim().length>0&&(()=>{
+                      const q=writeOffSupplier.trim().toLowerCase();
+                      const matched=clients.filter(c=>c.name.toLowerCase().includes(q));
+                      return matched.length>0&&(
+                        <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:200,overflowY:"auto"}}>
+                          {matched.slice(0,20).map(c=>(
+                            <div key={c.code} onMouseDown={()=>{setWriteOffSupplier(c.name);setWriteOffSupplierCode(c.code);setShowWriteOffSupplierDrop(false);}} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:14}}>{c.name}</div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
                   <input style={{...S.input,flex:"0 1 150px"}} type="date" value={writeOffDate} onChange={e=>setWriteOffDate(e.target.value)}/>
                 </div>
                 <div style={S.formGroup}>
