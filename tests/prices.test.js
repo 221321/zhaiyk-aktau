@@ -165,12 +165,38 @@ test('водитель не может завысить цену возврат�
   assert.equal(ret.total, 1000);
 });
 
-test('менеджер не может назначить произвольную цену возврата без заявки — цена из каталога', async () => {
+// Возврат "без заявки" (свободный формат) не привязан к тому, что реально
+// продали — цены для него нет, к которой можно строго привязаться, значит
+// оформить его может только admin; менеджеру и водителю — только "по
+// заявке", где цена берётся из неё самой (см. тест выше).
+test('менеджер не может оформить возврат без заявки — только admin', async () => {
+  await assert.rejects(
+    apiCall(server.baseUrl, 'POST', '/api/returns', {
+      clientName: 'Тестовый клиент',
+      items: [{ code: 'P001', name: 'Мука', qty: 1, price: 1 }],
+      refundCash: 1,
+    }, managerToken),
+    (err) => err.status === 403
+  );
+});
+
+test('водитель не может оформить возврат без заявки — только admin', async () => {
+  await assert.rejects(
+    apiCall(server.baseUrl, 'POST', '/api/returns', {
+      clientName: 'Тестовый клиент',
+      items: [{ code: 'P001', name: 'Мука', qty: 1, price: 1 }],
+      refundCash: 1,
+    }, driverToken),
+    (err) => err.status === 403
+  );
+});
+
+test('admin может оформить возврат без заявки со свободной ценой', async () => {
   const ret = await apiCall(server.baseUrl, 'POST', '/api/returns', {
     clientName: 'Тестовый клиент',
     items: [{ code: 'P001', name: 'Мука', qty: 1, price: 1 }],
     refundCash: 1,
-  }, managerToken);
-  assert.equal(ret.items[0].price, 1000);
-  assert.equal(ret.total, 1000);
+  }, adminToken);
+  assert.equal(ret.items[0].price, 1);
+  assert.equal(ret.total, 1);
 });

@@ -2944,7 +2944,7 @@ function ReturnFormModal({
   }, "\u21A9\uFE0F \u041E\u0444\u043E\u0440\u043C\u0438\u0442\u044C \u0432\u043E\u0437\u0432\u0440\u0430\u0442"), /*#__PURE__*/React.createElement("button", {
     style: S.btnSecondary,
     onClick: onClose
-  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
+  }, "\u2715")), user.role === "admin" && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 6,

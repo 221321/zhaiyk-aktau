@@ -1372,10 +1372,16 @@ function ReturnFormModal({ user, onClose, onCreated }) {
           <button style={S.btnSecondary} onClick={onClose}>✕</button>
         </div>
 
-        <div style={{display:"flex",gap:6,marginBottom:14}}>
-          <button onClick={()=>setMode("order")} style={{flex:1,padding:"9px",borderRadius:8,border:`1px solid ${mode==="order"?C.navy:C.border}`,background:mode==="order"?C.navy:C.white,color:mode==="order"?C.white:C.textMid,fontSize:13,fontWeight:600,cursor:"pointer"}}>По заявке</button>
-          <button onClick={()=>setMode("freeform")} style={{flex:1,padding:"9px",borderRadius:8,border:`1px solid ${mode==="freeform"?C.navy:C.border}`,background:mode==="freeform"?C.navy:C.white,color:mode==="freeform"?C.white:C.textMid,fontSize:13,fontWeight:600,cursor:"pointer"}}>Без заявки</button>
-        </div>
+        {/* Возврат "без заявки" — цена там от руки, не привязана к тому, что
+            реально продали, поэтому доступен только admin (см. проверку на
+            сервере в POST /api/returns). Водителю/менеджеру — строго "по
+            заявке", цена берётся из неё самой. */}
+        {user.role==="admin" && (
+          <div style={{display:"flex",gap:6,marginBottom:14}}>
+            <button onClick={()=>setMode("order")} style={{flex:1,padding:"9px",borderRadius:8,border:`1px solid ${mode==="order"?C.navy:C.border}`,background:mode==="order"?C.navy:C.white,color:mode==="order"?C.white:C.textMid,fontSize:13,fontWeight:600,cursor:"pointer"}}>По заявке</button>
+            <button onClick={()=>setMode("freeform")} style={{flex:1,padding:"9px",borderRadius:8,border:`1px solid ${mode==="freeform"?C.navy:C.border}`,background:mode==="freeform"?C.navy:C.white,color:mode==="freeform"?C.white:C.textMid,fontSize:13,fontWeight:600,cursor:"pointer"}}>Без заявки</button>
+          </div>
+        )}
 
         {mode==="order" ? (
           !selectedOrder ? (
