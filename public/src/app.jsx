@@ -6762,6 +6762,12 @@ function AdminCabinet({ user, onLogout, desktop }) {
   // applyOrderDatePreset), чтобы скрытый чип не продолжал молча фильтровать.
   const [timeSlotFilter, setTimeSlotFilter] = useState("");
   const [showDogovornikModal, setShowDogovornikModal] = useState(false);
+  // Нижняя навигация на телефоне — фиксированная ширина экрана, и с ростом
+  // числа вкладок (сейчас у admin их 10) они физически не влезают в один
+  // ряд. Показываем только самые частые вкладки + кнопку "Ещё", которая
+  // разворачивает остальные наверх (см. mobileMoreTabs ниже) — тот же
+  // паттерн "5 вкладок + Ещё", что в большинстве мобильных приложений.
+  const [showMoreTabs, setShowMoreTabs] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -9266,16 +9272,49 @@ function AdminCabinet({ user, onLogout, desktop }) {
       <div style={S.page}>
         {content}
       </div>
-      <div style={S.nav}>
-        {(readOnlyOp
-          ? [["all","📋","Заявки"],["cashbox","💵","Касса"]]
-          : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["employees","👤","Сотр."]]
-        ).map(([k,ic,lb])=>(
-          <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
-            <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
-          </button>
-        ))}
-      </div>
+      {(() => {
+        if (readOnlyOp) {
+          return (
+            <div style={S.nav}>
+              {[["all","📋","Заявки"],["cashbox","💵","Касса"]].map(([k,ic,lb])=>(
+                <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
+                  <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
+                </button>
+              ))}
+            </div>
+          );
+        }
+        const mobilePrimaryTabs = [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["stock","📦","Остатки"]];
+        const mobileMoreTabs = [
+          ["aliases","🏷","Товары"],["stockReceipts","🚚","Поступление"],["stockWriteOffs","📤","Списание"],
+          ["clientsWeb","🏢","Контрагенты"],["productsWeb","🧾","Номенклатура"],
+          ...(user.role==="admin"?[["employees","👤","Сотрудники"]]:[]),
+        ];
+        const moreActive = mobileMoreTabs.some(([k])=>k===tab);
+        return <>
+          {showMoreTabs&&(
+            <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:150}} onClick={()=>setShowMoreTabs(false)}>
+              <div style={{position:"fixed",bottom:64,left:0,right:0,background:C.white,borderTop:`1px solid ${C.border}`,borderRadius:"16px 16px 0 0",padding:"10px 10px 4px",boxShadow:"0 -4px 16px rgba(0,0,0,0.12)"}} onClick={e=>e.stopPropagation()}>
+                {mobileMoreTabs.map(([k,ic,lb])=>(
+                  <button key={k} onClick={()=>{setTab(k);setShowMoreTabs(false);}} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 10px",border:"none",background:"none",borderBottom:`1px solid ${C.border}`,fontSize:16,fontWeight:tab===k?700:500,color:tab===k?C.accent:C.textMid,cursor:"pointer",textAlign:"left"}}>
+                    <span style={{fontSize:19}}>{ic}</span>{lb}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={S.nav}>
+            {mobilePrimaryTabs.map(([k,ic,lb])=>(
+              <button key={k} style={S.navBtn(tab===k)} onClick={()=>setTab(k)}>
+                <span style={S.navIcon}>{ic}</span><span style={S.navLabel(tab===k)}>{lb}</span>
+              </button>
+            ))}
+            <button style={S.navBtn(moreActive)} onClick={()=>setShowMoreTabs(true)}>
+              <span style={S.navIcon}>☰</span><span style={S.navLabel(moreActive)}>Ещё</span>
+            </button>
+          </div>
+        </>;
+      })()}
     </div>
   );
 }
