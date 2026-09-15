@@ -228,8 +228,8 @@ const SB = {
 };
 const C = {
   navy: "#1C1917",
-  accent: "#1DA851",
-  accentDark: "#157E3C",
+  accent: "#DA1A10",
+  accentDark: "#A4140C",
   redSoft: "#FCEBEA",
   white: "#FFFFFF",
   surface: "#F5F3F0",
@@ -241,9 +241,10 @@ const C = {
   green: "#15803D",
   amber: "#B45309",
   red: "#DC2626",
-  // "Новых"/"Ожидают" в статистике — отдельный от бренда цвет (раньше accent
-  // и он же совпадал с этим статусом; после ребрендинга в зелёный оставляем
-  // тёплый оттенок, иначе не отличить от зелёного "Доставлено" рядом).
+  // "Новых"/"Ожидают" в статистике — отдельный от бренда токен, а не прямая
+  // ссылка на C.accent: цвет бренда менялся (зелёный → снова красный), а
+  // этот статус должен оставаться тёплым красным независимо от бренда,
+  // иначе не отличить от зелёного "Доставлено" рядом.
   pending: "#DA1A10",
   cashGreen: "#DCFCE7",
   qrBlue: "#DBEAFE",
@@ -323,7 +324,7 @@ const S = {
     fontWeight: 800,
     cursor: "pointer",
     marginTop: 4,
-    boxShadow: "0 6px 18px rgba(29,168,81,0.28)"
+    boxShadow: "0 6px 18px rgba(218,26,16,0.28)"
   },
   errorBox: {
     background: "#FEF2F2",
@@ -596,7 +597,7 @@ const S = {
     fontWeight: 800,
     fontSize: 19,
     cursor: "pointer",
-    boxShadow: "0 6px 18px rgba(29,168,81,0.28)",
+    boxShadow: "0 6px 18px rgba(218,26,16,0.28)",
     marginBottom: 16
   },
   bigCreatePlus: {

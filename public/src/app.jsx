@@ -178,13 +178,14 @@ const SC = { new: "#DA1A10", in_transit: "#B45309", delivered: "#15803D", cancel
 const SB = { new: "#FCEBEA", in_transit: "#FBF3E6", delivered: "#EAF5EE", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6", annulled: "#FEE2E2" };
 
 const C = {
-  navy:"#1C1917", accent:"#1DA851", accentDark:"#157E3C", redSoft:"#FCEBEA",
+  navy:"#1C1917", accent:"#DA1A10", accentDark:"#A4140C", redSoft:"#FCEBEA",
   white:"#FFFFFF", surface:"#F5F3F0",
   border:"#E7E3DE", text:"#1C1917", textMid:"#44403C", textSub:"#79716B", textFaint:"#A8A29E",
   green:"#15803D", amber:"#B45309", red:"#DC2626",
-  // "Новых"/"Ожидают" в статистике — отдельный от бренда цвет (раньше accent
-  // и он же совпадал с этим статусом; после ребрендинга в зелёный оставляем
-  // тёплый оттенок, иначе не отличить от зелёного "Доставлено" рядом).
+  // "Новых"/"Ожидают" в статистике — отдельный от бренда токен, а не прямая
+  // ссылка на C.accent: цвет бренда менялся (зелёный → снова красный), а
+  // этот статус должен оставаться тёплым красным независимо от бренда,
+  // иначе не отличить от зелёного "Доставлено" рядом.
   pending:"#DA1A10",
   cashGreen:"#DCFCE7", qrBlue:"#DBEAFE", debtAmber:"#FEF3C7",
 };
@@ -198,7 +199,7 @@ const S = {
   logoSub: { fontSize:13, color:C.accent, margin:"0 0 32px", fontWeight:700, letterSpacing:"0.14em", textTransform:"uppercase" },
   label: { display:"block", fontSize:14, fontWeight:600, color:C.textMid, marginBottom:6, letterSpacing:"0.04em", textTransform:"uppercase" },
   input: { width:"100%", padding:"13px 14px", border:`1.5px solid ${C.border}`, borderRadius:10, fontSize:18, outline:"none", boxSizing:"border-box", background:C.white, color:C.text },
-  btnPrimary: { width:"100%", padding:"15px", background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontSize:18, fontWeight:800, cursor:"pointer", marginTop:4, boxShadow:"0 6px 18px rgba(29,168,81,0.28)" },
+  btnPrimary: { width:"100%", padding:"15px", background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontSize:18, fontWeight:800, cursor:"pointer", marginTop:4, boxShadow:"0 6px 18px rgba(218,26,16,0.28)" },
   errorBox: { background:"#FEF2F2", color:C.red, border:"1px solid #FECACA", padding:"10px 13px", borderRadius:8, fontSize:15, marginBottom:16 },
   header: { background:C.white, color:C.text, padding:"0 18px", height:62, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100, borderBottom:`1px solid ${C.border}` },
   headerMark: { fontFamily:"'Inter', sans-serif", fontSize:19, fontWeight:800, letterSpacing:"-0.01em", color:C.navy, lineHeight:1.1 },
@@ -231,7 +232,7 @@ const S = {
   revenueCard: { background:C.white, border:`1px solid ${C.border}`, borderRadius:R, padding:"16px", marginBottom:12 },
   revenueLabel: { margin:"0 0 4px", fontSize:13, color:C.textSub, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" },
   revenueNum: { fontFamily:FH, margin:0, fontSize:28, fontWeight:800, color:C.accent, fontVariantNumeric:"tabular-nums" },
-  bigCreate: { display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", minHeight:56, background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontWeight:800, fontSize:19, cursor:"pointer", boxShadow:"0 6px 18px rgba(29,168,81,0.28)", marginBottom:16 },
+  bigCreate: { display:"flex", alignItems:"center", justifyContent:"center", gap:10, width:"100%", minHeight:56, background:C.accent, color:C.white, border:"none", borderRadius:R, fontFamily:FH, fontWeight:800, fontSize:19, cursor:"pointer", boxShadow:"0 6px 18px rgba(218,26,16,0.28)", marginBottom:16 },
   bigCreatePlus: { width:26, height:26, borderRadius:"50%", background:"rgba(255,255,255,0.22)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:700, lineHeight:1 },
   // десктоп: сайдбар менеджера
   side: { width:240, flexShrink:0, background:C.white, color:C.text, padding:"26px 20px", display:"flex", flexDirection:"column", position:"sticky", top:0, height:"100vh", borderRight:`1px solid ${C.border}` },
