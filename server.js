@@ -3170,16 +3170,30 @@ app.post('/api/stock-receipts', authMiddleware, (req, res) => {
   const stock = db.get('stock').value();
   const stockByCode = {};
   stock.forEach(s => { stockByCode[s.code] = s; });
+  const aliases = db.get('productAliases').value();
 
-  // Цена в приходе — закупочная стоимость по накладной поставщика, только
-  // для самого документа (итог накладной), значение продажи/каталога
-  // (productAliases.price1-3, cost) не трогает — это отдельная ручная
-  // настройка на вкладке "Товары", смешивать с приходом не просили.
+  // Цена в приходе — закупочная стоимость по этой конкретной накладной
+  // (идёт в итог документа), и одновременно последняя цена закупа для
+  // карточки товара: закупочные цены между поставками меняются, и
+  // владелец попросил не держать её вручную на "Товарах" — каждый приход
+  // с ценой обновляет productAliases.cost на неё (последний приход
+  // побеждает). Цену ПРОДАЖИ (price1-3) это не трогает — она отдельная,
+  // её решение о наценке остаётся ручным.
   const receiptItems = items.map(it => {
     const code = it.code;
     const qty = Number(it.qty);
     const price = it.price != null ? Number(it.price) : 0;
     const isWeightItem = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+    if (price > 0) {
+      const aliasRec = aliasMap[code];
+      if (aliasRec) {
+        aliasRec.cost = price;
+      } else {
+        const newAlias = { code, cost: price };
+        aliases.push(newAlias);
+        aliasMap[code] = newAlias;
+      }
+    }
     const rec = stockByCode[code];
     if (rec) {
       if (isWeightItem) {
