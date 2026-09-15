@@ -7177,6 +7177,56 @@ function AdminCabinet({ user, onLogout, desktop }) {
     setSavingReceipt(false);
   };
 
+  // ===== СПИСАНИЕ ТОВАРА (без 1С) — зеркало "Поступления" выше, см.
+  // POST/GET /api/stock-write-offs. Возврат поставщику или порча/брак —
+  // уменьшает stock.qty/weight_kg, сервер сам не даёт списать больше, чем
+  // реально есть.
+  const WRITE_OFF_REASONS = [["supplier_return","Возврат поставщику"],["damage","Порча, брак"],["other","Другое"]];
+  const [stockWriteOffs, setStockWriteOffs] = useState([]);
+  const loadStockWriteOffs = useCallback(async () => {
+    try { setStockWriteOffs(await apiCall('GET', '/api/stock-write-offs')); } catch(e) {}
+  }, []);
+  useEffect(() => { loadStockWriteOffs(); }, []);
+
+  const [showWriteOffModal, setShowWriteOffModal] = useState(false);
+  const [writeOffReason, setWriteOffReason] = useState("supplier_return");
+  const [writeOffDocNumber, setWriteOffDocNumber] = useState("");
+  const [writeOffNote, setWriteOffNote] = useState("");
+  const [writeOffDate, setWriteOffDate] = useState(todayStr2);
+  const newWriteOffLine = () => ({ uid: Math.random(), code: "", name: "", unit: "", qty: "", price: "", search: "", showDrop: false });
+  const [writeOffLines, setWriteOffLines] = useState([newWriteOffLine()]);
+  const [savingWriteOff, setSavingWriteOff] = useState(false);
+
+  const updateWriteOffLine = (uid, patch) => setWriteOffLines(ls => ls.map(l => l.uid === uid ? {...l, ...patch} : l));
+  const removeWriteOffLine = (uid) => setWriteOffLines(ls => ls.length > 1 ? ls.filter(l => l.uid !== uid) : ls);
+  const addWriteOffLine = () => setWriteOffLines(ls => [...ls, newWriteOffLine()]);
+  const selectWriteOffProduct = (uid, p) => updateWriteOffLine(uid, { code: p.code, name: p.display_name || p.name, unit: p.unit || '', search: p.display_name || p.name, showDrop: false });
+  const writeOffLineTotal = (l) => (Number(l.qty)||0) * (Number(l.price)||0);
+
+  const filledWriteOffLines = writeOffLines.filter(l => l.code && Number(l.qty) > 0);
+  const writeOffGrandTotal = filledWriteOffLines.reduce((s, l) => s + writeOffLineTotal(l), 0);
+
+  const openWriteOffModal = () => {
+    setWriteOffReason("supplier_return"); setWriteOffDocNumber(""); setWriteOffNote(""); setWriteOffDate(todayStr2);
+    setWriteOffLines([newWriteOffLine()]);
+    setShowWriteOffModal(true);
+  };
+
+  const submitWriteOff = async () => {
+    if (filledWriteOffLines.length === 0) { alert('Добавьте хотя бы одну позицию с количеством'); return; }
+    setSavingWriteOff(true);
+    try {
+      await apiCall('POST', '/api/stock-write-offs', {
+        reason: writeOffReason, doc_number: writeOffDocNumber, note: writeOffNote, date: writeOffDate,
+        items: filledWriteOffLines.map(l => ({ code: l.code, qty: Number(l.qty), price: Number(l.price)||0 })),
+      });
+      await loadStockWriteOffs();
+      await loadProducts();
+      setShowWriteOffModal(false);
+    } catch(e) { alert(e.message); }
+    setSavingWriteOff(false);
+  };
+
   const loadOrders = useCallback(async () => {
     try {
       const data = await apiCall('GET', '/api/orders');
@@ -7798,9 +7848,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const TABS = readOnlyOp
     ? [["all","📋","Заявки"],["cashbox","💵","Касса"]]
     : user.role==="manager"
-      ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["stockReceipts","🚚","Поступление"],["clientsWeb","🏢","Контрагенты"],["productsWeb","🧾","Номенклатура"]]
-      : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["stockReceipts","🚚","Поступление"],["clientsWeb","🏢","Контрагенты"],["productsWeb","🧾","Номенклатура"],["employees","👤","Сотрудники"]];
-  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",stockReceipts:"Поступление",clientsWeb:"Контрагенты",productsWeb:"Номенклатура",employees:"Сотрудники"};
+      ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["stockReceipts","🚚","Поступление"],["stockWriteOffs","📤","Списание"],["clientsWeb","🏢","Контрагенты"],["productsWeb","🧾","Номенклатура"]]
+      : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["stockReceipts","🚚","Поступление"],["stockWriteOffs","📤","Списание"],["clientsWeb","🏢","Контрагенты"],["productsWeb","🧾","Номенклатура"],["employees","👤","Сотрудники"]];
+  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",stockReceipts:"Поступление",stockWriteOffs:"Списание",clientsWeb:"Контрагенты",productsWeb:"Номенклатура",employees:"Сотрудники"};
 
   const dateRangeInputs = (
     <div style={{marginBottom:16,maxWidth:420}}>
@@ -8735,6 +8785,105 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   disabled={savingReceipt||filledReceiptLines.length===0}
                   onClick={submitReceipt}
                 >{savingReceipt?"Сохраняю...":"Оприходовать"}</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>}
+      {tab==="stockWriteOffs"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Списание</p>}
+        <div style={{maxWidth: desktop?680:"none"}}>
+          <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
+            Возврат поставщику или порча/брак на складе — уменьшает остаток. Порча, обнаруженная у клиента после доставки, оформляется через "Возвраты", не здесь.
+          </p>
+          <button style={{...S.btnPrimary,marginBottom:16}} onClick={openWriteOffModal}>+ Создать списание</button>
+
+          <p style={{fontSize:14,fontWeight:700,color:C.navy,margin:"0 0 8px"}}>История списаний</p>
+          {stockWriteOffs.length===0
+            ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>Списаний пока не было</div>
+            : stockWriteOffs.slice().reverse().map(w=>(
+              <div key={w.id} style={{...S.card,padding:10,marginBottom:6}}>
+                <p style={S.cardTitle}>{WRITE_OFF_REASONS.find(([v])=>v===w.reason)?.[1]||w.reason}{w.doc_number?` · № ${w.doc_number}`:''}</p>
+                <p style={S.cardSub}>{w.date} · {w.items.map(it=>`${it.name} -${it.qty}${it.is_weight_item?' кг':''}${it.price?` × ${it.price.toLocaleString()} ₸ = ${it.line_total.toLocaleString()} ₸`:''}`).join(', ')}</p>
+                {w.total>0&&<p style={{...S.cardSub,fontWeight:700,color:C.red}}>Итого: {w.total.toLocaleString()} ₸</p>}
+                {w.note&&<p style={S.cardSub}>{w.note}</p>}
+                <p style={{...S.cardSub,color:C.textFaint}}>Занёс: {w.created_by_name}, {new Date(w.created_at).toLocaleString('ru-RU')}</p>
+              </div>
+            ))}
+        </div>
+
+        {showWriteOffModal&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}} onClick={e=>{ if(e.target===e.currentTarget) setShowWriteOffModal(false); }}>
+            <div style={{background:C.surface,margin:"16px auto",borderRadius:16,padding:20,maxWidth:640,minHeight:"calc(100vh - 32px)"}}>
+              <div style={{...S.row,marginBottom:16}}>
+                <p style={{margin:0,fontSize:20,fontWeight:800,fontFamily:FH,color:C.navy}}>📤 Создать списание</p>
+                <button style={S.btnSecondary} onClick={()=>setShowWriteOffModal(false)}>✕ Закрыть</button>
+              </div>
+              <div style={S.card}>
+                <div style={S.formGroup}>
+                  <label style={S.label}>Причина</label>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {WRITE_OFF_REASONS.map(([v,l])=>(
+                      <button key={v} type="button" onClick={()=>setWriteOffReason(v)} style={{flex:"1 1 auto",padding:"9px 10px",borderRadius:8,border:`1.5px solid ${writeOffReason===v?C.navy:C.border}`,background:writeOffReason===v?C.navy:C.white,color:writeOffReason===v?C.white:C.textMid,fontSize:13,fontWeight:600,cursor:"pointer"}}>{l}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                  <input style={{...S.input,flex:"1 1 140px"}} placeholder="№ документа (необязательно)" value={writeOffDocNumber} onChange={e=>setWriteOffDocNumber(e.target.value)}/>
+                  <input style={{...S.input,flex:"0 1 150px"}} type="date" value={writeOffDate} onChange={e=>setWriteOffDate(e.target.value)}/>
+                </div>
+                <div style={S.formGroup}>
+                  <input style={S.input} placeholder="Комментарий (необязательно)" value={writeOffNote} onChange={e=>setWriteOffNote(e.target.value)}/>
+                </div>
+
+                <div style={{...S.row,marginBottom:10}}>
+                  <label style={S.label}>Позиции</label>
+                  <button onClick={addWriteOffLine} style={{background:C.navy,color:C.white,border:"none",borderRadius:8,padding:"4px 12px",fontSize:14,fontWeight:600,cursor:"pointer"}}>+ Товар</button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 70px 90px 100px 28px",gap:6,marginBottom:6}}>
+                  {["Наименование","Кол-во","Цена ₸","Сумма ₸",""].map((h,i)=><div key={i} style={{fontSize:11,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
+                </div>
+                {writeOffLines.map(line=>{
+                  const matched = line.search.length>0 ? products.filter(p=>(p.display_name||p.name).toLowerCase().includes(line.search.toLowerCase())) : products.slice(0,50);
+                  return (
+                    <div key={line.uid} style={{display:"grid",gridTemplateColumns:"1fr 70px 90px 100px 28px",gap:6,marginBottom:8,alignItems:"start"}}>
+                      <div style={{position:"relative"}}>
+                        <input
+                          style={S.input}
+                          placeholder="Название товара..."
+                          value={line.search}
+                          onChange={e=>updateWriteOffLine(line.uid,{search:e.target.value,code:"",showDrop:true})}
+                          onFocus={()=>updateWriteOffLine(line.uid,{showDrop:true})}
+                          onBlur={()=>setTimeout(()=>updateWriteOffLine(line.uid,{showDrop:false}),180)}
+                        />
+                        {line.showDrop&&matched.length>0&&(
+                          <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:220,overflowY:"auto"}}>
+                            {matched.map(p=>(
+                              <div key={p.code} onMouseDown={()=>selectWriteOffProduct(line.uid,p)} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:15}}>
+                                <div style={{fontWeight:600}}>{p.display_name||p.name}</div>
+                                <div style={{fontSize:13,color:C.textFaint}}>{p.code} · остаток: {p.priced_by_weight?((p.stock_weight_kg||0)+' кг'):p.stock}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <input style={S.input} type="number" placeholder={line.unit||"кол-во"} value={line.qty} onChange={e=>updateWriteOffLine(line.uid,{qty:e.target.value})}/>
+                      <input style={S.input} type="number" placeholder="0" value={line.price} onChange={e=>updateWriteOffLine(line.uid,{price:e.target.value})}/>
+                      <div style={{padding:"11px 0",fontSize:14,fontWeight:600,color:C.textMid,textAlign:"right"}}>{writeOffLineTotal(line).toLocaleString()}</div>
+                      <button onClick={()=>removeWriteOffLine(line.uid)} style={{border:"none",background:"none",color:C.textFaint,fontSize:20,cursor:"pointer"}}>✕</button>
+                    </div>
+                  );
+                })}
+
+                {writeOffGrandTotal>0&&(
+                  <p style={{textAlign:"right",fontSize:17,fontWeight:800,color:C.navy,fontFamily:FH,margin:"10px 0"}}>Итого: {writeOffGrandTotal.toLocaleString()} ₸</p>
+                )}
+
+                <button
+                  style={{...S.btnPrimary,opacity:(savingWriteOff||filledWriteOffLines.length===0)?0.5:1}}
+                  disabled={savingWriteOff||filledWriteOffLines.length===0}
+                  onClick={submitWriteOff}
+                >{savingWriteOff?"Сохраняю...":"Списать"}</button>
               </div>
             </div>
           </div>
