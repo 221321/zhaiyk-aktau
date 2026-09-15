@@ -7242,6 +7242,57 @@ function AdminCabinet({ user, onLogout, desktop }) {
     setCreatingWebClient(false);
   };
 
+  // ===== НОМЕНКЛАТУРА, созданная на сайте (без 1С) — см. POST/GET
+  // /api/products-web. Отдельная коллекция от `products` (см. сервер) —
+  // не сливается с каталогом заказа (нет и не может быть остатка), только
+  // карточка + дубль-проверка, тот же принцип, что и у контрагентов выше.
+  const [productsWeb, setProductsWeb] = useState([]);
+  const loadProductsWeb = useCallback(async () => {
+    try { setProductsWeb(await apiCall('GET', '/api/products-web')); } catch(e) {}
+  }, []);
+  useEffect(() => { loadProductsWeb(); }, []);
+
+  const [webProductSearch, setWebProductSearch] = useState("");
+  const [newWebProduct, setNewWebProduct] = useState({ name: '', unit: '', barcode: '', category: '' });
+  const [creatingWebProduct, setCreatingWebProduct] = useState(false);
+  const [webProductDupeConfirmed, setWebProductDupeConfirmed] = useState(false);
+
+  const updateNewWebProduct = (field, value) => { setNewWebProduct(f => ({...f, [field]: value})); setWebProductDupeConfirmed(false); };
+
+  // Дубль-поиск по объединённому списку `products`(1С)+`productsWeb`: точный
+  // штрихкод (самый надёжный сигнал для товара, аналог БИН у контрагента),
+  // иначе подстрока по названию — тот же паттерн includes(), что уже в
+  // поиске товара при оформлении заявки выше.
+  const webProductDupeMatches = useMemo(() => {
+    const name = newWebProduct.name.trim().toLowerCase();
+    const barcode = newWebProduct.barcode.trim();
+    if (!name && !barcode) return [];
+    const all = [
+      ...products.map(p => ({ name: p.display_name || p.name, barcode: p.barcode || '', code: p.code, source: '1С' })),
+      ...productsWeb.filter(p => !p.archived).map(p => ({ name: p.name, barcode: p.barcode || '', code: p.code, source: 'Сайт' })),
+    ];
+    if (barcode) {
+      const m = all.filter(p => p.barcode && p.barcode === barcode);
+      if (m.length) return m;
+    }
+    if (name.length >= 2) {
+      return all.filter(p => (p.name || '').toLowerCase().includes(name));
+    }
+    return [];
+  }, [newWebProduct, products, productsWeb]);
+
+  const createWebProduct = async () => {
+    if (!newWebProduct.name.trim() || !newWebProduct.unit.trim()) { alert('Укажите наименование и единицу измерения'); return; }
+    setCreatingWebProduct(true);
+    try {
+      await apiCall('POST', '/api/products-web', newWebProduct);
+      await loadProductsWeb();
+      setNewWebProduct({ name: '', unit: '', barcode: '', category: '' });
+      setWebProductDupeConfirmed(false);
+    } catch(e) { alert(e.message); }
+    setCreatingWebProduct(false);
+  };
+
   const loadOrders = useCallback(async () => {
     try {
       const data = await apiCall('GET', '/api/orders');
@@ -7863,9 +7914,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const TABS = readOnlyOp
     ? [["all","📋","Заявки"],["cashbox","💵","Касса"]]
     : user.role==="manager"
-      ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["clientsWeb","🏢","Контрагенты"]]
-      : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["clientsWeb","🏢","Контрагенты"],["employees","👤","Сотрудники"]];
-  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",clientsWeb:"Контрагенты",employees:"Сотрудники"};
+      ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["clientsWeb","🏢","Контрагенты"],["productsWeb","🧾","Номенклатура"]]
+      : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["clientsWeb","🏢","Контрагенты"],["productsWeb","🧾","Номенклатура"],["employees","👤","Сотрудники"]];
+  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",clientsWeb:"Контрагенты",productsWeb:"Номенклатура",employees:"Сотрудники"};
 
   const dateRangeInputs = (
     <div style={{marginBottom:16,maxWidth:420}}>
@@ -8795,6 +8846,80 @@ function AdminCabinet({ user, onLogout, desktop }) {
                     <p style={S.cardSub}>{c.entity_type==='legal'?'Юр.лицо':'Физ.лицо'}{c.code?` · ${c.code}`:''} · {c.phone}{c.bin?` · БИН ${c.bin}`:''}</p>
                     {c.address&&<p style={S.cardSub}>📍 {c.address}</p>}
                     <p style={{...S.cardSub,color:C.textFaint}}>Создал: {c.created_by_name}, {new Date(c.created_at).toLocaleDateString('ru-RU')}</p>
+                  </div>
+                </div>
+              </div>
+            ));
+          })()}
+        </div>
+      </>}
+      {tab==="productsWeb"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Номенклатура</p>}
+        <div style={{maxWidth: desktop?560:"none"}}>
+          <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
+            Товар, созданный здесь, ещё не в 1С и не появляется в каталоге заказа — у него нет остатка. Код (WEBP-...) выдаёт сайт, чтобы позже бухгалтер принял его в 1С без коллизий.
+          </p>
+          <div style={S.card}>
+            <p style={{...S.cardTitle,marginBottom:10}}>Новый товар</p>
+            <div style={S.formGroup}>
+              <label style={S.label}>Наименование *</label>
+              <input style={S.input} placeholder="Название товара" value={newWebProduct.name} onChange={e=>updateNewWebProduct('name',e.target.value)}/>
+            </div>
+            <div style={S.formGroup}>
+              <label style={S.label}>Единица измерения *</label>
+              <input style={S.input} placeholder="шт, кор, кг..." value={newWebProduct.unit} onChange={e=>updateNewWebProduct('unit',e.target.value)}/>
+            </div>
+            <div style={S.formGroup}>
+              <label style={S.label}>Штрихкод</label>
+              <input style={S.input} placeholder="Необязательно" value={newWebProduct.barcode} onChange={e=>updateNewWebProduct('barcode',e.target.value)}/>
+            </div>
+            <div style={S.formGroup}>
+              <label style={S.label}>Раздел</label>
+              <input style={S.input} placeholder="Необязательно" value={newWebProduct.category} onChange={e=>updateNewWebProduct('category',e.target.value)}/>
+            </div>
+
+            {webProductDupeMatches.length>0&&!webProductDupeConfirmed&&(
+              <div style={{padding:"10px 12px",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,marginBottom:10}}>
+                <p style={{margin:"0 0 8px",fontSize:14,fontWeight:600,color:C.textMid}}>Похоже, такой товар уже есть:</p>
+                {webProductDupeMatches.slice(0,5).map((m,i)=>(
+                  <div key={i} style={{fontSize:13,color:C.textSub,marginBottom:4}}>
+                    <b>{m.name}</b>{m.barcode?` · ${m.barcode}`:''} <span style={{color:C.textFaint}}>({m.source}{m.code?`, ${m.code}`:''})</span>
+                  </div>
+                ))}
+                <div style={{display:"flex",gap:8,marginTop:8}}>
+                  <button type="button" onClick={()=>{setNewWebProduct({ name:'', unit:'', barcode:'', category:'' }); setWebProductDupeConfirmed(false);}} style={{...S.btnSecondary,flex:1,marginTop:0}}>Да, это он — не создавать</button>
+                  <button type="button" onClick={()=>setWebProductDupeConfirmed(true)} style={{...S.btnSecondary,flex:1,marginTop:0}}>Нет, другой</button>
+                </div>
+              </div>
+            )}
+
+            <button
+              style={{...S.btnPrimary,opacity:(creatingWebProduct||(webProductDupeMatches.length>0&&!webProductDupeConfirmed))?0.5:1}}
+              disabled={creatingWebProduct||(webProductDupeMatches.length>0&&!webProductDupeConfirmed)}
+              onClick={createWebProduct}
+            >{creatingWebProduct?"Создаю...":"Создать"}</button>
+          </div>
+
+          <input
+            type="search"
+            style={{...S.input,margin:"16px 0"}}
+            placeholder="Поиск по названию, штрихкоду, коду..."
+            value={webProductSearch}
+            onChange={e=>setWebProductSearch(e.target.value)}
+            autoComplete="off"
+            name="products-web-search"
+          />
+          {(() => {
+            const q = webProductSearch.trim().toLowerCase();
+            const list = productsWeb.filter(p => !q || (p.name||'').toLowerCase().includes(q) || (p.barcode||'').includes(q) || (p.code||'').toLowerCase().includes(q));
+            if (list.length===0) return <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>{q?"Ничего не найдено":"Товаров, созданных на сайте, пока нет"}</div>;
+            return list.slice().reverse().map(p=>(
+              <div key={p.id} style={{...S.card,padding:10,marginBottom:6}}>
+                <div style={S.row}>
+                  <div>
+                    <p style={S.cardTitle}>{p.name}</p>
+                    <p style={S.cardSub}>{p.code} · {p.unit}{p.barcode?` · ${p.barcode}`:''}{p.category?` · ${p.category}`:''}</p>
+                    <p style={{...S.cardSub,color:C.textFaint}}>Создал: {p.created_by_name}, {new Date(p.created_at).toLocaleDateString('ru-RU')}</p>
                   </div>
                 </div>
               </div>

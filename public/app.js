@@ -14944,6 +14944,86 @@ function AdminCabinet({
     }
     setCreatingWebClient(false);
   };
+
+  // ===== НОМЕНКЛАТУРА, созданная на сайте (без 1С) — см. POST/GET
+  // /api/products-web. Отдельная коллекция от `products` (см. сервер) —
+  // не сливается с каталогом заказа (нет и не может быть остатка), только
+  // карточка + дубль-проверка, тот же принцип, что и у контрагентов выше.
+  const [productsWeb, setProductsWeb] = useState([]);
+  const loadProductsWeb = useCallback(async () => {
+    try {
+      setProductsWeb(await apiCall('GET', '/api/products-web'));
+    } catch (e) {}
+  }, []);
+  useEffect(() => {
+    loadProductsWeb();
+  }, []);
+  const [webProductSearch, setWebProductSearch] = useState("");
+  const [newWebProduct, setNewWebProduct] = useState({
+    name: '',
+    unit: '',
+    barcode: '',
+    category: ''
+  });
+  const [creatingWebProduct, setCreatingWebProduct] = useState(false);
+  const [webProductDupeConfirmed, setWebProductDupeConfirmed] = useState(false);
+  const updateNewWebProduct = (field, value) => {
+    setNewWebProduct(f => ({
+      ...f,
+      [field]: value
+    }));
+    setWebProductDupeConfirmed(false);
+  };
+
+  // Дубль-поиск по объединённому списку `products`(1С)+`productsWeb`: точный
+  // штрихкод (самый надёжный сигнал для товара, аналог БИН у контрагента),
+  // иначе подстрока по названию — тот же паттерн includes(), что уже в
+  // поиске товара при оформлении заявки выше.
+  const webProductDupeMatches = useMemo(() => {
+    const name = newWebProduct.name.trim().toLowerCase();
+    const barcode = newWebProduct.barcode.trim();
+    if (!name && !barcode) return [];
+    const all = [...products.map(p => ({
+      name: p.display_name || p.name,
+      barcode: p.barcode || '',
+      code: p.code,
+      source: '1С'
+    })), ...productsWeb.filter(p => !p.archived).map(p => ({
+      name: p.name,
+      barcode: p.barcode || '',
+      code: p.code,
+      source: 'Сайт'
+    }))];
+    if (barcode) {
+      const m = all.filter(p => p.barcode && p.barcode === barcode);
+      if (m.length) return m;
+    }
+    if (name.length >= 2) {
+      return all.filter(p => (p.name || '').toLowerCase().includes(name));
+    }
+    return [];
+  }, [newWebProduct, products, productsWeb]);
+  const createWebProduct = async () => {
+    if (!newWebProduct.name.trim() || !newWebProduct.unit.trim()) {
+      alert('Укажите наименование и единицу измерения');
+      return;
+    }
+    setCreatingWebProduct(true);
+    try {
+      await apiCall('POST', '/api/products-web', newWebProduct);
+      await loadProductsWeb();
+      setNewWebProduct({
+        name: '',
+        unit: '',
+        barcode: '',
+        category: ''
+      });
+      setWebProductDupeConfirmed(false);
+    } catch (e) {
+      alert(e.message);
+    }
+    setCreatingWebProduct(false);
+  };
   const loadOrders = useCallback(async () => {
     try {
       const data = await apiCall('GET', '/api/orders');
@@ -15697,7 +15777,7 @@ function AdminCabinet({
   // владельца (admin), менеджеру эта вкладка не нужна и не должна быть
   // видна вовсе (просьба владельца), в отличие от operator, которому и так
   // урезан весь список вкладок выше.
-  const TABS = readOnlyOp ? [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]] : user.role === "manager" ? [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["clientsWeb", "🏢", "Контрагенты"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["clientsWeb", "🏢", "Контрагенты"], ["employees", "👤", "Сотрудники"]];
+  const TABS = readOnlyOp ? [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]] : user.role === "manager" ? [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["clientsWeb", "🏢", "Контрагенты"], ["productsWeb", "🧾", "Номенклатура"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["clientsWeb", "🏢", "Контрагенты"], ["productsWeb", "🧾", "Номенклатура"], ["employees", "👤", "Сотрудники"]];
   const TAB_TITLES = {
     all: "Заявки",
     report: "Отчёт",
@@ -15707,6 +15787,7 @@ function AdminCabinet({
     catalog: "Каталог",
     nkt: "Коды НКТ",
     clientsWeb: "Контрагенты",
+    productsWeb: "Номенклатура",
     employees: "Сотрудники"
   };
   const dateRangeInputs = /*#__PURE__*/React.createElement("div", {
@@ -18150,6 +18231,166 @@ function AdminCabinet({
         color: C.textFaint
       }
     }, "\u0421\u043E\u0437\u0434\u0430\u043B: ", c.created_by_name, ", ", new Date(c.created_at).toLocaleDateString('ru-RU'))))));
+  })())), tab === "productsWeb" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
+    style: S.sectionTitle
+  }, "\u041D\u043E\u043C\u0435\u043D\u043A\u043B\u0430\u0442\u0443\u0440\u0430"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxWidth: desktop ? 560 : "none"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 14,
+      color: C.textSub,
+      marginTop: desktop ? 0 : -8,
+      marginBottom: 12
+    }
+  }, "\u0422\u043E\u0432\u0430\u0440, \u0441\u043E\u0437\u0434\u0430\u043D\u043D\u044B\u0439 \u0437\u0434\u0435\u0441\u044C, \u0435\u0449\u0451 \u043D\u0435 \u0432 1\u0421 \u0438 \u043D\u0435 \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435 \u0437\u0430\u043A\u0430\u0437\u0430 \u2014 \u0443 \u043D\u0435\u0433\u043E \u043D\u0435\u0442 \u043E\u0441\u0442\u0430\u0442\u043A\u0430. \u041A\u043E\u0434 (WEBP-...) \u0432\u044B\u0434\u0430\u0451\u0442 \u0441\u0430\u0439\u0442, \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u0437\u0436\u0435 \u0431\u0443\u0445\u0433\u0430\u043B\u0442\u0435\u0440 \u043F\u0440\u0438\u043D\u044F\u043B \u0435\u0433\u043E \u0432 1\u0421 \u0431\u0435\u0437 \u043A\u043E\u043B\u043B\u0438\u0437\u0438\u0439."), /*#__PURE__*/React.createElement("div", {
+    style: S.card
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...S.cardTitle,
+      marginBottom: 10
+    }
+  }, "\u041D\u043E\u0432\u044B\u0439 \u0442\u043E\u0432\u0430\u0440"), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u041D\u0430\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435 *"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0442\u043E\u0432\u0430\u0440\u0430",
+    value: newWebProduct.name,
+    onChange: e => updateNewWebProduct('name', e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0415\u0434\u0438\u043D\u0438\u0446\u0430 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F *"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u0448\u0442, \u043A\u043E\u0440, \u043A\u0433...",
+    value: newWebProduct.unit,
+    onChange: e => updateNewWebProduct('unit', e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0428\u0442\u0440\u0438\u0445\u043A\u043E\u0434"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u041D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E",
+    value: newWebProduct.barcode,
+    onChange: e => updateNewWebProduct('barcode', e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0420\u0430\u0437\u0434\u0435\u043B"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u041D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E",
+    value: newWebProduct.category,
+    onChange: e => updateNewWebProduct('category', e.target.value)
+  })), webProductDupeMatches.length > 0 && !webProductDupeConfirmed && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 12px",
+      background: "#FFFBEB",
+      border: "1px solid #FDE68A",
+      borderRadius: 8,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 8px",
+      fontSize: 14,
+      fontWeight: 600,
+      color: C.textMid
+    }
+  }, "\u041F\u043E\u0445\u043E\u0436\u0435, \u0442\u0430\u043A\u043E\u0439 \u0442\u043E\u0432\u0430\u0440 \u0443\u0436\u0435 \u0435\u0441\u0442\u044C:"), webProductDupeMatches.slice(0, 5).map((m, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      fontSize: 13,
+      color: C.textSub,
+      marginBottom: 4
+    }
+  }, /*#__PURE__*/React.createElement("b", null, m.name), m.barcode ? ` · ${m.barcode}` : '', " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.textFaint
+    }
+  }, "(", m.source, m.code ? `, ${m.code}` : '', ")"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => {
+      setNewWebProduct({
+        name: '',
+        unit: '',
+        barcode: '',
+        category: ''
+      });
+      setWebProductDupeConfirmed(false);
+    },
+    style: {
+      ...S.btnSecondary,
+      flex: 1,
+      marginTop: 0
+    }
+  }, "\u0414\u0430, \u044D\u0442\u043E \u043E\u043D \u2014 \u043D\u0435 \u0441\u043E\u0437\u0434\u0430\u0432\u0430\u0442\u044C"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setWebProductDupeConfirmed(true),
+    style: {
+      ...S.btnSecondary,
+      flex: 1,
+      marginTop: 0
+    }
+  }, "\u041D\u0435\u0442, \u0434\u0440\u0443\u0433\u043E\u0439"))), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnPrimary,
+      opacity: creatingWebProduct || webProductDupeMatches.length > 0 && !webProductDupeConfirmed ? 0.5 : 1
+    },
+    disabled: creatingWebProduct || webProductDupeMatches.length > 0 && !webProductDupeConfirmed,
+    onClick: createWebProduct
+  }, creatingWebProduct ? "Создаю..." : "Создать")), /*#__PURE__*/React.createElement("input", {
+    type: "search",
+    style: {
+      ...S.input,
+      margin: "16px 0"
+    },
+    placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044E, \u0448\u0442\u0440\u0438\u0445\u043A\u043E\u0434\u0443, \u043A\u043E\u0434\u0443...",
+    value: webProductSearch,
+    onChange: e => setWebProductSearch(e.target.value),
+    autoComplete: "off",
+    name: "products-web-search"
+  }), (() => {
+    const q = webProductSearch.trim().toLowerCase();
+    const list = productsWeb.filter(p => !q || (p.name || '').toLowerCase().includes(q) || (p.barcode || '').includes(q) || (p.code || '').toLowerCase().includes(q));
+    if (list.length === 0) return /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center",
+        padding: "16px 0",
+        color: C.textFaint,
+        fontSize: 15
+      }
+    }, q ? "Ничего не найдено" : "Товаров, созданных на сайте, пока нет");
+    return list.slice().reverse().map(p => /*#__PURE__*/React.createElement("div", {
+      key: p.id,
+      style: {
+        ...S.card,
+        padding: 10,
+        marginBottom: 6
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: S.row
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+      style: S.cardTitle
+    }, p.name), /*#__PURE__*/React.createElement("p", {
+      style: S.cardSub
+    }, p.code, " \xB7 ", p.unit, p.barcode ? ` · ${p.barcode}` : '', p.category ? ` · ${p.category}` : ''), /*#__PURE__*/React.createElement("p", {
+      style: {
+        ...S.cardSub,
+        color: C.textFaint
+      }
+    }, "\u0421\u043E\u0437\u0434\u0430\u043B: ", p.created_by_name, ", ", new Date(p.created_at).toLocaleDateString('ru-RU'))))));
   })())), tab === "employees" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0438"), /*#__PURE__*/React.createElement("div", {

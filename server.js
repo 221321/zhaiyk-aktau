@@ -2114,6 +2114,61 @@ app.post('/api/products/sync', (req, res) => {
   res.json({ success: true, count: dedupedItems.length, removed: removedCodes.length, duplicates: duplicateCount });
 });
 
+// ===== PRODUCTS-WEB (номенклатура, созданная на сайте, без 1С) =====
+// Отдельная коллекция — не расширение productAliases и не запись в
+// `products`: /api/products/sync выше полностью ЗАТИРАЕТ `products` при
+// каждой синхронизации, и GET /api/products строит список ИЗ `products`,
+// накладывая productAliases только как оверлей поверх уже существующих в
+// 1С кодов (см. GET /api/products выше — сама точка входа "for products
+// of ...products.map", новый код там просто не появится). Значит: (1)
+// синк из 1С никак не заденет эту коллекцию, и (2) карточка, созданная
+// здесь, СОЗНАТЕЛЬНО не попадает в список товаров для заказа — у нее нет
+// и не может быть остатка (остаток ведёт только /api/stock/sync из 1С),
+// поэтому обычная проверка доступного остатка при оформлении заявки её
+// просто заблокировала бы. Это отдельная задача (сверка/ведение остатка
+// для сайтовых товаров) — сейчас только карточка + дубль-проверка.
+db.defaults({ productsWeb: [], nextWebProductId: 1 }).write();
+
+// Код WEBP-NNNNNN — свой префикс, отличимый и от кодов 1С, и от кодов
+// сайтовых контрагентов (WEB-NNNNNN, см. /api/clients-web), чтобы не
+// путать сущности при отладке. Присваивает только сайт.
+function nextWebProductCode() {
+  const n = db.get('nextWebProductId').value();
+  db.set('nextWebProductId', n + 1).write();
+  return 'WEBP-' + String(n).padStart(6, '0');
+}
+
+app.get('/api/products-web', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('productsWeb').value());
+});
+
+app.post('/api/products-web', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { name, unit, barcode, category } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Не указано наименование' });
+  if (!unit || !unit.trim()) return res.status(400).json({ error: 'Не указана единица измерения' });
+
+  const record = {
+    id: Date.now(),
+    code: nextWebProductCode(),
+    name: name.trim(),
+    unit: unit.trim(),
+    barcode: (barcode || '').trim(),
+    category: (category || '').trim(),
+    archived: false,
+    created_by_id: req.user.id,
+    created_by_name: req.user.name,
+    created_at: new Date().toISOString(),
+  };
+  db.get('productsWeb').push(record).write();
+  res.json(record);
+});
+
 // ===== PRODUCT ALIASES (псевдонимы и цены для сайта) =====
 app.get('/api/product-aliases', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
