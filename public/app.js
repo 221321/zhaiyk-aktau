@@ -14138,6 +14138,12 @@ function AdminCabinet({
   // applyOrderDatePreset), чтобы скрытый чип не продолжал молча фильтровать.
   const [timeSlotFilter, setTimeSlotFilter] = useState("");
   const [showDogovornikModal, setShowDogovornikModal] = useState(false);
+  // Нижняя навигация на телефоне — фиксированная ширина экрана, и с ростом
+  // числа вкладок (сейчас у admin их 10) они физически не влезают в один
+  // ряд. Показываем только самые частые вкладки + кнопку "Ещё", которая
+  // разворачивает остальные наверх (см. mobileMoreTabs ниже) — тот же
+  // паттерн "5 вкладок + Ещё", что в большинстве мобильных приложений.
+  const [showMoreTabs, setShowMoreTabs] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19340,17 +19346,88 @@ function AdminCabinet({
     onSaved: loadClients
   }), /*#__PURE__*/React.createElement("div", {
     style: S.page
-  }, content), /*#__PURE__*/React.createElement("div", {
-    style: S.nav
-  }, (readOnlyOp ? [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["employees", "👤", "Сотр."]]).map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
-    key: k,
-    style: S.navBtn(tab === k),
-    onClick: () => setTab(k)
-  }, /*#__PURE__*/React.createElement("span", {
-    style: S.navIcon
-  }, ic), /*#__PURE__*/React.createElement("span", {
-    style: S.navLabel(tab === k)
-  }, lb)))));
+  }, content), (() => {
+    if (readOnlyOp) {
+      return /*#__PURE__*/React.createElement("div", {
+        style: S.nav
+      }, [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]].map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
+        key: k,
+        style: S.navBtn(tab === k),
+        onClick: () => setTab(k)
+      }, /*#__PURE__*/React.createElement("span", {
+        style: S.navIcon
+      }, ic), /*#__PURE__*/React.createElement("span", {
+        style: S.navLabel(tab === k)
+      }, lb))));
+    }
+    const mobilePrimaryTabs = [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["stock", "📦", "Остатки"]];
+    const mobileMoreTabs = [["aliases", "🏷", "Товары"], ["stockReceipts", "🚚", "Поступление"], ["stockWriteOffs", "📤", "Списание"], ["clientsWeb", "🏢", "Контрагенты"], ["productsWeb", "🧾", "Номенклатура"], ...(user.role === "admin" ? [["employees", "👤", "Сотрудники"]] : [])];
+    const moreActive = mobileMoreTabs.some(([k]) => k === tab);
+    return /*#__PURE__*/React.createElement(React.Fragment, null, showMoreTabs && /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "fixed",
+        inset: 0,
+        background: "rgba(28,25,23,0.45)",
+        zIndex: 150
+      },
+      onClick: () => setShowMoreTabs(false)
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "fixed",
+        bottom: 64,
+        left: 0,
+        right: 0,
+        background: C.white,
+        borderTop: `1px solid ${C.border}`,
+        borderRadius: "16px 16px 0 0",
+        padding: "10px 10px 4px",
+        boxShadow: "0 -4px 16px rgba(0,0,0,0.12)"
+      },
+      onClick: e => e.stopPropagation()
+    }, mobileMoreTabs.map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
+      key: k,
+      onClick: () => {
+        setTab(k);
+        setShowMoreTabs(false);
+      },
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        width: "100%",
+        padding: "13px 10px",
+        border: "none",
+        background: "none",
+        borderBottom: `1px solid ${C.border}`,
+        fontSize: 16,
+        fontWeight: tab === k ? 700 : 500,
+        color: tab === k ? C.accent : C.textMid,
+        cursor: "pointer",
+        textAlign: "left"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 19
+      }
+    }, ic), lb)))), /*#__PURE__*/React.createElement("div", {
+      style: S.nav
+    }, mobilePrimaryTabs.map(([k, ic, lb]) => /*#__PURE__*/React.createElement("button", {
+      key: k,
+      style: S.navBtn(tab === k),
+      onClick: () => setTab(k)
+    }, /*#__PURE__*/React.createElement("span", {
+      style: S.navIcon
+    }, ic), /*#__PURE__*/React.createElement("span", {
+      style: S.navLabel(tab === k)
+    }, lb))), /*#__PURE__*/React.createElement("button", {
+      style: S.navBtn(moreActive),
+      onClick: () => setShowMoreTabs(true)
+    }, /*#__PURE__*/React.createElement("span", {
+      style: S.navIcon
+    }, "\u2630"), /*#__PURE__*/React.createElement("span", {
+      style: S.navLabel(moreActive)
+    }, "\u0415\u0449\u0451"))));
+  })());
 }
 function WarehouseCabinet({
   user,
