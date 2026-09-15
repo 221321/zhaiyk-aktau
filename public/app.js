@@ -14408,6 +14408,52 @@ function AdminCabinet({
     }
     setSavingEmp(null);
   };
+
+  // Сотрудник без привязки к 1С — тот же /api/users, что и у пикера "Без
+  // учётной записи" выше, просто ФИО вводит сам admin, а не берёт из
+  // ростера 1С (employee_code не передаём — не 1С-физлицо, это нормально
+  // и никак не мешает: если позже в 1С заведут физлицо с таким же именем,
+  // /api/employees/sync сам подхватит этот аккаунт по имени). "Магазин"
+  // сюда не включаем — у него отдельный флоу привязки к клиенту (см.
+  // "Магазины без кабинета" ниже), свободная форма его не покрывает.
+  const [showNewEmployeeModal, setShowNewEmployeeModal] = useState(false);
+  const [newEmployee, setNewEmployee] = useState({
+    name: '',
+    role: '',
+    login: '',
+    password: ''
+  });
+  const [creatingNewEmployee, setCreatingNewEmployee] = useState(false);
+  const createNewEmployee = async () => {
+    if (!newEmployee.name.trim() || !newEmployee.role || !newEmployee.login.trim() || !newEmployee.password.trim()) {
+      alert('Заполните имя, роль, логин и пароль');
+      return;
+    }
+    if (newEmployee.password.length < 4) {
+      alert('Пароль минимум 4 символа');
+      return;
+    }
+    setCreatingNewEmployee(true);
+    try {
+      await apiCall('POST', '/api/users', {
+        login: newEmployee.login.trim(),
+        password: newEmployee.password,
+        name: newEmployee.name.trim(),
+        role: newEmployee.role
+      });
+      await loadUsers();
+      setNewEmployee({
+        name: '',
+        role: '',
+        login: '',
+        password: ''
+      });
+      setShowNewEmployeeModal(false);
+    } catch (e) {
+      alert(e.message);
+    }
+    setCreatingNewEmployee(false);
+  };
   const toggleUser = async u => {
     if (!window.confirm(`${u.active === false ? 'Включить' : 'Отключить'} доступ для «${u.name}»?`)) return;
     setTogglingUser(u.id);
@@ -19363,7 +19409,120 @@ function AdminCabinet({
       marginTop: desktop ? 0 : -8,
       marginBottom: 12
     }
-  }, "\u0424\u0418\u041E \u043F\u0440\u0438\u0445\u043E\u0434\u0438\u0442 \u0438\u0437 1\u0421. \u0414\u043B\u044F \u043D\u043E\u0432\u044B\u0445 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432 \u0437\u0430\u0434\u0430\u0439 \u0440\u043E\u043B\u044C, \u043B\u043E\u0433\u0438\u043D \u0438 \u043F\u0430\u0440\u043E\u043B\u044C \u2014 \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0440\u0430\u0431\u043E\u0447\u0438\u0439 \u0432\u0445\u043E\u0434 \u043D\u0430 \u0441\u0430\u0439\u0442."), /*#__PURE__*/React.createElement("input", {
+  }, "\u0424\u0418\u041E \u043C\u043E\u0436\u0435\u0442 \u043F\u0440\u0438\u0439\u0442\u0438 \u0438\u0437 1\u0421 (\u0441\u043C. \"\u0411\u0435\u0437 \u0443\u0447\u0451\u0442\u043D\u043E\u0439 \u0437\u0430\u043F\u0438\u0441\u0438\" \u043D\u0438\u0436\u0435) \u0438\u043B\u0438 \u0435\u0433\u043E \u043C\u043E\u0436\u043D\u043E \u0432\u0432\u0435\u0441\u0442\u0438 \u0441\u0430\u043C\u043E\u043C\u0443 \u2014 \"+ \u041D\u043E\u0432\u044B\u0439 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\". \u0412 \u043E\u0431\u043E\u0438\u0445 \u0441\u043B\u0443\u0447\u0430\u044F\u0445 \u0437\u0430\u0434\u0430\u0439 \u0440\u043E\u043B\u044C, \u043B\u043E\u0433\u0438\u043D \u0438 \u043F\u0430\u0440\u043E\u043B\u044C \u2014 \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0440\u0430\u0431\u043E\u0447\u0438\u0439 \u0432\u0445\u043E\u0434 \u043D\u0430 \u0441\u0430\u0439\u0442."), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnOutline,
+      width: "auto",
+      padding: "8px 14px",
+      fontSize: 14,
+      marginBottom: 12
+    },
+    onClick: () => setShowNewEmployeeModal(true)
+  }, "+ \u041D\u043E\u0432\u044B\u0439 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A"), showNewEmployeeModal && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(28,25,23,0.45)",
+      zIndex: 200,
+      overflowY: "auto"
+    },
+    onClick: e => {
+      if (e.target === e.currentTarget) setShowNewEmployeeModal(false);
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.surface,
+      margin: "16px auto",
+      borderRadius: 16,
+      padding: 20,
+      maxWidth: 420,
+      minHeight: "calc(100vh - 32px)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.row,
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 20,
+      fontWeight: 800,
+      fontFamily: FH,
+      color: C.navy
+    }
+  }, "\uD83D\uDC64 \u041D\u043E\u0432\u044B\u0439 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A"), /*#__PURE__*/React.createElement("button", {
+    style: S.btnSecondary,
+    onClick: () => setShowNewEmployeeModal(false)
+  }, "\u2715 \u0417\u0430\u043A\u0440\u044B\u0442\u044C")), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 14,
+      color: C.textSub,
+      marginTop: 0,
+      marginBottom: 14
+    }
+  }, "\u0414\u043B\u044F \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430, \u043A\u043E\u0442\u043E\u0440\u043E\u0433\u043E \u0435\u0449\u0451 \u043D\u0435\u0442 \u0432 1\u0421 (\u0438\u043B\u0438 \u043F\u043E\u043A\u0430 \u043D\u0435 \u0437\u0430\u0432\u0435\u043B\u0438 \u0442\u0430\u043C) \u2014 \u043F\u0440\u043E\u0441\u0442\u043E \u0432\u043F\u0438\u0448\u0438 \u0438\u043C\u044F, \u0431\u0435\u0437 \u043E\u0436\u0438\u0434\u0430\u043D\u0438\u044F \u0441\u0438\u043D\u043A\u0430. \u041C\u0430\u0433\u0430\u0437\u0438\u043D \u0441\u044E\u0434\u0430 \u0437\u0430\u0432\u043E\u0434\u0438\u0442\u044C \u043D\u0435 \u043D\u0443\u0436\u043D\u043E \u2014 \u0434\u043B\u044F \u043D\u0435\u0433\u043E \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u0430\u044F \u0444\u043E\u0440\u043C\u0430 \u043D\u0438\u0436\u0435, \"\u041C\u0430\u0433\u0430\u0437\u0438\u043D\u044B \u0431\u0435\u0437 \u043A\u0430\u0431\u0438\u043D\u0435\u0442\u0430\", \u043A\u0430\u0431\u0438\u043D\u0435\u0442 \u0442\u0430\u043C \u043F\u0440\u0438\u0432\u044F\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043A \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E\u043C\u0443 \u043A\u043B\u0438\u0435\u043D\u0442\u0443."), /*#__PURE__*/React.createElement("div", {
+    style: S.card
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0424\u0418\u041E *"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u0418\u043C\u044F \u0424\u0430\u043C\u0438\u043B\u0438\u044F",
+    value: newEmployee.name,
+    onChange: e => setNewEmployee(f => ({
+      ...f,
+      name: e.target.value
+    }))
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0420\u043E\u043B\u044C *"), /*#__PURE__*/React.createElement("select", {
+    style: S.select,
+    value: newEmployee.role,
+    onChange: e => setNewEmployee(f => ({
+      ...f,
+      role: e.target.value
+    }))
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014 \u0420\u043E\u043B\u044C \u2014"), ROLE_OPTIONS.filter(([v]) => v !== "store").map(([v, l]) => /*#__PURE__*/React.createElement("option", {
+    key: v,
+    value: v
+  }, l)))), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u041B\u043E\u0433\u0438\u043D *"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u041B\u043E\u0433\u0438\u043D \u0434\u043B\u044F \u0432\u0445\u043E\u0434\u0430",
+    value: newEmployee.login,
+    onChange: e => setNewEmployee(f => ({
+      ...f,
+      login: e.target.value
+    }))
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u041F\u0430\u0440\u043E\u043B\u044C *"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u041C\u0438\u043D. 4 \u0441\u0438\u043C\u0432\u043E\u043B\u0430",
+    value: newEmployee.password,
+    onChange: e => setNewEmployee(f => ({
+      ...f,
+      password: e.target.value
+    }))
+  })), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnPrimary,
+      opacity: creatingNewEmployee ? 0.5 : 1
+    },
+    disabled: creatingNewEmployee,
+    onClick: createNewEmployee
+  }, creatingNewEmployee ? "Создаю..." : "Создать")))), /*#__PURE__*/React.createElement("input", {
     type: "search",
     style: {
       ...S.input,

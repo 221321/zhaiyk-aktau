@@ -6954,6 +6954,32 @@ function AdminCabinet({ user, onLogout, desktop }) {
     setSavingEmp(null);
   };
 
+  // Сотрудник без привязки к 1С — тот же /api/users, что и у пикера "Без
+  // учётной записи" выше, просто ФИО вводит сам admin, а не берёт из
+  // ростера 1С (employee_code не передаём — не 1С-физлицо, это нормально
+  // и никак не мешает: если позже в 1С заведут физлицо с таким же именем,
+  // /api/employees/sync сам подхватит этот аккаунт по имени). "Магазин"
+  // сюда не включаем — у него отдельный флоу привязки к клиенту (см.
+  // "Магазины без кабинета" ниже), свободная форма его не покрывает.
+  const [showNewEmployeeModal, setShowNewEmployeeModal] = useState(false);
+  const [newEmployee, setNewEmployee] = useState({ name: '', role: '', login: '', password: '' });
+  const [creatingNewEmployee, setCreatingNewEmployee] = useState(false);
+
+  const createNewEmployee = async () => {
+    if (!newEmployee.name.trim() || !newEmployee.role || !newEmployee.login.trim() || !newEmployee.password.trim()) {
+      alert('Заполните имя, роль, логин и пароль'); return;
+    }
+    if (newEmployee.password.length < 4) { alert('Пароль минимум 4 символа'); return; }
+    setCreatingNewEmployee(true);
+    try {
+      await apiCall('POST', '/api/users', { login: newEmployee.login.trim(), password: newEmployee.password, name: newEmployee.name.trim(), role: newEmployee.role });
+      await loadUsers();
+      setNewEmployee({ name: '', role: '', login: '', password: '' });
+      setShowNewEmployeeModal(false);
+    } catch(e) { alert(e.message); }
+    setCreatingNewEmployee(false);
+  };
+
   const toggleUser = async (u) => {
     if (!window.confirm(`${u.active===false?'Включить':'Отключить'} доступ для «${u.name}»?`)) return;
     setTogglingUser(u.id);
@@ -9319,8 +9345,50 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {!desktop&&<p style={S.sectionTitle}>Сотрудники</p>}
         <div style={{maxWidth: desktop?560:"none"}}>
           <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
-            ФИО приходит из 1С. Для новых сотрудников задай роль, логин и пароль — появится рабочий вход на сайт.
+            ФИО может прийти из 1С (см. "Без учётной записи" ниже) или его можно ввести самому — "+ Новый сотрудник". В обоих случаях задай роль, логин и пароль — появится рабочий вход на сайт.
           </p>
+          {!readOnlyOp&&(
+            <button style={{...S.btnOutline,width:"auto",padding:"8px 14px",fontSize:14,marginBottom:12}} onClick={()=>setShowNewEmployeeModal(true)}>+ Новый сотрудник</button>
+          )}
+          {showNewEmployeeModal&&(
+            <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}} onClick={e=>{ if(e.target===e.currentTarget) setShowNewEmployeeModal(false); }}>
+              <div style={{background:C.surface,margin:"16px auto",borderRadius:16,padding:20,maxWidth:420,minHeight:"calc(100vh - 32px)"}}>
+                <div style={{...S.row,marginBottom:16}}>
+                  <p style={{margin:0,fontSize:20,fontWeight:800,fontFamily:FH,color:C.navy}}>👤 Новый сотрудник</p>
+                  <button style={S.btnSecondary} onClick={()=>setShowNewEmployeeModal(false)}>✕ Закрыть</button>
+                </div>
+                <p style={{fontSize:14,color:C.textSub,marginTop:0,marginBottom:14}}>
+                  Для сотрудника, которого ещё нет в 1С (или пока не завели там) — просто впиши имя, без ожидания синка. Магазин сюда заводить не нужно — для него отдельная форма ниже, "Магазины без кабинета", кабинет там привязывается к конкретному клиенту.
+                </p>
+                <div style={S.card}>
+                  <div style={S.formGroup}>
+                    <label style={S.label}>ФИО *</label>
+                    <input style={S.input} placeholder="Имя Фамилия" value={newEmployee.name} onChange={e=>setNewEmployee(f=>({...f,name:e.target.value}))}/>
+                  </div>
+                  <div style={S.formGroup}>
+                    <label style={S.label}>Роль *</label>
+                    <select style={S.select} value={newEmployee.role} onChange={e=>setNewEmployee(f=>({...f,role:e.target.value}))}>
+                      <option value="">— Роль —</option>
+                      {ROLE_OPTIONS.filter(([v])=>v!=="store").map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </div>
+                  <div style={S.formGroup}>
+                    <label style={S.label}>Логин *</label>
+                    <input style={S.input} placeholder="Логин для входа" value={newEmployee.login} onChange={e=>setNewEmployee(f=>({...f,login:e.target.value}))}/>
+                  </div>
+                  <div style={S.formGroup}>
+                    <label style={S.label}>Пароль *</label>
+                    <input style={S.input} placeholder="Мин. 4 символа" value={newEmployee.password} onChange={e=>setNewEmployee(f=>({...f,password:e.target.value}))}/>
+                  </div>
+                  <button
+                    style={{...S.btnPrimary,opacity:creatingNewEmployee?0.5:1}}
+                    disabled={creatingNewEmployee}
+                    onClick={createNewEmployee}
+                  >{creatingNewEmployee?"Создаю...":"Создать"}</button>
+                </div>
+              </div>
+            </div>
+          )}
           <input
             type="search"
             style={{...S.input,marginBottom:16}}
