@@ -7035,7 +7035,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   useEffect(() => { loadClientsWeb(); }, []);
 
   const [webClientSearch, setWebClientSearch] = useState("");
-  const [newWebClient, setNewWebClient] = useState({ entity_type: 'legal', name: '', phone: '', bin: '', address: '' });
+  const [newWebClient, setNewWebClient] = useState({ name: '', phone: '', bin: '', address: '' });
   const [creatingWebClient, setCreatingWebClient] = useState(false);
   const [webClientDupeConfirmed, setWebClientDupeConfirmed] = useState(false);
 
@@ -7076,7 +7076,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
     try {
       await apiCall('POST', '/api/clients-web', newWebClient);
       await loadClientsWeb();
-      setNewWebClient({ entity_type: 'legal', name: '', phone: '', bin: '', address: '' });
+      setNewWebClient({ name: '', phone: '', bin: '', address: '' });
       setWebClientDupeConfirmed(false);
     } catch(e) { alert(e.message); }
     setCreatingWebClient(false);
@@ -8899,15 +8899,10 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {!desktop&&<p style={S.sectionTitle}>Контрагенты</p>}
         <div style={{maxWidth: desktop?560:"none"}}>
           <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
-            Контрагент, созданный здесь, ещё не в 1С — код (WEB-...) выдаёт сайт, чтобы позже бухгалтер принял его в 1С без коллизий. Физ.лица — без кода, просто отметка "создан в программе".
+            Контрагент, созданный здесь, ещё не в 1С — код (WEB-...) выдаёт сайт, чтобы позже бухгалтер принял его в 1С без коллизий.
           </p>
           <div style={S.card}>
             <p style={{...S.cardTitle,marginBottom:10}}>Новый контрагент</p>
-            <div style={{display:"flex",gap:8,marginBottom:10}}>
-              {[["legal","Юр.лицо"],["individual","Физ.лицо"]].map(([v,l])=>(
-                <button key={v} type="button" onClick={()=>updateNewWebClient('entity_type',v)} style={{flex:1,padding:"9px 10px",borderRadius:8,border:`1.5px solid ${newWebClient.entity_type===v?C.navy:C.border}`,background:newWebClient.entity_type===v?C.navy:C.white,color:newWebClient.entity_type===v?C.white:C.textMid,fontSize:14,fontWeight:600,cursor:"pointer"}}>{l}</button>
-              ))}
-            </div>
             <div style={S.formGroup}>
               <label style={S.label}>Наименование *</label>
               <input style={S.input} placeholder="Название или ФИО" value={newWebClient.name} onChange={e=>updateNewWebClient('name',e.target.value)}/>
@@ -8939,7 +8934,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   </div>
                 ))}
                 <div style={{display:"flex",gap:8,marginTop:8}}>
-                  <button type="button" onClick={()=>{setNewWebClient({ entity_type:'legal', name:'', phone:'', bin:'', address:'' }); setWebClientDupeConfirmed(false);}} style={{...S.btnSecondary,flex:1,marginTop:0}}>Да, это он — не создавать</button>
+                  <button type="button" onClick={()=>{setNewWebClient({ name:'', phone:'', bin:'', address:'' }); setWebClientDupeConfirmed(false);}} style={{...S.btnSecondary,flex:1,marginTop:0}}>Да, это он — не создавать</button>
                   <button type="button" onClick={()=>setWebClientDupeConfirmed(true)} style={{...S.btnSecondary,flex:1,marginTop:0}}>Нет, другой</button>
                 </div>
               </div>
@@ -8970,7 +8965,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                 <div style={S.row}>
                   <div>
                     <p style={S.cardTitle}>{c.name}</p>
-                    <p style={S.cardSub}>{c.entity_type==='legal'?'Юр.лицо':'Физ.лицо'}{c.code?` · ${c.code}`:''} · {c.phone}{c.bin?` · БИН ${c.bin}`:''}</p>
+                    <p style={S.cardSub}>{c.code?`${c.code} · `:''}{c.phone}{c.bin?` · БИН ${c.bin}`:''}</p>
                     {c.address&&<p style={S.cardSub}>📍 {c.address}</p>}
                     <p style={{...S.cardSub,color:C.textFaint}}>Создал: {c.created_by_name}, {new Date(c.created_at).toLocaleDateString('ru-RU')}</p>
                   </div>
