@@ -8869,6 +8869,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
       <AutofillDecoy/>
       {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdateStatus={handleUpdate} onDeleteOrder={handleDelete} onFixItemCost={user.role!=="operator"?fixItemCost:undefined} onFixItemWeight={user.role==="admin"?fixItemWeight:undefined} onFixItemQty={user.role==="admin"?fixItemQty:undefined} onDeleteItem={user.role==="admin"?deleteOrderItem:undefined} onEditDeliveredItems={user.role==="admin"?editDeliveredItems:undefined} onEditPrices={user.role==="admin"?editPrices:undefined} onEditPayment={user.role==="admin"?editPayment:undefined} onAnnulOrder={user.role==="admin"?annulOrder:undefined} currentUser={user} drivers={users.filter(u=>u.role==="driver"&&u.active!==false)} products={products}/>}
       {showPosModal&&<PosSaleModal products={products} clients={clients} onClose={()=>setShowPosModal(false)} onCompleted={()=>{ setShowPosModal(false); loadSales(); }} isAdmin={user.role==="admin"}/>}
+      {showNewOrderModal&&<NewOrderModal products={products} clients={clients} onClose={()=>setShowNewOrderModal(false)} onCreated={()=>{ setShowNewOrderModal(false); loadOrders(); }} isAdmin={user.role==="admin"}/>}
       {showReturnModal&&<ReturnFormModal user={user} onClose={()=>setShowReturnModal(false)} onCreated={loadReturns}/>}
       {showDogovornikModal&&<DogovornikModal clients={clients} onClose={()=>setShowDogovornikModal(false)} onSaved={loadClients}/>}
       <div style={S.page}>

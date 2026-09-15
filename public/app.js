@@ -18383,6 +18383,15 @@ function AdminCabinet({
       loadSales();
     },
     isAdmin: user.role === "admin"
+  }), showNewOrderModal && /*#__PURE__*/React.createElement(NewOrderModal, {
+    products: products,
+    clients: clients,
+    onClose: () => setShowNewOrderModal(false),
+    onCreated: () => {
+      setShowNewOrderModal(false);
+      loadOrders();
+    },
+    isAdmin: user.role === "admin"
   }), showReturnModal && /*#__PURE__*/React.createElement(ReturnFormModal, {
     user: user,
     onClose: () => setShowReturnModal(false),
