@@ -14851,6 +14851,98 @@ function AdminCabinet({
     }
     setSavingClientCode(null);
   };
+
+  // ===== КОНТРАГЕНТЫ, созданные на сайте (без 1С) — см. POST/GET
+  // /api/clients-web. Отдельная коллекция от `clients` (см. сервер) —
+  // здесь просто держим её в своём стейте и мержим с `clients` только на
+  // время живого дубль-поиска в форме создания, ничего в `clients`/
+  // loadClients выше не трогаем.
+  const [clientsWeb, setClientsWeb] = useState([]);
+  const loadClientsWeb = useCallback(async () => {
+    try {
+      setClientsWeb(await apiCall('GET', '/api/clients-web'));
+    } catch (e) {}
+  }, []);
+  useEffect(() => {
+    loadClientsWeb();
+  }, []);
+  const [webClientSearch, setWebClientSearch] = useState("");
+  const [newWebClient, setNewWebClient] = useState({
+    entity_type: 'legal',
+    name: '',
+    phone: '',
+    bin: '',
+    address: ''
+  });
+  const [creatingWebClient, setCreatingWebClient] = useState(false);
+  const [webClientDupeConfirmed, setWebClientDupeConfirmed] = useState(false);
+  const updateNewWebClient = (field, value) => {
+    setNewWebClient(f => ({
+      ...f,
+      [field]: value
+    }));
+    setWebClientDupeConfirmed(false);
+  };
+
+  // Живой поиск похожих контрагентов среди ВСЕХ существующих — и
+  // синканных из 1С (`clients`), и уже созданных на сайте (`clientsWeb`),
+  // единым списком (см. бриф — не два раздельных поиска). Порядок
+  // сигналов по надёжности: точный БИН/ИИН, затем точный телефон, затем
+  // подстрока по названию — тот же паттерн includes(), что уже в поиске
+  // клиента при оформлении заявки выше (ReturnFormModal/NewOrderModal).
+  const webClientDupeMatches = useMemo(() => {
+    const name = newWebClient.name.trim().toLowerCase();
+    const phone = newWebClient.phone.trim();
+    const bin = newWebClient.bin.trim();
+    if (!name && !phone && !bin) return [];
+    const all = [...clients.map(c => ({
+      name: c.name,
+      phone: c.contact_phone || '',
+      bin: c.bin || '',
+      code: c.code,
+      source: '1С'
+    })), ...clientsWeb.filter(c => !c.archived).map(c => ({
+      name: c.name,
+      phone: c.phone || '',
+      bin: c.bin || '',
+      code: c.code,
+      source: 'Сайт'
+    }))];
+    if (bin) {
+      const m = all.filter(c => c.bin && c.bin === bin);
+      if (m.length) return m;
+    }
+    if (phone) {
+      const m = all.filter(c => c.phone && c.phone === phone);
+      if (m.length) return m;
+    }
+    if (name.length >= 2) {
+      return all.filter(c => (c.name || '').toLowerCase().includes(name));
+    }
+    return [];
+  }, [newWebClient, clients, clientsWeb]);
+  const createWebClient = async () => {
+    if (!newWebClient.name.trim() || !newWebClient.phone.trim()) {
+      alert('Укажите наименование и телефон');
+      return;
+    }
+    setCreatingWebClient(true);
+    try {
+      await apiCall('POST', '/api/clients-web', newWebClient);
+      await loadClientsWeb();
+      setNewWebClient({
+        entity_type: 'legal',
+        name: '',
+        phone: '',
+        bin: '',
+        address: ''
+      });
+      setWebClientDupeConfirmed(false);
+    } catch (e) {
+      alert(e.message);
+    }
+    setCreatingWebClient(false);
+  };
   const loadOrders = useCallback(async () => {
     try {
       const data = await apiCall('GET', '/api/orders');
@@ -15604,7 +15696,7 @@ function AdminCabinet({
   // владельца (admin), менеджеру эта вкладка не нужна и не должна быть
   // видна вовсе (просьба владельца), в отличие от operator, которому и так
   // урезан весь список вкладок выше.
-  const TABS = readOnlyOp ? [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]] : user.role === "manager" ? [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["employees", "👤", "Сотрудники"]];
+  const TABS = readOnlyOp ? [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]] : user.role === "manager" ? [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["clientsWeb", "🏢", "Контрагенты"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["clientsWeb", "🏢", "Контрагенты"], ["employees", "👤", "Сотрудники"]];
   const TAB_TITLES = {
     all: "Заявки",
     report: "Отчёт",
@@ -15613,6 +15705,7 @@ function AdminCabinet({
     stock: "Остатки",
     catalog: "Каталог",
     nkt: "Коды НКТ",
+    clientsWeb: "Контрагенты",
     employees: "Сотрудники"
   };
   const dateRangeInputs = /*#__PURE__*/React.createElement("div", {
@@ -17845,7 +17938,218 @@ function AdminCabinet({
       color: C.textFaint,
       marginTop: 2
     }
-  }, "NTIN: ", r.ntin_code || '—', " \xB7 GTIN: ", r.gtin || '—', r.is_markedeac ? ' · маркированный' : '')))))), tab === "employees" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
+  }, "NTIN: ", r.ntin_code || '—', " \xB7 GTIN: ", r.gtin || '—', r.is_markedeac ? ' · маркированный' : '')))))), tab === "clientsWeb" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
+    style: S.sectionTitle
+  }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u044B"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxWidth: desktop ? 560 : "none"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 14,
+      color: C.textSub,
+      marginTop: desktop ? 0 : -8,
+      marginBottom: 12
+    }
+  }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442, \u0441\u043E\u0437\u0434\u0430\u043D\u043D\u044B\u0439 \u0437\u0434\u0435\u0441\u044C, \u0435\u0449\u0451 \u043D\u0435 \u0432 1\u0421 \u2014 \u043A\u043E\u0434 (WEB-...) \u0432\u044B\u0434\u0430\u0451\u0442 \u0441\u0430\u0439\u0442, \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u0437\u0436\u0435 \u0431\u0443\u0445\u0433\u0430\u043B\u0442\u0435\u0440 \u043F\u0440\u0438\u043D\u044F\u043B \u0435\u0433\u043E \u0432 1\u0421 \u0431\u0435\u0437 \u043A\u043E\u043B\u043B\u0438\u0437\u0438\u0439. \u0424\u0438\u0437.\u043B\u0438\u0446\u0430 \u2014 \u0431\u0435\u0437 \u043A\u043E\u0434\u0430, \u043F\u0440\u043E\u0441\u0442\u043E \u043E\u0442\u043C\u0435\u0442\u043A\u0430 \"\u0441\u043E\u0437\u0434\u0430\u043D \u0432 \u043F\u0440\u043E\u0433\u0440\u0430\u043C\u043C\u0435\"."), /*#__PURE__*/React.createElement("div", {
+    style: S.card
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...S.cardTitle,
+      marginBottom: 10
+    }
+  }, "\u041D\u043E\u0432\u044B\u0439 \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginBottom: 10
+    }
+  }, [["legal", "Юр.лицо"], ["individual", "Физ.лицо"]].map(([v, l]) => /*#__PURE__*/React.createElement("button", {
+    key: v,
+    type: "button",
+    onClick: () => updateNewWebClient('entity_type', v),
+    style: {
+      flex: 1,
+      padding: "9px 10px",
+      borderRadius: 8,
+      border: `1.5px solid ${newWebClient.entity_type === v ? C.navy : C.border}`,
+      background: newWebClient.entity_type === v ? C.navy : C.white,
+      color: newWebClient.entity_type === v ? C.white : C.textMid,
+      fontSize: 14,
+      fontWeight: 600,
+      cursor: "pointer"
+    }
+  }, l))), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u041D\u0430\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435 *"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438\u043B\u0438 \u0424\u0418\u041E",
+    value: newWebClient.name,
+    onChange: e => updateNewWebClient('name', e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0422\u0435\u043B\u0435\u0444\u043E\u043D *"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      flex: 1
+    },
+    placeholder: "\u0422\u0435\u043B\u0435\u0444\u043E\u043D",
+    value: newWebClient.phone,
+    onChange: e => updateNewWebClient('phone', e.target.value)
+  }), CONTACT_PICKER_SUPPORTED && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    title: "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u043E\u0432",
+    onClick: () => pickPhoneContact(({
+      name,
+      tel
+    }) => {
+      if (name && !newWebClient.name) updateNewWebClient('name', name);
+      if (tel) updateNewWebClient('phone', tel);
+    }),
+    style: {
+      flexShrink: 0,
+      width: 48,
+      border: `1.5px solid ${C.border}`,
+      borderRadius: 10,
+      background: C.white,
+      fontSize: 19,
+      cursor: "pointer"
+    }
+  }, "\uD83D\uDCC7"))), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0411\u0418\u041D/\u0418\u0418\u041D"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u041D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E",
+    value: newWebClient.bin,
+    onChange: e => updateNewWebClient('bin', e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.formGroup
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0410\u0434\u0440\u0435\u0441"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    placeholder: "\u041D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E",
+    value: newWebClient.address,
+    onChange: e => updateNewWebClient('address', e.target.value)
+  })), webClientDupeMatches.length > 0 && !webClientDupeConfirmed && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 12px",
+      background: "#FFFBEB",
+      border: "1px solid #FDE68A",
+      borderRadius: 8,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 8px",
+      fontSize: 14,
+      fontWeight: 600,
+      color: C.textMid
+    }
+  }, "\u041F\u043E\u0445\u043E\u0436\u0435, \u0442\u0430\u043A\u043E\u0439 \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442 \u0443\u0436\u0435 \u0435\u0441\u0442\u044C:"), webClientDupeMatches.slice(0, 5).map((m, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      fontSize: 13,
+      color: C.textSub,
+      marginBottom: 4
+    }
+  }, /*#__PURE__*/React.createElement("b", null, m.name), m.phone ? ` · ${m.phone}` : '', m.bin ? ` · БИН ${m.bin}` : '', " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.textFaint
+    }
+  }, "(", m.source, m.code ? `, ${m.code}` : '', ")"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => {
+      setNewWebClient({
+        entity_type: 'legal',
+        name: '',
+        phone: '',
+        bin: '',
+        address: ''
+      });
+      setWebClientDupeConfirmed(false);
+    },
+    style: {
+      ...S.btnSecondary,
+      flex: 1,
+      marginTop: 0
+    }
+  }, "\u0414\u0430, \u044D\u0442\u043E \u043E\u043D \u2014 \u043D\u0435 \u0441\u043E\u0437\u0434\u0430\u0432\u0430\u0442\u044C"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setWebClientDupeConfirmed(true),
+    style: {
+      ...S.btnSecondary,
+      flex: 1,
+      marginTop: 0
+    }
+  }, "\u041D\u0435\u0442, \u0434\u0440\u0443\u0433\u043E\u0439"))), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnPrimary,
+      opacity: creatingWebClient || webClientDupeMatches.length > 0 && !webClientDupeConfirmed ? 0.5 : 1
+    },
+    disabled: creatingWebClient || webClientDupeMatches.length > 0 && !webClientDupeConfirmed,
+    onClick: createWebClient
+  }, creatingWebClient ? "Создаю..." : "Создать")), /*#__PURE__*/React.createElement("input", {
+    type: "search",
+    style: {
+      ...S.input,
+      margin: "16px 0"
+    },
+    placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044E, \u0442\u0435\u043B\u0435\u0444\u043E\u043D\u0443, \u043A\u043E\u0434\u0443...",
+    value: webClientSearch,
+    onChange: e => setWebClientSearch(e.target.value),
+    autoComplete: "off",
+    name: "clients-web-search"
+  }), (() => {
+    const q = webClientSearch.trim().toLowerCase();
+    const list = clientsWeb.filter(c => !q || (c.name || '').toLowerCase().includes(q) || (c.phone || '').includes(q) || (c.code || '').toLowerCase().includes(q) || (c.bin || '').includes(q));
+    if (list.length === 0) return /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center",
+        padding: "16px 0",
+        color: C.textFaint,
+        fontSize: 15
+      }
+    }, q ? "Ничего не найдено" : "Контрагентов, созданных на сайте, пока нет");
+    return list.slice().reverse().map(c => /*#__PURE__*/React.createElement("div", {
+      key: c.id,
+      style: {
+        ...S.card,
+        padding: 10,
+        marginBottom: 6
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: S.row
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+      style: S.cardTitle
+    }, c.name), /*#__PURE__*/React.createElement("p", {
+      style: S.cardSub
+    }, c.entity_type === 'legal' ? 'Юр.лицо' : 'Физ.лицо', c.code ? ` · ${c.code}` : '', " \xB7 ", c.phone, c.bin ? ` · БИН ${c.bin}` : ''), c.address && /*#__PURE__*/React.createElement("p", {
+      style: S.cardSub
+    }, "\uD83D\uDCCD ", c.address), /*#__PURE__*/React.createElement("p", {
+      style: {
+        ...S.cardSub,
+        color: C.textFaint
+      }
+    }, "\u0421\u043E\u0437\u0434\u0430\u043B: ", c.created_by_name, ", ", new Date(c.created_at).toLocaleDateString('ru-RU'))))));
+  })())), tab === "employees" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0438"), /*#__PURE__*/React.createElement("div", {
     style: {

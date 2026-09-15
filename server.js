@@ -2496,6 +2496,66 @@ app.post('/api/clients/sync', (req, res) => {
   res.json({ success: true, count: items.length });
 });
 
+// ===== CLIENTS-WEB (контрагенты, созданные на сайте, без 1С) =====
+// Отдельная коллекция, а не запись в `clients` — /api/clients/sync выше
+// полностью ЗАТИРАЕТ `clients` при каждой синхронизации из 1С, и если бы
+// сайтовый контрагент жил там же, ближайший синк стёр бы его до того, как
+// бухгалтер успеет завести контрагента в 1С. `clients`/`clients/sync`
+// этим не трогаются и не меняют поведение (см. GET /api/clients выше —
+// он тоже пока не знает про clientsWeb, это отдельный самостоятельный
+// справочник "Контрагенты", а не расширение формы заказа).
+db.defaults({ clientsWeb: [], nextWebClientId: 1 }).write();
+
+// Код для будущего 1С — присваивает только сайт, руками не вводится.
+// Формат WEB-NNNNNN явно отличим от "голых" numeric-подобных кодов 1С
+// (000000000177), чтобы бухгалтер, заводя контрагента в 1С, мог просто
+// принять уже готовый код с сайта, а не сгенерировать новый в 1С (риск
+// коллизии, если бы сайт вместо этого пытался угадать/продолжить
+// нумерацию 1С — счётчик 1С сайту не виден).
+function nextWebClientCode() {
+  const n = db.get('nextWebClientId').value();
+  db.set('nextWebClientId', n + 1).write();
+  return 'WEB-' + String(n).padStart(6, '0');
+}
+
+app.get('/api/clients-web', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('clientsWeb').value());
+});
+
+app.post('/api/clients-web', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { entity_type, name, phone, bin, address } = req.body || {};
+  if (entity_type !== 'legal' && entity_type !== 'individual') {
+    return res.status(400).json({ error: 'Не указан тип контрагента' });
+  }
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Не указано наименование' });
+  if (!phone || !phone.trim()) return res.status(400).json({ error: 'Не указан телефон' });
+
+  // Физ.лица — код/1С их вообще не касается, отдельная чисто сайтовая
+  // ветка (см. бриф): просто пометка, кто создал, без нумерации.
+  const code = entity_type === 'legal' ? nextWebClientCode() : null;
+  const record = {
+    id: Date.now(),
+    code,
+    entity_type,
+    name: name.trim(),
+    phone: phone.trim(),
+    bin: (bin || '').trim(),
+    address: (address || '').trim(),
+    archived: false,
+    created_by_id: req.user.id,
+    created_by_name: req.user.name,
+    created_at: new Date().toISOString(),
+  };
+  db.get('clientsWeb').push(record).write();
+  res.json(record);
+});
+
 app.get('/api/client-addresses', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });
