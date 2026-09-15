@@ -3132,6 +3132,93 @@ app.post('/api/stock/sync', (req, res) => {
   res.json({ success: true, count, zeroed: full ? zeroed : undefined });
 });
 
+// ===== ПОСТУПЛЕНИЕ ТОВАРА НА САЙТЕ (без 1С) =====
+// Менеджер заносит приход по накладной от поставщика — по позициям уже
+// существующего каталога (код должен быть в `products`), сразу прибавляет
+// к stock.qty/weight_kg тем же способом, что и остальные движения
+// (доставка/продажа/возврат — см. logStockMovement выше), а не отдельным
+// "черновиком" поверх: torgovyy сразу увидит новый остаток в обычном
+// каталоге, никакого дополнительного сведения не нужно.
+db.defaults({ stockReceipts: [], nextStockReceiptId: 1 }).write();
+
+app.post('/api/stock-receipts', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { doc_number, supplier, date, items } = req.body || {};
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Нет позиций в приходе' });
+  }
+
+  const productByCode = {};
+  db.get('products').value().forEach(p => { productByCode[p.code] = p; });
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+
+  // Валидируем ВСЕ строки до того, как что-то менять — иначе при ошибке на
+  // третьей строке первые две уже прибавились бы к остатку, а накладная
+  // осталась бы несохранённой (частично применённый приход хуже, чем отказ
+  // целиком до единой записи).
+  for (const it of items) {
+    if (!it || !it.code || !productByCode[it.code]) {
+      return res.status(400).json({ error: `Товар с кодом "${it && it.code}" не найден в каталоге` });
+    }
+    if (!(Number(it.qty) > 0)) {
+      return res.status(400).json({ error: `Некорректное количество для "${productByCode[it.code].name}"` });
+    }
+  }
+
+  const stock = db.get('stock').value();
+  const stockByCode = {};
+  stock.forEach(s => { stockByCode[s.code] = s; });
+
+  const receiptItems = items.map(it => {
+    const code = it.code;
+    const qty = Number(it.qty);
+    const isWeightItem = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+    const rec = stockByCode[code];
+    if (rec) {
+      if (isWeightItem) {
+        const before = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
+        rec.weight_kg = round2(before + qty);
+        pushLedgerEntry(code, 'weight_kg', qty, rec.weight_kg, 'receipt', { doc_number: doc_number || null });
+      } else {
+        const before = Number(rec.qty) || 0;
+        rec.qty = before + qty;
+        pushLedgerEntry(code, 'qty', qty, rec.qty, 'receipt', { doc_number: doc_number || null });
+      }
+    } else {
+      const newRec = isWeightItem ? { code, qty: 0, weight_kg: qty } : { code, qty };
+      stock.push(newRec);
+      stockByCode[code] = newRec;
+      pushLedgerEntry(code, isWeightItem ? 'weight_kg' : 'qty', qty, qty, 'receipt', { doc_number: doc_number || null });
+    }
+    return { code, name: productByCode[code].name, qty, is_weight_item: isWeightItem };
+  });
+
+  const id = db.get('nextStockReceiptId').value();
+  db.set('nextStockReceiptId', id + 1).write();
+  const receipt = {
+    id,
+    doc_number: (doc_number || '').trim(),
+    supplier: (supplier || '').trim(),
+    date: date || new Date().toISOString().slice(0, 10),
+    items: receiptItems,
+    created_by_id: req.user.id,
+    created_by_name: req.user.name,
+    created_at: new Date().toISOString(),
+  };
+  db.get('stockReceipts').push(receipt).write();
+  res.json(receipt);
+});
+
+app.get('/api/stock-receipts', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('stockReceipts').value());
+});
+
 // История движения по товару — по просьбе владельца: "был остаток, торговый
 // продал минус, остаток после заявки" одним взглядом, без ручного разбора
 // db.json. Ничего нового не пишем в базу — заявки уже хранят всё нужное

@@ -15024,6 +15024,77 @@ function AdminCabinet({
     }
     setCreatingWebProduct(false);
   };
+
+  // ===== ПОСТУПЛЕНИЕ ТОВАРА (без 1С) — см. POST/GET /api/stock-receipts.
+  // В отличие от "Контрагентов"/"Номенклатуры", это НЕ черновик: приход
+  // сразу прибавляется к реальному stock.qty/weight_kg (см. сервер) — тем
+  // же способом, что и доставка/продажа/возврат, поэтому после сохранения
+  // просто перезагружаем products, и новый остаток виден сразу везде.
+  const [stockReceipts, setStockReceipts] = useState([]);
+  const loadStockReceipts = useCallback(async () => {
+    try {
+      setStockReceipts(await apiCall('GET', '/api/stock-receipts'));
+    } catch (e) {}
+  }, []);
+  useEffect(() => {
+    loadStockReceipts();
+  }, []);
+  const todayStr2 = new Date().toISOString().slice(0, 10);
+  const [receiptDocNumber, setReceiptDocNumber] = useState("");
+  const [receiptSupplier, setReceiptSupplier] = useState("");
+  const [receiptDate, setReceiptDate] = useState(todayStr2);
+  const newReceiptLine = () => ({
+    uid: Math.random(),
+    code: "",
+    name: "",
+    unit: "",
+    qty: "",
+    search: "",
+    showDrop: false
+  });
+  const [receiptLines, setReceiptLines] = useState([newReceiptLine()]);
+  const [savingReceipt, setSavingReceipt] = useState(false);
+  const updateReceiptLine = (uid, patch) => setReceiptLines(ls => ls.map(l => l.uid === uid ? {
+    ...l,
+    ...patch
+  } : l));
+  const removeReceiptLine = uid => setReceiptLines(ls => ls.length > 1 ? ls.filter(l => l.uid !== uid) : ls);
+  const addReceiptLine = () => setReceiptLines(ls => [...ls, newReceiptLine()]);
+  const selectReceiptProduct = (uid, p) => updateReceiptLine(uid, {
+    code: p.code,
+    name: p.display_name || p.name,
+    unit: p.unit || '',
+    search: p.display_name || p.name,
+    showDrop: false
+  });
+  const filledReceiptLines = receiptLines.filter(l => l.code && Number(l.qty) > 0);
+  const submitReceipt = async () => {
+    if (filledReceiptLines.length === 0) {
+      alert('Добавьте хотя бы одну позицию с количеством');
+      return;
+    }
+    setSavingReceipt(true);
+    try {
+      await apiCall('POST', '/api/stock-receipts', {
+        doc_number: receiptDocNumber,
+        supplier: receiptSupplier,
+        date: receiptDate,
+        items: filledReceiptLines.map(l => ({
+          code: l.code,
+          qty: Number(l.qty)
+        }))
+      });
+      await loadStockReceipts();
+      await loadProducts();
+      setReceiptDocNumber("");
+      setReceiptSupplier("");
+      setReceiptDate(todayStr2);
+      setReceiptLines([newReceiptLine()]);
+    } catch (e) {
+      alert(e.message);
+    }
+    setSavingReceipt(false);
+  };
   const loadOrders = useCallback(async () => {
     try {
       const data = await apiCall('GET', '/api/orders');
@@ -15777,7 +15848,7 @@ function AdminCabinet({
   // владельца (admin), менеджеру эта вкладка не нужна и не должна быть
   // видна вовсе (просьба владельца), в отличие от operator, которому и так
   // урезан весь список вкладок выше.
-  const TABS = readOnlyOp ? [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]] : user.role === "manager" ? [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["clientsWeb", "🏢", "Контрагенты"], ["productsWeb", "🧾", "Номенклатура"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["clientsWeb", "🏢", "Контрагенты"], ["productsWeb", "🧾", "Номенклатура"], ["employees", "👤", "Сотрудники"]];
+  const TABS = readOnlyOp ? [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]] : user.role === "manager" ? [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["stockReceipts", "🚚", "Поступление"], ["clientsWeb", "🏢", "Контрагенты"], ["productsWeb", "🧾", "Номенклатура"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["stockReceipts", "🚚", "Поступление"], ["clientsWeb", "🏢", "Контрагенты"], ["productsWeb", "🧾", "Номенклатура"], ["employees", "👤", "Сотрудники"]];
   const TAB_TITLES = {
     all: "Заявки",
     report: "Отчёт",
@@ -15786,6 +15857,7 @@ function AdminCabinet({
     stock: "Остатки",
     catalog: "Каталог",
     nkt: "Коды НКТ",
+    stockReceipts: "Поступление",
     clientsWeb: "Контрагенты",
     productsWeb: "Номенклатура",
     employees: "Сотрудники"
@@ -18020,7 +18092,189 @@ function AdminCabinet({
       color: C.textFaint,
       marginTop: 2
     }
-  }, "NTIN: ", r.ntin_code || '—', " \xB7 GTIN: ", r.gtin || '—', r.is_markedeac ? ' · маркированный' : '')))))), tab === "clientsWeb" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
+  }, "NTIN: ", r.ntin_code || '—', " \xB7 GTIN: ", r.gtin || '—', r.is_markedeac ? ' · маркированный' : '')))))), tab === "stockReceipts" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
+    style: S.sectionTitle
+  }, "\u041F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u0435"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxWidth: desktop ? 680 : "none"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 14,
+      color: C.textSub,
+      marginTop: desktop ? 0 : -8,
+      marginBottom: 12
+    }
+  }, "\u041F\u0440\u0438\u0445\u043E\u0434 \u043F\u043E \u043D\u0430\u043A\u043B\u0430\u0434\u043D\u043E\u0439 \u043E\u0442 \u043F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A\u0430 \u2014 \u0441\u0440\u0430\u0437\u0443 \u043F\u0440\u0438\u0431\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043A \u043E\u0441\u0442\u0430\u0442\u043A\u0443, \u0442\u043E\u0440\u0433\u043E\u0432\u044B\u0435 \u0432\u0438\u0434\u044F\u0442 \u043E\u0431\u043D\u043E\u0432\u043B\u0451\u043D\u043D\u044B\u0439 \u043E\u0441\u0442\u0430\u0442\u043E\u043A \u0441\u0440\u0430\u0437\u0443 \u0432 \u043E\u0431\u044B\u0447\u043D\u043E\u043C \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435."), /*#__PURE__*/React.createElement("div", {
+    style: S.card
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginBottom: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      flex: "1 1 140px"
+    },
+    placeholder: "\u2116 \u043D\u0430\u043A\u043B\u0430\u0434\u043D\u043E\u0439",
+    value: receiptDocNumber,
+    onChange: e => setReceiptDocNumber(e.target.value)
+  }), /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      flex: "1 1 160px"
+    },
+    placeholder: "\u041F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A",
+    value: receiptSupplier,
+    onChange: e => setReceiptSupplier(e.target.value)
+  }), /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      flex: "0 1 150px"
+    },
+    type: "date",
+    value: receiptDate,
+    onChange: e => setReceiptDate(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.row,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u041F\u043E\u0437\u0438\u0446\u0438\u0438"), /*#__PURE__*/React.createElement("button", {
+    onClick: addReceiptLine,
+    style: {
+      background: C.navy,
+      color: C.white,
+      border: "none",
+      borderRadius: 8,
+      padding: "4px 12px",
+      fontSize: 14,
+      fontWeight: 600,
+      cursor: "pointer"
+    }
+  }, "+ \u0422\u043E\u0432\u0430\u0440")), receiptLines.map(line => {
+    const matched = line.search.length > 0 ? products.filter(p => (p.display_name || p.name).toLowerCase().includes(line.search.toLowerCase())) : products.slice(0, 50);
+    return /*#__PURE__*/React.createElement("div", {
+      key: line.uid,
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 80px 28px",
+        gap: 6,
+        marginBottom: 8,
+        alignItems: "start"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "relative"
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      style: S.input,
+      placeholder: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0442\u043E\u0432\u0430\u0440\u0430...",
+      value: line.search,
+      onChange: e => updateReceiptLine(line.uid, {
+        search: e.target.value,
+        code: "",
+        showDrop: true
+      }),
+      onFocus: () => updateReceiptLine(line.uid, {
+        showDrop: true
+      }),
+      onBlur: () => setTimeout(() => updateReceiptLine(line.uid, {
+        showDrop: false
+      }), 180)
+    }), line.showDrop && matched.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        right: 0,
+        background: C.white,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+        zIndex: 50,
+        maxHeight: 220,
+        overflowY: "auto"
+      }
+    }, matched.map(p => /*#__PURE__*/React.createElement("div", {
+      key: p.code,
+      onMouseDown: () => selectReceiptProduct(line.uid, p),
+      style: {
+        padding: "9px 12px",
+        cursor: "pointer",
+        borderBottom: `1px solid ${C.border}`,
+        fontSize: 15
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 600
+      }
+    }, p.display_name || p.name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: C.textFaint
+      }
+    }, p.code, " \xB7 \u043E\u0441\u0442\u0430\u0442\u043E\u043A: ", p.priced_by_weight ? (p.stock_weight_kg || 0) + ' кг' : p.stock))))), /*#__PURE__*/React.createElement("input", {
+      style: S.input,
+      type: "number",
+      placeholder: line.unit || "кол-во",
+      value: line.qty,
+      onChange: e => updateReceiptLine(line.uid, {
+        qty: e.target.value
+      })
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: () => removeReceiptLine(line.uid),
+      style: {
+        border: "none",
+        background: "none",
+        color: C.textFaint,
+        fontSize: 20,
+        cursor: "pointer"
+      }
+    }, "\u2715"));
+  }), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...S.btnPrimary,
+      opacity: savingReceipt || filledReceiptLines.length === 0 ? 0.5 : 1
+    },
+    disabled: savingReceipt || filledReceiptLines.length === 0,
+    onClick: submitReceipt
+  }, savingReceipt ? "Сохраняю..." : "Оприходовать")), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      color: C.navy,
+      margin: "16px 0 8px"
+    }
+  }, "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u043F\u0440\u0438\u0445\u043E\u0434\u043E\u0432"), stockReceipts.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      padding: "16px 0",
+      color: C.textFaint,
+      fontSize: 15
+    }
+  }, "\u041F\u0440\u0438\u0445\u043E\u0434\u043E\u0432 \u043F\u043E\u043A\u0430 \u043D\u0435 \u0431\u044B\u043B\u043E") : stockReceipts.slice().reverse().map(r => /*#__PURE__*/React.createElement("div", {
+    key: r.id,
+    style: {
+      ...S.card,
+      padding: 10,
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: S.cardTitle
+  }, r.doc_number ? `Накладная № ${r.doc_number}` : 'Без номера накладной', r.supplier ? ` · ${r.supplier}` : ''), /*#__PURE__*/React.createElement("p", {
+    style: S.cardSub
+  }, r.date, " \xB7 ", r.items.map(it => `${it.name} +${it.qty}${it.is_weight_item ? ' кг' : ''}`).join(', ')), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...S.cardSub,
+      color: C.textFaint
+    }
+  }, "\u0417\u0430\u043D\u0451\u0441: ", r.created_by_name, ", ", new Date(r.created_at).toLocaleString('ru-RU')))))), tab === "clientsWeb" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u044B"), /*#__PURE__*/React.createElement("div", {
     style: {
