@@ -3166,15 +3166,23 @@ app.post('/api/stock-receipts', authMiddleware, (req, res) => {
     if (!(Number(it.qty) > 0)) {
       return res.status(400).json({ error: `Некорректное количество для "${productByCode[it.code].name}"` });
     }
+    if (it.price != null && !(Number(it.price) >= 0)) {
+      return res.status(400).json({ error: `Некорректная цена для "${productByCode[it.code].name}"` });
+    }
   }
 
   const stock = db.get('stock').value();
   const stockByCode = {};
   stock.forEach(s => { stockByCode[s.code] = s; });
 
+  // Цена в приходе — закупочная стоимость по накладной поставщика, только
+  // для самого документа (итог накладной), значение продажи/каталога
+  // (productAliases.price1-3, cost) не трогает — это отдельная ручная
+  // настройка на вкладке "Товары", смешивать с приходом не просили.
   const receiptItems = items.map(it => {
     const code = it.code;
     const qty = Number(it.qty);
+    const price = it.price != null ? Number(it.price) : 0;
     const isWeightItem = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
     const rec = stockByCode[code];
     if (rec) {
@@ -3193,7 +3201,7 @@ app.post('/api/stock-receipts', authMiddleware, (req, res) => {
       stockByCode[code] = newRec;
       pushLedgerEntry(code, isWeightItem ? 'weight_kg' : 'qty', qty, qty, 'receipt', { doc_number: doc_number || null });
     }
-    return { code, name: productByCode[code].name, qty, is_weight_item: isWeightItem };
+    return { code, name: productByCode[code].name, qty, price, line_total: round2(qty * price), is_weight_item: isWeightItem };
   });
 
   const id = db.get('nextStockReceiptId').value();
@@ -3204,6 +3212,7 @@ app.post('/api/stock-receipts', authMiddleware, (req, res) => {
     supplier: (supplier || '').trim(),
     date: date || new Date().toISOString().slice(0, 10),
     items: receiptItems,
+    total: round2(receiptItems.reduce((s, it) => s + it.line_total, 0)),
     created_by_id: req.user.id,
     created_by_name: req.user.name,
     created_at: new Date().toISOString(),

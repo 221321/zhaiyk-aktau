@@ -5292,169 +5292,6 @@ function MaterialStatementReport({ onClose }) {
   );
 }
 
-// Разбор xlsx-выгрузки "Материальная ведомость" из 1С — колонки ищем по
-// заголовкам, а не по фиксированному номеру: "Код" отмечает нужную строку
-// шапки, "Итого приход"/"Итого расход" — нужные столбцы (их "Количество"
-// лежит ровно в той же колонке, где начинается объединённая шапка — так
-// устроен сам шаблон 1С, см. разбор реальной выгрузки владельца). Если
-// шаблон в 1С когда-нибудь поменяют — тут сразу понятная ошибка, а не тихо
-// неверные цифры.
-function parse1cVedomost(workbook) {
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const data = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
-  let headerRow = -1;
-  for (let i = 0; i < data.length; i++) {
-    if (data[i] && String(data[i][4] || '').trim() === 'Код') { headerRow = i; break; }
-  }
-  if (headerRow === -1) {
-    throw new Error('Не нашёл колонку "Код" в файле — это не похоже на материальную ведомость 1С в привычном формате');
-  }
-  const incomeCol = data[headerRow].findIndex(v => String(v||'').trim() === 'Итого приход');
-  const outcomeCol = data[headerRow].findIndex(v => String(v||'').trim() === 'Итого расход');
-  if (incomeCol === -1 || outcomeCol === -1) {
-    throw new Error('Не нашёл колонки "Итого приход"/"Итого расход" в файле');
-  }
-  const rows = [];
-  for (let i = headerRow + 2; i < data.length; i++) {
-    const row = data[i];
-    if (!row) continue;
-    if (String(row[0] || '').trim() === 'Итого') break;
-    const code = row[4];
-    if (!code) continue;
-    rows.push({
-      code: String(code).trim(),
-      name: row[1] || '',
-      unit: (row[5] || '').toString().trim(),
-      income: Number(row[incomeCol]) || 0,
-      outcome: Number(row[outcomeCol]) || 0,
-    });
-  }
-  return rows;
-}
-
-// Сверка с 1С — по просьбе владельца: раньше это делали вручную (сюда
-// присылали выгрузку из 1С и отдельно CSV с сайта, сверка была на моей
-// стороне). Теперь сайт делает это сам: парсит xlsx из 1С прямо в браузере
-// (библиотека XLSX подключена в index.html) и шлёт на сервер уже готовый
-// массив строк — POST /api/reports/reconcile-1c сверяет их с собственной
-// версией той же ведомости (computeMaterialStatementRows в server.js — то,
-// что сайт реально доставил за период). Список — это как раз то, по каким
-// товарам в 1С не проводятся реализации ("не хватает остатка") и где
-// перепутаны единицы измерения (кг/шт).
-function Reconcile1CReport({ onClose }) {
-  const todayStr = new Date().toISOString().slice(0,10);
-  const monthAgoStr = new Date(Date.now() - 30*86400000).toISOString().slice(0,10);
-  const [from, setFrom] = useState(monthAgoStr);
-  const [to, setTo] = useState(todayStr);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState(null);
-
-  const onFile = async (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    setError('');
-    setRows(null);
-    if (typeof XLSX === 'undefined') {
-      setError('Библиотека для чтения Excel не загрузилась — проверь интернет-соединение и обнови страницу');
-      return;
-    }
-    try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const c1cRows = parse1cVedomost(wb);
-      if (c1cRows.length === 0) throw new Error('В файле не нашлось ни одной строки с товаром');
-      setLoading(true);
-      const result = await apiCall('POST', '/api/reports/reconcile-1c', { from, to, rows: c1cRows });
-      setRows(result);
-    } catch (err) {
-      setError(err.message || String(err));
-    }
-    setLoading(false);
-    e.target.value = '';
-  };
-
-  const numLabel = (v, unit) => `${v}${unit?' '+unit:''}`;
-
-  const exportCsv = () => downloadCsv(
-    `sverka_1c_${from}_${to}.csv`,
-    rows || [],
-    [
-      { label: 'Код', get: r => r.code },
-      { label: 'Товар', get: r => r.name },
-      { label: 'Ед. на сайте', get: r => r.unit_site },
-      { label: 'Ед. в 1С', get: r => r.unit_1c },
-      { label: 'Расход на сайте', get: r => r.outcome_site },
-      { label: 'Расход в 1С', get: r => r.outcome_1c },
-      { label: 'Не хватает в 1С', get: r => r.shortfall },
-      { label: 'из них корректировка 1С (не продажа)', get: r => r.correction_site || 0 },
-    ]
-  );
-
-  return (
-    <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}}>
-      <div style={{background:C.white,margin:"16px",borderRadius:16,padding:20,maxWidth:1100,marginLeft:"auto",marginRight:"auto",border:`1px solid ${C.border}`}}>
-        <div style={{...S.row,marginBottom:6}}>
-          <p style={{margin:0,fontSize:19,fontWeight:800,fontFamily:FH,color:C.navy}}>🔍 Сверка с 1С</p>
-          <button style={S.btnSecondary} onClick={onClose}>✕</button>
-        </div>
-        <p style={{margin:"0 0 14px",fontSize:13,color:C.textFaint}}>
-          Загрузи xlsx-выгрузку "Материальная ведомость" из 1С за период — сайт сам сравнит со своими данными и покажет, где 1С не досчиталась (обычно — непроведённые реализации, "не хватает остатка") и где перепутаны единицы измерения.
-        </p>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"flex-end"}}>
-          <div>
-            <label style={S.label}>С</label>
-            <input type="date" style={S.input} value={from} onChange={e=>setFrom(e.target.value)}/>
-          </div>
-          <div>
-            <label style={S.label}>По</label>
-            <input type="date" style={S.input} value={to} onChange={e=>setTo(e.target.value)}/>
-          </div>
-          <div style={{flex:1,minWidth:220}}>
-            <label style={S.label}>Файл из 1С (.xlsx)</label>
-            <input type="file" accept=".xlsx" style={S.input} onChange={onFile}/>
-          </div>
-        </div>
-        {error&&<div style={{...S.card,background:C.redSoft,color:C.red,padding:12,marginBottom:12,fontSize:13,fontWeight:600}}>{error}</div>}
-        {loading&&<div style={S.loadingWrap}>Сверяю...</div>}
-        {!loading&&rows&&rows.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:C.green,fontWeight:700}}>✓ Расхождений не найдено — всё сходится</div>}
-        {!loading&&rows&&rows.length>0&&<>
-          <div style={{...S.row,marginBottom:10}}>
-            <p style={{margin:0,fontSize:14,color:C.textSub}}>Расхождений: {rows.length}</p>
-            <button style={{...S.btnPrimary,width:"auto",padding:"9px 16px",fontSize:14}} onClick={exportCsv}>⬇ Скачать в Excel</button>
-          </div>
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-              <thead>
-                <tr style={{borderBottom:`2px solid ${C.border}`,textAlign:"left"}}>
-                  <th style={{padding:"6px 8px"}}>Товар</th>
-                  <th style={{padding:"6px 8px",textAlign:"right"}}>Расход на сайте</th>
-                  <th style={{padding:"6px 8px",textAlign:"right"}}>Расход в 1С</th>
-                  <th style={{padding:"6px 8px",textAlign:"right"}}>Не хватает в 1С</th>
-                  <th style={{padding:"6px 8px",textAlign:"right"}} title="Часть расхода на сайте за период — не продажа/доставка, а отрицательная правка остатка синком из 1С (например, в 1С ещё не проведена реализация). Уже вычтена из shortfall слева — помогает понять, откуда взялось расхождение">Из них коррект. 1С</th>
-                  <th style={{padding:"6px 8px"}}>Ед.изм.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(r=>(
-                  <tr key={r.code} style={{borderBottom:`1px solid ${C.border}`}}>
-                    <td style={{padding:"6px 8px"}}>{r.name}<div style={{color:C.textFaint,fontSize:11}}>{r.code}</div></td>
-                    <td style={{padding:"6px 8px",textAlign:"right"}}>{numLabel(r.outcome_site,r.unit_site)}</td>
-                    <td style={{padding:"6px 8px",textAlign:"right"}}>{numLabel(r.outcome_1c,r.unit_1c)}</td>
-                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:r.shortfall>0?C.red:(r.shortfall<0?C.green:C.textFaint)}}>{r.shortfall>0?'+':''}{r.shortfall}</td>
-                    <td style={{padding:"6px 8px",textAlign:"right",color:C.textFaint}}>{r.correction_site?numLabel(r.correction_site,r.unit_site):'—'}</td>
-                    <td style={{padding:"6px 8px"}}>{r.unit_mismatch?<span style={{color:"#92400E",fontWeight:700}}>⚠ {r.unit_site||'—'} / {r.unit_1c||'—'}</span>:(r.unit_site||r.unit_1c||'')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>}
-      </div>
-    </div>
-  );
-}
-
 // Экран "Остатки на складе" — тот же, что у зав. склада (см.
 // WarehouseCabinet), вынесен в отдельный самодостаточный компонент по
 // той же причине, что и ProductAliasesPanel выше: старшему торговому
@@ -5530,7 +5367,6 @@ function StockPanel() {
   const [hideEmpty, setHideEmpty] = useState(false);
   const [showMovements, setShowMovements] = useState(false);
   const [showStatement, setShowStatement] = useState(false);
-  const [showReconcile, setShowReconcile] = useState(false);
 
   const loadProducts = useCallback(async () => {
     try { setProducts(await fetch('/api/products').then(r => r.json())); } catch(e) {}
@@ -5569,13 +5405,11 @@ function StockPanel() {
     <>
       {showMovements&&<StockMovementsReport onClose={()=>setShowMovements(false)}/>}
       {showStatement&&<MaterialStatementReport onClose={()=>setShowStatement(false)}/>}
-      {showReconcile&&<Reconcile1CReport onClose={()=>setShowReconcile(false)}/>}
       <div style={{...S.row,marginBottom:4}}>
         <p style={{...S.sectionTitle,margin:0}}>Остатки на складе <span style={{fontWeight:400,fontSize:13,color:C.textFaint}}>(только из 1С)</span></p>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowMovements(true)}>📊 Отчёт по движению</button>
           <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowStatement(true)}>📋 Ведомость</button>
-          <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowReconcile(true)}>🔍 Сверка с 1С</button>
         </div>
       </div>
       {!loadingProducts && products.length>0 && (
@@ -7305,10 +7139,11 @@ function AdminCabinet({ user, onLogout, desktop }) {
   useEffect(() => { loadStockReceipts(); }, []);
 
   const todayStr2 = new Date().toISOString().slice(0,10);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receiptDocNumber, setReceiptDocNumber] = useState("");
   const [receiptSupplier, setReceiptSupplier] = useState("");
   const [receiptDate, setReceiptDate] = useState(todayStr2);
-  const newReceiptLine = () => ({ uid: Math.random(), code: "", name: "", unit: "", qty: "", search: "", showDrop: false });
+  const newReceiptLine = () => ({ uid: Math.random(), code: "", name: "", unit: "", qty: "", price: "", search: "", showDrop: false });
   const [receiptLines, setReceiptLines] = useState([newReceiptLine()]);
   const [savingReceipt, setSavingReceipt] = useState(false);
 
@@ -7316,8 +7151,16 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const removeReceiptLine = (uid) => setReceiptLines(ls => ls.length > 1 ? ls.filter(l => l.uid !== uid) : ls);
   const addReceiptLine = () => setReceiptLines(ls => [...ls, newReceiptLine()]);
   const selectReceiptProduct = (uid, p) => updateReceiptLine(uid, { code: p.code, name: p.display_name || p.name, unit: p.unit || '', search: p.display_name || p.name, showDrop: false });
+  const receiptLineTotal = (l) => (Number(l.qty)||0) * (Number(l.price)||0);
 
   const filledReceiptLines = receiptLines.filter(l => l.code && Number(l.qty) > 0);
+  const receiptGrandTotal = filledReceiptLines.reduce((s, l) => s + receiptLineTotal(l), 0);
+
+  const openReceiptModal = () => {
+    setReceiptDocNumber(""); setReceiptSupplier(""); setReceiptDate(todayStr2);
+    setReceiptLines([newReceiptLine()]);
+    setShowReceiptModal(true);
+  };
 
   const submitReceipt = async () => {
     if (filledReceiptLines.length === 0) { alert('Добавьте хотя бы одну позицию с количеством'); return; }
@@ -7325,12 +7168,11 @@ function AdminCabinet({ user, onLogout, desktop }) {
     try {
       await apiCall('POST', '/api/stock-receipts', {
         doc_number: receiptDocNumber, supplier: receiptSupplier, date: receiptDate,
-        items: filledReceiptLines.map(l => ({ code: l.code, qty: Number(l.qty) })),
+        items: filledReceiptLines.map(l => ({ code: l.code, qty: Number(l.qty), price: Number(l.price)||0 })),
       });
       await loadStockReceipts();
       await loadProducts();
-      setReceiptDocNumber(""); setReceiptSupplier(""); setReceiptDate(todayStr2);
-      setReceiptLines([newReceiptLine()]);
+      setShowReceiptModal(false);
     } catch(e) { alert(e.message); }
     setSavingReceipt(false);
   };
@@ -8816,65 +8658,87 @@ function AdminCabinet({ user, onLogout, desktop }) {
           <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
             Приход по накладной от поставщика — сразу прибавляется к остатку, торговые видят обновлённый остаток сразу в обычном каталоге.
           </p>
-          <div style={S.card}>
-            <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-              <input style={{...S.input,flex:"1 1 140px"}} placeholder="№ накладной" value={receiptDocNumber} onChange={e=>setReceiptDocNumber(e.target.value)}/>
-              <input style={{...S.input,flex:"1 1 160px"}} placeholder="Поставщик" value={receiptSupplier} onChange={e=>setReceiptSupplier(e.target.value)}/>
-              <input style={{...S.input,flex:"0 1 150px"}} type="date" value={receiptDate} onChange={e=>setReceiptDate(e.target.value)}/>
-            </div>
+          <button style={{...S.btnPrimary,marginBottom:16}} onClick={openReceiptModal}>+ Создать поступление</button>
 
-            <div style={{...S.row,marginBottom:10}}>
-              <label style={S.label}>Позиции</label>
-              <button onClick={addReceiptLine} style={{background:C.navy,color:C.white,border:"none",borderRadius:8,padding:"4px 12px",fontSize:14,fontWeight:600,cursor:"pointer"}}>+ Товар</button>
-            </div>
-            {receiptLines.map(line=>{
-              const matched = line.search.length>0 ? products.filter(p=>(p.display_name||p.name).toLowerCase().includes(line.search.toLowerCase())) : products.slice(0,50);
-              return (
-                <div key={line.uid} style={{display:"grid",gridTemplateColumns:"1fr 80px 28px",gap:6,marginBottom:8,alignItems:"start"}}>
-                  <div style={{position:"relative"}}>
-                    <input
-                      style={S.input}
-                      placeholder="Название товара..."
-                      value={line.search}
-                      onChange={e=>updateReceiptLine(line.uid,{search:e.target.value,code:"",showDrop:true})}
-                      onFocus={()=>updateReceiptLine(line.uid,{showDrop:true})}
-                      onBlur={()=>setTimeout(()=>updateReceiptLine(line.uid,{showDrop:false}),180)}
-                    />
-                    {line.showDrop&&matched.length>0&&(
-                      <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:220,overflowY:"auto"}}>
-                        {matched.map(p=>(
-                          <div key={p.code} onMouseDown={()=>selectReceiptProduct(line.uid,p)} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:15}}>
-                            <div style={{fontWeight:600}}>{p.display_name||p.name}</div>
-                            <div style={{fontSize:13,color:C.textFaint}}>{p.code} · остаток: {p.priced_by_weight?((p.stock_weight_kg||0)+' кг'):p.stock}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <input style={S.input} type="number" placeholder={line.unit||"кол-во"} value={line.qty} onChange={e=>updateReceiptLine(line.uid,{qty:e.target.value})}/>
-                  <button onClick={()=>removeReceiptLine(line.uid)} style={{border:"none",background:"none",color:C.textFaint,fontSize:20,cursor:"pointer"}}>✕</button>
-                </div>
-              );
-            })}
-
-            <button
-              style={{...S.btnPrimary,opacity:(savingReceipt||filledReceiptLines.length===0)?0.5:1}}
-              disabled={savingReceipt||filledReceiptLines.length===0}
-              onClick={submitReceipt}
-            >{savingReceipt?"Сохраняю...":"Оприходовать"}</button>
-          </div>
-
-          <p style={{fontSize:14,fontWeight:700,color:C.navy,margin:"16px 0 8px"}}>История приходов</p>
+          <p style={{fontSize:14,fontWeight:700,color:C.navy,margin:"0 0 8px"}}>История приходов</p>
           {stockReceipts.length===0
             ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>Приходов пока не было</div>
             : stockReceipts.slice().reverse().map(r=>(
               <div key={r.id} style={{...S.card,padding:10,marginBottom:6}}>
                 <p style={S.cardTitle}>{r.doc_number?`Накладная № ${r.doc_number}`:'Без номера накладной'}{r.supplier?` · ${r.supplier}`:''}</p>
-                <p style={S.cardSub}>{r.date} · {r.items.map(it=>`${it.name} +${it.qty}${it.is_weight_item?' кг':''}`).join(', ')}</p>
+                <p style={S.cardSub}>{r.date} · {r.items.map(it=>`${it.name} +${it.qty}${it.is_weight_item?' кг':''}${it.price?` × ${it.price.toLocaleString()} ₸ = ${it.line_total.toLocaleString()} ₸`:''}`).join(', ')}</p>
+                {r.total>0&&<p style={{...S.cardSub,fontWeight:700,color:C.navy}}>Итого: {r.total.toLocaleString()} ₸</p>}
                 <p style={{...S.cardSub,color:C.textFaint}}>Занёс: {r.created_by_name}, {new Date(r.created_at).toLocaleString('ru-RU')}</p>
               </div>
             ))}
         </div>
+
+        {showReceiptModal&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}} onClick={e=>{ if(e.target===e.currentTarget) setShowReceiptModal(false); }}>
+            <div style={{background:C.surface,margin:"16px auto",borderRadius:16,padding:20,maxWidth:640,minHeight:"calc(100vh - 32px)"}}>
+              <div style={{...S.row,marginBottom:16}}>
+                <p style={{margin:0,fontSize:20,fontWeight:800,fontFamily:FH,color:C.navy}}>🚚 Создать поступление</p>
+                <button style={S.btnSecondary} onClick={()=>setShowReceiptModal(false)}>✕ Закрыть</button>
+              </div>
+              <div style={S.card}>
+                <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                  <input style={{...S.input,flex:"1 1 140px"}} placeholder="№ накладной" value={receiptDocNumber} onChange={e=>setReceiptDocNumber(e.target.value)}/>
+                  <input style={{...S.input,flex:"1 1 160px"}} placeholder="Поставщик" value={receiptSupplier} onChange={e=>setReceiptSupplier(e.target.value)}/>
+                  <input style={{...S.input,flex:"0 1 150px"}} type="date" value={receiptDate} onChange={e=>setReceiptDate(e.target.value)}/>
+                </div>
+
+                <div style={{...S.row,marginBottom:10}}>
+                  <label style={S.label}>Позиции</label>
+                  <button onClick={addReceiptLine} style={{background:C.navy,color:C.white,border:"none",borderRadius:8,padding:"4px 12px",fontSize:14,fontWeight:600,cursor:"pointer"}}>+ Товар</button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 70px 90px 100px 28px",gap:6,marginBottom:6}}>
+                  {["Наименование","Кол-во","Цена ₸","Сумма ₸",""].map((h,i)=><div key={i} style={{fontSize:11,fontWeight:600,color:C.textFaint,textTransform:"uppercase"}}>{h}</div>)}
+                </div>
+                {receiptLines.map(line=>{
+                  const matched = line.search.length>0 ? products.filter(p=>(p.display_name||p.name).toLowerCase().includes(line.search.toLowerCase())) : products.slice(0,50);
+                  return (
+                    <div key={line.uid} style={{display:"grid",gridTemplateColumns:"1fr 70px 90px 100px 28px",gap:6,marginBottom:8,alignItems:"start"}}>
+                      <div style={{position:"relative"}}>
+                        <input
+                          style={S.input}
+                          placeholder="Название товара..."
+                          value={line.search}
+                          onChange={e=>updateReceiptLine(line.uid,{search:e.target.value,code:"",showDrop:true})}
+                          onFocus={()=>updateReceiptLine(line.uid,{showDrop:true})}
+                          onBlur={()=>setTimeout(()=>updateReceiptLine(line.uid,{showDrop:false}),180)}
+                        />
+                        {line.showDrop&&matched.length>0&&(
+                          <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.1)",zIndex:50,maxHeight:220,overflowY:"auto"}}>
+                            {matched.map(p=>(
+                              <div key={p.code} onMouseDown={()=>selectReceiptProduct(line.uid,p)} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:15}}>
+                                <div style={{fontWeight:600}}>{p.display_name||p.name}</div>
+                                <div style={{fontSize:13,color:C.textFaint}}>{p.code} · остаток: {p.priced_by_weight?((p.stock_weight_kg||0)+' кг'):p.stock}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <input style={S.input} type="number" placeholder={line.unit||"кол-во"} value={line.qty} onChange={e=>updateReceiptLine(line.uid,{qty:e.target.value})}/>
+                      <input style={S.input} type="number" placeholder="0" value={line.price} onChange={e=>updateReceiptLine(line.uid,{price:e.target.value})}/>
+                      <div style={{padding:"11px 0",fontSize:14,fontWeight:600,color:C.textMid,textAlign:"right"}}>{receiptLineTotal(line).toLocaleString()}</div>
+                      <button onClick={()=>removeReceiptLine(line.uid)} style={{border:"none",background:"none",color:C.textFaint,fontSize:20,cursor:"pointer"}}>✕</button>
+                    </div>
+                  );
+                })}
+
+                {receiptGrandTotal>0&&(
+                  <p style={{textAlign:"right",fontSize:17,fontWeight:800,color:C.navy,fontFamily:FH,margin:"10px 0"}}>Итого: {receiptGrandTotal.toLocaleString()} ₸</p>
+                )}
+
+                <button
+                  style={{...S.btnPrimary,opacity:(savingReceipt||filledReceiptLines.length===0)?0.5:1}}
+                  disabled={savingReceipt||filledReceiptLines.length===0}
+                  onClick={submitReceipt}
+                >{savingReceipt?"Сохраняю...":"Оприходовать"}</button>
+              </div>
+            </div>
+          </div>
+        )}
       </>}
       {tab==="clientsWeb"&&<>
         {!desktop&&<p style={S.sectionTitle}>Контрагенты</p>}
@@ -9276,7 +9140,6 @@ function WarehouseCabinet({ user, onLogout }) {
   const [hideEmpty, setHideEmpty] = useState(false);
   const [showMovements, setShowMovements] = useState(false);
   const [showStatement, setShowStatement] = useState(false);
-  const [showReconcile, setShowReconcile] = useState(false);
 
   // Приём налички от водителей (инкассация) — см. POST/PUT /api/cash-handovers.
   const [cashHandovers, setCashHandovers] = useState([]);
@@ -9497,13 +9360,11 @@ function WarehouseCabinet({ user, onLogout }) {
         {tab==="stock"&&<>
           {showMovements&&<StockMovementsReport onClose={()=>setShowMovements(false)}/>}
           {showStatement&&<MaterialStatementReport onClose={()=>setShowStatement(false)}/>}
-          {showReconcile&&<Reconcile1CReport onClose={()=>setShowReconcile(false)}/>}
           <div style={{...S.row,marginBottom:4}}>
             <p style={{...S.sectionTitle,margin:0}}>Остатки на складе</p>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowMovements(true)}>📊 Отчёт по движению</button>
               <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowStatement(true)}>📋 Ведомость</button>
-              <button style={{...S.btnOutline,width:"auto",padding:"6px 12px",fontSize:13}} onClick={()=>setShowReconcile(true)}>🔍 Сверка с 1С</button>
             </div>
           </div>
           {!loadingProducts && products.length>0 && (

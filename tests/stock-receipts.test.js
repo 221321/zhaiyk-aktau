@@ -46,6 +46,36 @@ test('manager заносит приход — остаток прибавляе�
   assert.equal(products.find(p => p.code === 'R1').stock, 15, 'приход должен ПРИБАВИТЬСЯ к уже бывшему остатку (10+5), а не заменить его');
 });
 
+test('цена по позиции — считает сумму строки и итог по накладной, но не трогает цену продажи в каталоге', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', {
+    doc_number: 'НВ-002',
+    items: [{ code: 'R1', qty: 3, price: 900 }],
+  }, managerToken);
+  assert.equal(receipt.items[0].price, 900);
+  assert.equal(receipt.items[0].line_total, 2700);
+  assert.equal(receipt.total, 2700);
+
+  // Цена продажи (price1 из product-aliases) не должна была измениться от прихода
+  const products = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.notEqual(products.find(p => p.code === 'R1').price1, 900, 'цена прихода — это не цена продажи, они не связаны');
+});
+
+test('приход без цены — цена и суммы нулевые, поведение как раньше', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', {
+    items: [{ code: 'R1', qty: 2 }],
+  }, adminToken);
+  assert.equal(receipt.items[0].price, 0);
+  assert.equal(receipt.items[0].line_total, 0);
+  assert.equal(receipt.total, 0);
+});
+
+test('отрицательная цена — 400', async () => {
+  await assert.rejects(
+    apiCall(server.baseUrl, 'POST', '/api/stock-receipts', { items: [{ code: 'R1', qty: 1, price: -5 }] }, adminToken),
+    (err) => err.status === 400
+  );
+});
+
 test('приход весового товара идёт в weight_kg, а не в qty', async () => {
   const before = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
   const stockBefore = before.find(p => p.code === 'R2').stock_weight_kg || 0;
