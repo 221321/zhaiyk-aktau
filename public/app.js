@@ -2860,6 +2860,7 @@ function ReturnFormModal({
   const [reason, setReason] = useState('');
   const [refundCash, setRefundCash] = useState('');
   const [refundQr, setRefundQr] = useState('');
+  const [refundDebt, setRefundDebt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const canSubmitOrder = !!selectedOrder && orderItems.some(it => Number(returnQtys[it.code]) > 0);
@@ -2883,7 +2884,8 @@ function ReturnFormModal({
           items,
           reason,
           refundCash: Number(refundCash) || 0,
-          refundQr: Number(refundQr) || 0
+          refundQr: Number(refundQr) || 0,
+          refundDebt: Number(refundDebt) || 0
         };
       } else {
         const client = clients.find(c => c.code === clientCode);
@@ -3240,7 +3242,7 @@ function ReturnFormModal({
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
-      gridTemplateColumns: "1fr 1fr",
+      gridTemplateColumns: mode === "order" && selectedOrder && selectedOrder.payment_debt > 0 ? "1fr 1fr 1fr" : "1fr 1fr",
       gap: 8,
       marginTop: 10
     }
@@ -3260,7 +3262,21 @@ function ReturnFormModal({
     placeholder: "0",
     value: refundQr,
     onChange: e => setRefundQr(e.target.value)
-  }))), error && /*#__PURE__*/React.createElement("p", {
+  })), mode === "order" && selectedOrder && selectedOrder.payment_debt > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    style: S.label
+  }, "\u0421\u043F\u0438\u0441\u0430\u0442\u044C \u0434\u043E\u043B\u0433\u043E\u043C, \u20B8"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    style: S.input,
+    placeholder: "0",
+    value: refundDebt,
+    onChange: e => setRefundDebt(e.target.value)
+  }))), mode === "order" && selectedOrder && selectedOrder.payment_debt > 0 && /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "6px 0 0",
+      fontSize: 13,
+      color: C.textFaint
+    }
+  }, "\u0422\u043E\u0432\u0430\u0440 \u043F\u0440\u043E\u0434\u0430\u043D \u0432 \u0434\u043E\u043B\u0433 \u2014 \u0432\u043C\u0435\u0441\u0442\u043E \u0432\u043E\u0437\u0432\u0440\u0430\u0442\u0430 \u0434\u0435\u043D\u0435\u0433 \u043C\u043E\u0436\u043D\u043E \u043F\u0440\u043E\u0441\u0442\u043E \u0443\u043C\u0435\u043D\u044C\u0448\u0438\u0442\u044C \u0434\u043E\u043B\u0433 \u043A\u043B\u0438\u0435\u043D\u0442\u0430 \u043D\u0430 \u0441\u0442\u043E\u0438\u043C\u043E\u0441\u0442\u044C \u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0451\u043D\u043D\u043E\u0433\u043E."), error && /*#__PURE__*/React.createElement("p", {
     style: {
       ...S.errorBox,
       marginTop: 12,
@@ -15352,7 +15368,11 @@ function AdminCabinet({
         qr: 0,
         total: 0
       };
-      if (s.method === 'qr') bucket[key].qr += s.amount;else bucket[key].cash += s.amount;
+      // method:'return' — долг списан возвратом товара (см. POST
+      // /api/returns, refund_debt), а не реально полученными деньгами —
+      // засчитываем только в уменьшение долга (total), но НЕ в кассу,
+      // иначе касса за период была бы больше, чем реально принесли.
+      if (s.method === 'qr') bucket[key].qr += s.amount;else if (s.method !== 'return') bucket[key].cash += s.amount;
       bucket[key].total += s.amount;
     });
     const orderSettledCash = o => (settledByOrder[o.id] || {}).cash || 0;
@@ -15361,6 +15381,24 @@ function AdminCabinet({
     const saleSettledCash = s => (settledBySale[s.id] || {}).cash || 0;
     const saleSettledQr = s => (settledBySale[s.id] || {}).qr || 0;
     const saleRemainingDebt = s => Math.max(0, (s.payment_debt || 0) - ((settledBySale[s.id] || {}).total || 0));
+
+    // Возврат наличкой/QR клиенту (см. POST /api/returns, refund_cash/
+    // refund_qr) — водитель/касса физически отдали часть денег обратно,
+    // значит по этой заявке реально получено меньше, чем payment_cash/qr на
+    // ней. Считаем по order_id (возврат по продаже кассы, sale_id, сейчас не
+    // поддержан на сервере — см. POST /api/returns).
+    const refundedByOrder = {};
+    returnsList.forEach(r => {
+      if (!r.order_id) return;
+      if (!refundedByOrder[r.order_id]) refundedByOrder[r.order_id] = {
+        cash: 0,
+        qr: 0
+      };
+      refundedByOrder[r.order_id].cash += Number(r.refund_cash) || 0;
+      refundedByOrder[r.order_id].qr += Number(r.refund_qr) || 0;
+    });
+    const orderRefundedCash = o => (refundedByOrder[o.id] || {}).cash || 0;
+    const orderRefundedQr = o => (refundedByOrder[o.id] || {}).qr || 0;
     const periodOrders = orders.filter(o => o.date >= dateFrom && o.date <= dateTo);
     const stats = {
       total: periodOrders.length,
@@ -15369,8 +15407,8 @@ function AdminCabinet({
       cancelled: periodOrders.filter(o => o.status === "cancelled").length,
       returned: periodOrders.filter(o => o.status === "returned").length,
       revenue: periodOrders.filter(o => o.status === "delivered").reduce((s, o) => s + (o.total || 0), 0),
-      cashTotal: periodOrders.filter(o => o.status === "delivered").reduce((s, o) => s + (o.payment_cash || 0) + orderSettledCash(o), 0),
-      qrTotal: periodOrders.filter(o => o.status === "delivered").reduce((s, o) => s + (o.payment_qr || 0) + orderSettledQr(o), 0),
+      cashTotal: periodOrders.filter(o => o.status === "delivered").reduce((s, o) => s + (o.payment_cash || 0) + orderSettledCash(o) - orderRefundedCash(o), 0),
+      qrTotal: periodOrders.filter(o => o.status === "delivered").reduce((s, o) => s + (o.payment_qr || 0) + orderSettledQr(o) - orderRefundedQr(o), 0),
       debtTotal: periodOrders.reduce((s, o) => s + orderRemainingDebt(o), 0)
     };
     const deliveredOrders = periodOrders.filter(o => o.status === "delivered");

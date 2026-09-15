@@ -4268,7 +4268,7 @@ app.post('/api/returns', authMiddleware, (req, res) => {
   if (!['admin', 'manager', 'driver'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const { orderId, clientCode, clientName, salesId, items, reason, date, refundCash, refundQr } = req.body;
+  const { orderId, clientCode, clientName, salesId, items, reason, date, refundCash, refundQr, refundDebt } = req.body;
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Укажите хотя бы одну позицию для возврата' });
   }
@@ -4381,8 +4381,36 @@ app.post('/api/returns', authMiddleware, (req, res) => {
   }
   if (cleanItems.length === 0) return res.status(400).json({ error: 'Нет корректных позиций для возврата' });
 
+  // Возврат может закрывать долг, а не только выдавать деньги обратно — если
+  // товар был продан в долг, а не за нал/QR, физически возвращать нечего,
+  // долг просто уменьшается. Проверяем ДО записи возврата — как и остальные
+  // проверки в этом эндпоинте, нельзя списать долгом больше, чем реально
+  // остаётся должен клиент.
+  const refundDebtAmount = Number(refundDebt) || 0;
+  if (refundDebtAmount > 0) {
+    if (!order) {
+      return res.status(400).json({ error: 'Списать долг можно только по возврату, привязанному к заявке' });
+    }
+    const alreadySettled = db.get('debtSettlements').value()
+      .filter(s => s.order_id === order.id)
+      .reduce((s, x) => s + x.amount, 0);
+    const remainingDebt = Math.max(0, (order.payment_debt || 0) - alreadySettled);
+    if (refundDebtAmount > remainingDebt) {
+      return res.status(400).json({ error: `Нельзя списать долгом больше остатка долга по заявке (${remainingDebt})` });
+    }
+  }
+
   const total = cleanItems.reduce((s, it) => s + it.sum, 0);
+  // Деньги/долг, которые возврат отдаёт клиенту, не могут быть больше
+  // стоимости самих возвращаемых позиций — иначе можно было бы "вернуть"
+  // больше денег, чем стоит товар, и касса/долг ушли бы в минус, которого
+  // на самом деле нет. Небольшой допуск на округление (1 ₸).
+  const refundTotal = (Number(refundCash) || 0) + (Number(refundQr) || 0) + refundDebtAmount;
+  if (refundTotal > total + 1) {
+    return res.status(400).json({ error: `Сумма возврата (${refundTotal}) не может быть больше стоимости возвращаемых позиций (${total})` });
+  }
   const id = db.get('nextReturnId').value();
+  const retDate = date || new Date().toISOString().slice(0, 10);
   const ret = {
     id,
     order_id: order ? order.id : null,
@@ -4395,7 +4423,8 @@ app.post('/api/returns', authMiddleware, (req, res) => {
     reason: (reason || '').trim(),
     refund_cash: Number(refundCash) || 0,
     refund_qr: Number(refundQr) || 0,
-    date: date || new Date().toISOString().slice(0, 10),
+    refund_debt: refundDebtAmount,
+    date: retDate,
     created_by_id: req.user.id,
     created_by_name: req.user.name,
     created_at: new Date().toISOString(),
@@ -4407,6 +4436,24 @@ app.post('/api/returns', authMiddleware, (req, res) => {
   };
   db.get('returns').push(ret).write();
   db.set('nextReturnId', id + 1).write();
+
+  // Списание долга — через ту же коллекцию, что и ручное погашение (см.
+  // POST /api/debts/settle), чтобы GET /api/debts и весь остальной расчёт
+  // долга увидели уменьшение без отдельной ветки логики. method:'return' —
+  // отдельно от 'cash'/'qr' ручного погашения, чтобы отчёты не приняли это
+  // за реально полученные деньги (см. settledByOrder на фронте).
+  if (refundDebtAmount > 0) {
+    db.get('debtSettlements').push({
+      id: Date.now(),
+      order_id: order.id,
+      sale_id: null,
+      client_name: finalClientName,
+      amount: refundDebtAmount,
+      method: 'return',
+      date: retDate,
+      settled_by: req.user.name,
+    }).write();
+  }
 
   res.json(ret);
 });
@@ -4510,6 +4557,12 @@ app.delete('/api/returns/:id', authMiddleware, (req, res) => {
       logStockMovement(it.code, 'qty', qtyAfter - qtyBefore, qtyAfter, 'return_rollback', { return_id: id });
     });
   }
+  // Если этот возврат списывал долг (см. refund_debt в POST /api/returns) —
+  // откатываем и его: убираем запись из debtSettlements, чтобы долг клиента
+  // вернулся к тому, каким был до возврата, а не остался ошибочно уменьшенным.
+  if (ret.refund_debt > 0 && ret.order_id) {
+    db.get('debtSettlements').remove(s => s.order_id === ret.order_id && s.method === 'return' && s.amount === ret.refund_debt).write();
+  }
   db.get('returns').remove({ id }).write();
   res.json({ success: true });
 });
@@ -4532,6 +4585,14 @@ db.defaults({ cashHandovers: [], nextCashHandoverId: 1 }).write();
 // Заявки этого водителя, доставленные с получением налички, которая ещё не
 // вошла ни в одну сдачу (cash_handover_id не проставлен) — то, что водитель
 // физически должен принести складу прямо сейчас.
+//
+// Если по заявке уже был оформлен возврат с "вернуть наличными" (см. POST
+// /api/returns, refund_cash) — водитель на месте отдал клиенту часть налички
+// обратно, и реально должен принести складу меньше, чем изначально принял по
+// payment_cash. Возврат наличкой вычитаем независимо от того, подтверждён ли
+// он складом (см. status у /api/returns) — деньги клиенту физически отданы в
+// момент оформления возврата, это не ждёт отдельного подтверждения (в
+// отличие от прихода товара обратно на остаток).
 function computeDriverPendingCash(driverId) {
   const orders = db.get('orders').value();
   const pending = orders.filter(o =>
@@ -4540,7 +4601,15 @@ function computeDriverPendingCash(driverId) {
     (Number(o.payment_cash) || 0) > 0 &&
     !o.cash_handover_id
   );
-  const amount = pending.reduce((s, o) => s + (Number(o.payment_cash) || 0), 0);
+  const refundedCashByOrder = {};
+  db.get('returns').value().forEach(r => {
+    if (!r.order_id || !(Number(r.refund_cash) > 0)) return;
+    refundedCashByOrder[r.order_id] = (refundedCashByOrder[r.order_id] || 0) + Number(r.refund_cash);
+  });
+  const amount = pending.reduce((s, o) => {
+    const net = Math.max(0, (Number(o.payment_cash) || 0) - (refundedCashByOrder[o.id] || 0));
+    return s + net;
+  }, 0);
   return { amount, orderIds: pending.map(o => o.id) };
 }
 
