@@ -3813,11 +3813,16 @@ function computeStockBreakdown() {
 function getAllowedPrices(code, aliasMap, productPriceMap) {
   const rec = aliasMap[code];
   const tiers = [rec && rec.price1, rec && rec.price2, rec && rec.price3]
-    .filter(v => v != null)
+    .filter(v => v != null && Number(v) > 0)
     .map(Number);
   if (tiers.length > 0) return tiers;
-  const base = productPriceMap[code];
-  return base != null ? [Number(base)] : [];
+  // 0/не заданная базовая цена (частый случай — 1С не для каждого товара
+  // присылает цену) — это "цены нет", а не "цена 0 ₸". Раньше 0 считался
+  // законным единственным допустимым значением, и любая присланная цена
+  // тихо подменялась на 0 — заявка уходила с бесплатной позицией вместо
+  // реальной суммы.
+  const base = Number(productPriceMap[code]);
+  return base > 0 ? [base] : [];
 }
 
 // Цену позиции при оформлении и правке заявки может свободно назначать
