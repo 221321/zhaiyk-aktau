@@ -103,3 +103,102 @@ test('поставщик (контрагент) — сохраняется вм�
   assert.equal(woNoSupplier.supplier, '');
   assert.equal(woNoSupplier.supplier_code, null);
 });
+
+// ===== ПРАВКА И АННУЛИРОВАНИЕ (только admin) =====
+
+test('manager не может править или аннулировать списание (403)', async () => {
+  const wo = await apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', { reason: 'other', items: [{ code: 'W1', qty: 1 }] }, adminToken);
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-write-offs/${wo.id}`, { items: [{ code: 'W1', qty: 2 }], reason: 'тест' }, managerToken),
+    (err) => err.status === 403
+  );
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-write-offs/${wo.id}/annul`, { reason: 'тест' }, managerToken),
+    (err) => err.status === 403
+  );
+});
+
+test('admin увеличивает количество в списании — остаток списывается ещё на разницу', async () => {
+  const wo = await apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', { reason: 'other', items: [{ code: 'W1', qty: 2 }] }, adminToken);
+  const before = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  const w1Before = before.find(p => p.code === 'W1').stock;
+
+  const updated = await apiCall(server.baseUrl, 'PUT', `/api/stock-write-offs/${wo.id}`, {
+    items: [{ code: 'W1', qty: 5 }], reason: 'ошиблись количеством',
+  }, adminToken);
+  assert.equal(updated.items[0].qty, 5);
+  assert.equal(updated.edited_by_name, 'Администратор');
+
+  const after = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.equal(after.find(p => p.code === 'W1').stock, w1Before - 3, 'было списано 2, стало 5 — остаток должен уменьшиться ещё на разницу (3)');
+});
+
+test('admin уменьшает количество в списании — остаток возвращается на разницу', async () => {
+  const wo = await apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', { reason: 'other', items: [{ code: 'W1', qty: 5 }] }, adminToken);
+  const before = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  const w1Before = before.find(p => p.code === 'W1').stock;
+
+  await apiCall(server.baseUrl, 'PUT', `/api/stock-write-offs/${wo.id}`, {
+    items: [{ code: 'W1', qty: 2 }], reason: 'списали больше, чем нужно было',
+  }, adminToken);
+
+  const after = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.equal(after.find(p => p.code === 'W1').stock, w1Before + 3, 'было списано 5, стало 2 — остаток должен вернуться на разницу (3)');
+});
+
+test('admin убирает позицию из списания — остаток по ней возвращается полностью', async () => {
+  const wo = await apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', {
+    reason: 'other', items: [{ code: 'W1', qty: 2 }, { code: 'W2', qty: 3 }],
+  }, adminToken);
+  const before = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  const w2Before = before.find(p => p.code === 'W2').stock_weight_kg;
+
+  await apiCall(server.baseUrl, 'PUT', `/api/stock-write-offs/${wo.id}`, {
+    items: [{ code: 'W1', qty: 2 }], reason: 'лишняя позиция',
+  }, adminToken);
+
+  const after = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.equal(after.find(p => p.code === 'W2').stock_weight_kg, w2Before + 3);
+});
+
+test('нельзя увеличить списание сверх того, что реально есть на складе', async () => {
+  const wo = await apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', { reason: 'other', items: [{ code: 'W1', qty: 1 }] }, adminToken);
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-write-offs/${wo.id}`, { items: [{ code: 'W1', qty: 999999 }], reason: 'тест' }, adminToken),
+    (err) => err.status === 400
+  );
+});
+
+test('редактирование списания без причины — 400', async () => {
+  const wo = await apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', { reason: 'other', items: [{ code: 'W1', qty: 1 }] }, adminToken);
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-write-offs/${wo.id}`, { items: [{ code: 'W1', qty: 2 }] }, adminToken),
+    (err) => err.status === 400
+  );
+});
+
+test('admin аннулирует списание — остаток возвращается полностью, повторно нельзя', async () => {
+  // Пополняем остаток перед этим тестом — предыдущие тесты в файле уже
+  // насписывали W1 почти в ноль, а само списание здесь не про остаток, а
+  // про откат уже проведённого документа.
+  await apiCall(server.baseUrl, 'POST', '/api/stock/sync', { secret: SYNC_SECRET, items: [{ code: 'W1', qty: 100 }] });
+  const wo = await apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', { reason: 'damage', items: [{ code: 'W1', qty: 4 }] }, adminToken);
+  const before = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  const w1Before = before.find(p => p.code === 'W1').stock;
+
+  const annulled = await apiCall(server.baseUrl, 'PUT', `/api/stock-write-offs/${wo.id}/annul`, { reason: 'ошиблись документом' }, adminToken);
+  assert.equal(annulled.voided, true);
+  assert.equal(annulled.voided_by_name, 'Администратор');
+
+  const after = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.equal(after.find(p => p.code === 'W1').stock, w1Before + 4);
+
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-write-offs/${wo.id}/annul`, { reason: 'опять' }, adminToken),
+    (err) => err.status === 400
+  );
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-write-offs/${wo.id}`, { items: [{ code: 'W1', qty: 1 }], reason: 'после аннулирования' }, adminToken),
+    (err) => err.status === 400
+  );
+});

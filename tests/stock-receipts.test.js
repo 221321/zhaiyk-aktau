@@ -174,3 +174,113 @@ test('поставщик — необязателен, без выбора ко�
   assert.equal(receipt.supplier, '');
   assert.equal(receipt.supplier_code, null);
 });
+
+// ===== ПРАВКА И АННУЛИРОВАНИЕ (только admin) =====
+
+test('manager не может править или аннулировать приход (403)', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', { items: [{ code: 'R1', qty: 2 }] }, adminToken);
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-receipts/${receipt.id}`, { items: [{ code: 'R1', qty: 3 }], reason: 'тест' }, managerToken),
+    (err) => err.status === 403
+  );
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-receipts/${receipt.id}/annul`, { reason: 'тест' }, managerToken),
+    (err) => err.status === 403
+  );
+});
+
+test('admin правит количество в приходе — остаток пересчитывается на разницу', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', { items: [{ code: 'R1', qty: 5 }] }, adminToken);
+  const before = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  const r1Before = before.find(p => p.code === 'R1').stock;
+
+  const updated = await apiCall(server.baseUrl, 'PUT', `/api/stock-receipts/${receipt.id}`, {
+    items: [{ code: 'R1', qty: 8 }], reason: 'ошиблись количеством',
+  }, adminToken);
+  assert.equal(updated.items[0].qty, 8);
+  assert.equal(updated.edited_by_name, 'Администратор');
+
+  const after = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.equal(after.find(p => p.code === 'R1').stock, r1Before + 3, 'было 5, стало 8 — остаток должен вырасти на разницу (+3)');
+});
+
+test('admin добавляет новую позицию в существующий приход', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', { items: [{ code: 'R1', qty: 2 }] }, adminToken);
+  const before = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  const r3Before = before.find(p => p.code === 'R3').stock;
+
+  await apiCall(server.baseUrl, 'PUT', `/api/stock-receipts/${receipt.id}`, {
+    items: [{ code: 'R1', qty: 2 }, { code: 'R3', qty: 4 }], reason: 'забыли добавить позицию',
+  }, adminToken);
+
+  const after = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.equal(after.find(p => p.code === 'R3').stock, r3Before + 4);
+});
+
+test('admin удаляет позицию из прихода — остаток по ней откатывается', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', {
+    items: [{ code: 'R1', qty: 2 }, { code: 'R3', qty: 3 }],
+  }, adminToken);
+  const before = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  const r3Before = before.find(p => p.code === 'R3').stock;
+
+  await apiCall(server.baseUrl, 'PUT', `/api/stock-receipts/${receipt.id}`, {
+    items: [{ code: 'R1', qty: 2 }], reason: 'лишняя позиция',
+  }, adminToken);
+
+  const after = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.equal(after.find(p => p.code === 'R3').stock, r3Before - 3, 'позицию убрали из документа — остаток должен откатиться');
+});
+
+test('нельзя уменьшить приход ниже уже использованного остатка', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', { items: [{ code: 'R1', qty: 10 }] }, adminToken);
+  const beforeWO = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  const r1Stock = beforeWO.find(p => p.code === 'R1').stock;
+  // Списываем почти весь остаток дальше — впритык не хватит на откат приходу
+  await apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', { reason: 'other', items: [{ code: 'R1', qty: r1Stock - 2 }] }, adminToken);
+
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-receipts/${receipt.id}`, { items: [{ code: 'R1', qty: 1 }], reason: 'опечатка' }, adminToken),
+    (err) => err.status === 400
+  );
+});
+
+test('редактирование прихода без причины — 400', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', { items: [{ code: 'R1', qty: 1 }] }, adminToken);
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-receipts/${receipt.id}`, { items: [{ code: 'R1', qty: 2 }] }, adminToken),
+    (err) => err.status === 400
+  );
+});
+
+test('admin аннулирует приход — остаток откатывается полностью, повторно нельзя', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', { items: [{ code: 'R1', qty: 6 }] }, adminToken);
+  const before = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  const r1Before = before.find(p => p.code === 'R1').stock;
+
+  const annulled = await apiCall(server.baseUrl, 'PUT', `/api/stock-receipts/${receipt.id}/annul`, { reason: 'задвоили документ' }, adminToken);
+  assert.equal(annulled.voided, true);
+  assert.equal(annulled.voided_by_name, 'Администратор');
+
+  const after = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.equal(after.find(p => p.code === 'R1').stock, r1Before - 6);
+
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-receipts/${receipt.id}/annul`, { reason: 'опять' }, adminToken),
+    (err) => err.status === 400
+  );
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-receipts/${receipt.id}`, { items: [{ code: 'R1', qty: 1 }], reason: 'после аннулирования' }, adminToken),
+    (err) => err.status === 400
+  );
+});
+
+test('нельзя аннулировать приход, если товар уже продан/списан дальше', async () => {
+  const receipt = await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', { items: [{ code: 'R1', qty: 5 }] }, adminToken);
+  await apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', { reason: 'other', items: [{ code: 'R1', qty: 4 }] }, adminToken);
+
+  await assert.rejects(
+    apiCall(server.baseUrl, 'PUT', `/api/stock-receipts/${receipt.id}/annul`, { reason: 'передумали' }, adminToken),
+    (err) => err.status === 400
+  );
+});

@@ -14742,6 +14742,14 @@ function AdminCabinet({
   });
   const [receiptLines, setReceiptLines] = useState([newReceiptLine()]);
   const [savingReceipt, setSavingReceipt] = useState(false);
+  // Правка уже проведённого прихода — только admin (см. PUT
+  // /api/stock-receipts/:id), переиспользуем ту же модалку/форму, что и
+  // создание, просто предзаполненную и с обязательной причиной правки.
+  // Номер накладной/поставщик/дату сервер при правке не принимает — эти
+  // поля в форме показываем как есть, но делаем нередактируемыми, чтобы не
+  // создавать иллюзию, что их можно поменять здесь.
+  const [editingReceiptId, setEditingReceiptId] = useState(null);
+  const [receiptEditReason, setReceiptEditReason] = useState("");
   const updateReceiptLine = (uid, patch) => setReceiptLines(ls => ls.map(l => l.uid === uid ? {
     ...l,
     ...patch
@@ -14758,12 +14766,33 @@ function AdminCabinet({
   const receiptLineTotal = l => (Number(l.qty) || 0) * (Number(l.price) || 0);
   const filledReceiptLines = receiptLines.filter(l => l.code && Number(l.qty) > 0);
   const receiptGrandTotal = filledReceiptLines.reduce((s, l) => s + receiptLineTotal(l), 0);
-  const openReceiptModal = () => {
-    setReceiptDocNumber("");
-    setReceiptSupplier("");
-    setReceiptSupplierCode("");
-    setReceiptDate(todayStr2);
-    setReceiptLines([newReceiptLine()]);
+  const openReceiptModal = existing => {
+    if (existing) {
+      setEditingReceiptId(existing.id);
+      setReceiptEditReason("");
+      setReceiptDocNumber(existing.doc_number || "");
+      setReceiptSupplier(existing.supplier || "");
+      setReceiptSupplierCode(existing.supplier_code || "");
+      setReceiptDate(existing.date || todayStr2);
+      setReceiptLines(existing.items.map(it => ({
+        uid: Math.random(),
+        code: it.code,
+        name: it.name,
+        unit: it.is_weight_item ? 'кг' : '',
+        qty: String(it.qty),
+        price: it.price ? String(it.price) : '',
+        search: it.name,
+        showDrop: false
+      })));
+    } else {
+      setEditingReceiptId(null);
+      setReceiptEditReason("");
+      setReceiptDocNumber("");
+      setReceiptSupplier("");
+      setReceiptSupplierCode("");
+      setReceiptDate(todayStr2);
+      setReceiptLines([newReceiptLine()]);
+    }
     setShowReceiptModal(true);
   };
   const submitReceipt = async () => {
@@ -14771,24 +14800,37 @@ function AdminCabinet({
       alert('Добавьте хотя бы одну позицию с количеством');
       return;
     }
+    if (editingReceiptId && !receiptEditReason.trim()) {
+      alert('Укажите причину правки');
+      return;
+    }
     // Реально двигает остаток одним нажатием — переспрашиваем, чтобы
     // случайный клик (или клик раньше, чем заметили опечатку в количестве)
     // не прибавил лишнее к складу молча.
     const summary = filledReceiptLines.map(l => `${l.name} +${l.qty}`).join('\n');
-    if (!window.confirm(`Оприходовать?\n\n${summary}${receiptGrandTotal > 0 ? `\n\nИтого: ${receiptGrandTotal.toLocaleString()} ₸` : ''}`)) return;
+    const confirmMsg = editingReceiptId ? `Сохранить изменения в приходе № ${editingReceiptId}?\n\n${summary}${receiptGrandTotal > 0 ? `\n\nИтого: ${receiptGrandTotal.toLocaleString()} ₸` : ''}` : `Оприходовать?\n\n${summary}${receiptGrandTotal > 0 ? `\n\nИтого: ${receiptGrandTotal.toLocaleString()} ₸` : ''}`;
+    if (!window.confirm(confirmMsg)) return;
     setSavingReceipt(true);
     try {
-      await apiCall('POST', '/api/stock-receipts', {
-        doc_number: receiptDocNumber,
-        supplier: receiptSupplier,
-        supplier_code: receiptSupplierCode,
-        date: receiptDate,
-        items: filledReceiptLines.map(l => ({
-          code: l.code,
-          qty: Number(l.qty),
-          price: Number(l.price) || 0
-        }))
-      });
+      const items = filledReceiptLines.map(l => ({
+        code: l.code,
+        qty: Number(l.qty),
+        price: Number(l.price) || 0
+      }));
+      if (editingReceiptId) {
+        await apiCall('PUT', `/api/stock-receipts/${editingReceiptId}`, {
+          items,
+          reason: receiptEditReason.trim()
+        });
+      } else {
+        await apiCall('POST', '/api/stock-receipts', {
+          doc_number: receiptDocNumber,
+          supplier: receiptSupplier,
+          supplier_code: receiptSupplierCode,
+          date: receiptDate,
+          items
+        });
+      }
       await loadStockReceipts();
       await loadProducts();
       setShowReceiptModal(false);
@@ -14832,6 +14874,10 @@ function AdminCabinet({
   });
   const [writeOffLines, setWriteOffLines] = useState([newWriteOffLine()]);
   const [savingWriteOff, setSavingWriteOff] = useState(false);
+  // Правка уже проведённого списания — зеркало правки прихода выше, см.
+  // PUT /api/stock-write-offs/:id. Только admin.
+  const [editingWriteOffId, setEditingWriteOffId] = useState(null);
+  const [writeOffEditReason, setWriteOffEditReason] = useState("");
   const updateWriteOffLine = (uid, patch) => setWriteOffLines(ls => ls.map(l => l.uid === uid ? {
     ...l,
     ...patch
@@ -14848,14 +14894,37 @@ function AdminCabinet({
   const writeOffLineTotal = l => (Number(l.qty) || 0) * (Number(l.price) || 0);
   const filledWriteOffLines = writeOffLines.filter(l => l.code && Number(l.qty) > 0);
   const writeOffGrandTotal = filledWriteOffLines.reduce((s, l) => s + writeOffLineTotal(l), 0);
-  const openWriteOffModal = () => {
-    setWriteOffReason("supplier_return");
-    setWriteOffDocNumber("");
-    setWriteOffSupplier("");
-    setWriteOffSupplierCode("");
-    setWriteOffNote("");
-    setWriteOffDate(todayStr2);
-    setWriteOffLines([newWriteOffLine()]);
+  const openWriteOffModal = existing => {
+    if (existing) {
+      setEditingWriteOffId(existing.id);
+      setWriteOffEditReason("");
+      setWriteOffReason(existing.reason);
+      setWriteOffDocNumber(existing.doc_number || "");
+      setWriteOffSupplier(existing.supplier || "");
+      setWriteOffSupplierCode(existing.supplier_code || "");
+      setWriteOffNote(existing.note || "");
+      setWriteOffDate(existing.date || todayStr2);
+      setWriteOffLines(existing.items.map(it => ({
+        uid: Math.random(),
+        code: it.code,
+        name: it.name,
+        unit: it.is_weight_item ? 'кг' : '',
+        qty: String(it.qty),
+        price: it.price ? String(it.price) : '',
+        search: it.name,
+        showDrop: false
+      })));
+    } else {
+      setEditingWriteOffId(null);
+      setWriteOffEditReason("");
+      setWriteOffReason("supplier_return");
+      setWriteOffDocNumber("");
+      setWriteOffSupplier("");
+      setWriteOffSupplierCode("");
+      setWriteOffNote("");
+      setWriteOffDate(todayStr2);
+      setWriteOffLines([newWriteOffLine()]);
+    }
     setShowWriteOffModal(true);
   };
   const submitWriteOff = async () => {
@@ -14863,25 +14932,38 @@ function AdminCabinet({
       alert('Добавьте хотя бы одну позицию с количеством');
       return;
     }
+    if (editingWriteOffId && !writeOffEditReason.trim()) {
+      alert('Укажите причину правки');
+      return;
+    }
     // Списание необратимо уменьшает остаток — переспрашиваем перед
     // применением, тот же принцип, что и в "Поступлении".
     const summary = filledWriteOffLines.map(l => `${l.name} -${l.qty}`).join('\n');
-    if (!window.confirm(`Списать?\n\n${summary}${writeOffGrandTotal > 0 ? `\n\nИтого: ${writeOffGrandTotal.toLocaleString()} ₸` : ''}`)) return;
+    const confirmMsg = editingWriteOffId ? `Сохранить изменения в списании № ${editingWriteOffId}?\n\n${summary}${writeOffGrandTotal > 0 ? `\n\nИтого: ${writeOffGrandTotal.toLocaleString()} ₸` : ''}` : `Списать?\n\n${summary}${writeOffGrandTotal > 0 ? `\n\nИтого: ${writeOffGrandTotal.toLocaleString()} ₸` : ''}`;
+    if (!window.confirm(confirmMsg)) return;
     setSavingWriteOff(true);
     try {
-      await apiCall('POST', '/api/stock-write-offs', {
-        reason: writeOffReason,
-        doc_number: writeOffDocNumber,
-        supplier: writeOffSupplier,
-        supplier_code: writeOffSupplierCode,
-        note: writeOffNote,
-        date: writeOffDate,
-        items: filledWriteOffLines.map(l => ({
-          code: l.code,
-          qty: Number(l.qty),
-          price: Number(l.price) || 0
-        }))
-      });
+      const items = filledWriteOffLines.map(l => ({
+        code: l.code,
+        qty: Number(l.qty),
+        price: Number(l.price) || 0
+      }));
+      if (editingWriteOffId) {
+        await apiCall('PUT', `/api/stock-write-offs/${editingWriteOffId}`, {
+          items,
+          reason: writeOffEditReason.trim()
+        });
+      } else {
+        await apiCall('POST', '/api/stock-write-offs', {
+          reason: writeOffReason,
+          doc_number: writeOffDocNumber,
+          supplier: writeOffSupplier,
+          supplier_code: writeOffSupplierCode,
+          note: writeOffNote,
+          date: writeOffDate,
+          items
+        });
+      }
       await loadStockWriteOffs();
       await loadProducts();
       setShowWriteOffModal(false);
@@ -14889,6 +14971,38 @@ function AdminCabinet({
       alert(e.message);
     }
     setSavingWriteOff(false);
+  };
+
+  // Аннулирование прихода/списания целиком — только admin (см. PUT
+  // .../:id/annul на сервере), общая мини-форма причины на обеих карточках
+  // истории, тот же паттерн, что и "Аннулировать заявку" в OrderDetail.
+  const [annullingMovement, setAnnullingMovement] = useState(null); // { type: 'receipt'|'write_off', id }
+  const [movementAnnulReason, setMovementAnnulReason] = useState("");
+  const [savingMovementAnnul, setSavingMovementAnnul] = useState(false);
+  const submitMovementAnnul = async () => {
+    if (!movementAnnulReason.trim()) {
+      alert('Укажите причину аннулирования');
+      return;
+    }
+    const {
+      type,
+      id
+    } = annullingMovement;
+    if (!window.confirm(`Аннулировать ${type === 'receipt' ? 'приход' : 'списание'} № ${id}? Остаток на складе пересчитается обратно. Действие нельзя отменить.`)) return;
+    setSavingMovementAnnul(true);
+    try {
+      await apiCall('PUT', `/api/stock-${type === 'receipt' ? 'receipts' : 'write-offs'}/${id}/annul`, {
+        reason: movementAnnulReason.trim()
+      });
+      await loadStockReceipts();
+      await loadStockWriteOffs();
+      await loadProducts();
+      setAnnullingMovement(null);
+      setMovementAnnulReason("");
+    } catch (e) {
+      alert(e.message);
+    }
+    setSavingMovementAnnul(false);
   };
   const loadOrders = useCallback(async () => {
     try {
@@ -18149,20 +18263,26 @@ function AdminCabinet({
     }, q ? "Ничего не найдено" : "Приходов пока не было") : filteredReceipts.map(r => {
       const key = `r-${r.id}`;
       const open = !!expandedMovements[key];
+      const annulling = annullingMovement && annullingMovement.type === 'receipt' && annullingMovement.id === r.id;
       return /*#__PURE__*/React.createElement("div", {
         key: key,
         style: {
           ...S.card,
           padding: 10,
           marginBottom: 6,
-          cursor: "pointer"
+          cursor: "pointer",
+          opacity: r.voided ? 0.6 : 1
         },
         onClick: () => toggleMovementExpanded(key)
       }, /*#__PURE__*/React.createElement("div", {
         style: S.row
       }, /*#__PURE__*/React.createElement("p", {
         style: S.cardTitle
-      }, "\uD83D\uDE9A \u041F\u0440\u0438\u0445\u043E\u0434 \u2116 ", r.id, r.supplier ? ` · ${r.supplier}` : ''), /*#__PURE__*/React.createElement("span", {
+      }, "\uD83D\uDE9A \u041F\u0440\u0438\u0445\u043E\u0434 \u2116 ", r.id, r.supplier ? ` · ${r.supplier}` : '', r.voided && /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: C.red
+        }
+      }, " \xB7 \u0410\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u043D")), /*#__PURE__*/React.createElement("span", {
         style: {
           fontSize: 13,
           color: C.textFaint
@@ -18178,7 +18298,88 @@ function AdminCabinet({
           ...S.cardSub,
           color: C.textFaint
         }
-      }, "\u0417\u0430\u043D\u0451\u0441: ", r.created_by_name, ", ", new Date(r.created_at).toLocaleString('ru-RU'))));
+      }, "\u0417\u0430\u043D\u0451\u0441: ", r.created_by_name, ", ", new Date(r.created_at).toLocaleString('ru-RU')), r.edited_at && /*#__PURE__*/React.createElement("p", {
+        style: {
+          ...S.cardSub,
+          color: C.textFaint
+        }
+      }, "\u270E \u041F\u0440\u0430\u0432\u0438\u043B: ", r.edited_by_name, ", ", new Date(r.edited_at).toLocaleString('ru-RU')), r.voided && /*#__PURE__*/React.createElement("p", {
+        style: {
+          ...S.cardSub,
+          color: C.red
+        }
+      }, "\u26D4 \u0410\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u043B: ", r.voided_by_name, ", ", new Date(r.voided_at).toLocaleString('ru-RU'), " \u2014 ", r.void_reason), user.role === "admin" && !r.voided && /*#__PURE__*/React.createElement("div", {
+        onClick: e => e.stopPropagation(),
+        style: {
+          marginTop: 6
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 6
+        }
+      }, /*#__PURE__*/React.createElement("button", {
+        style: {
+          ...S.btnOutline,
+          marginTop: 0,
+          width: "auto",
+          padding: "5px 12px",
+          fontSize: 13
+        },
+        onClick: () => openReceiptModal(r)
+      }, "\u270E \u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C"), /*#__PURE__*/React.createElement("button", {
+        style: {
+          ...S.btnOutline,
+          marginTop: 0,
+          width: "auto",
+          padding: "5px 12px",
+          fontSize: 13,
+          borderColor: C.red,
+          color: C.red
+        },
+        onClick: () => {
+          setAnnullingMovement({
+            type: 'receipt',
+            id: r.id
+          });
+          setMovementAnnulReason("");
+        }
+      }, "\u26D4 \u0410\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u0442\u044C")), annulling && /*#__PURE__*/React.createElement("div", {
+        style: {
+          marginTop: 8,
+          padding: 8,
+          background: "#FEF2F2",
+          borderRadius: 8
+        }
+      }, /*#__PURE__*/React.createElement("input", {
+        style: {
+          ...S.input,
+          marginBottom: 8
+        },
+        placeholder: "\u041F\u0440\u0438\u0447\u0438\u043D\u0430 \u0430\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
+        value: movementAnnulReason,
+        onChange: e => setMovementAnnulReason(e.target.value)
+      }), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 6
+        }
+      }, /*#__PURE__*/React.createElement("button", {
+        disabled: savingMovementAnnul,
+        style: {
+          ...S.btnDanger,
+          flex: 1,
+          marginTop: 0,
+          opacity: savingMovementAnnul ? 0.5 : 1
+        },
+        onClick: submitMovementAnnul
+      }, savingMovementAnnul ? "Аннулирование..." : "Аннулировать"), /*#__PURE__*/React.createElement("button", {
+        style: {
+          ...S.btnSecondary,
+          flex: "0 0 auto"
+        },
+        onClick: () => setAnnullingMovement(null)
+      }, "\u041E\u0442\u043C\u0435\u043D\u0430"))))));
     }), /*#__PURE__*/React.createElement("p", {
       style: {
         fontSize: 14,
@@ -18196,20 +18397,26 @@ function AdminCabinet({
     }, q ? "Ничего не найдено" : "Списаний пока не было") : filteredWriteOffs.map(w => {
       const key = `w-${w.id}`;
       const open = !!expandedMovements[key];
+      const annulling = annullingMovement && annullingMovement.type === 'write_off' && annullingMovement.id === w.id;
       return /*#__PURE__*/React.createElement("div", {
         key: key,
         style: {
           ...S.card,
           padding: 10,
           marginBottom: 6,
-          cursor: "pointer"
+          cursor: "pointer",
+          opacity: w.voided ? 0.6 : 1
         },
         onClick: () => toggleMovementExpanded(key)
       }, /*#__PURE__*/React.createElement("div", {
         style: S.row
       }, /*#__PURE__*/React.createElement("p", {
         style: S.cardTitle
-      }, "\uD83D\uDCE4 \u0421\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u2116 ", w.id, " \xB7 ", WRITE_OFF_REASONS.find(([v]) => v === w.reason)?.[1] || w.reason, w.supplier ? ` · ${w.supplier}` : ''), /*#__PURE__*/React.createElement("span", {
+      }, "\uD83D\uDCE4 \u0421\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u2116 ", w.id, " \xB7 ", WRITE_OFF_REASONS.find(([v]) => v === w.reason)?.[1] || w.reason, w.supplier ? ` · ${w.supplier}` : '', w.voided && /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: C.red
+        }
+      }, " \xB7 \u0410\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043E")), /*#__PURE__*/React.createElement("span", {
         style: {
           fontSize: 13,
           color: C.textFaint
@@ -18227,7 +18434,88 @@ function AdminCabinet({
           ...S.cardSub,
           color: C.textFaint
         }
-      }, "\u0417\u0430\u043D\u0451\u0441: ", w.created_by_name, ", ", new Date(w.created_at).toLocaleString('ru-RU'))));
+      }, "\u0417\u0430\u043D\u0451\u0441: ", w.created_by_name, ", ", new Date(w.created_at).toLocaleString('ru-RU')), w.edited_at && /*#__PURE__*/React.createElement("p", {
+        style: {
+          ...S.cardSub,
+          color: C.textFaint
+        }
+      }, "\u270E \u041F\u0440\u0430\u0432\u0438\u043B: ", w.edited_by_name, ", ", new Date(w.edited_at).toLocaleString('ru-RU')), w.voided && /*#__PURE__*/React.createElement("p", {
+        style: {
+          ...S.cardSub,
+          color: C.red
+        }
+      }, "\u26D4 \u0410\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u043B: ", w.voided_by_name, ", ", new Date(w.voided_at).toLocaleString('ru-RU'), " \u2014 ", w.void_reason), user.role === "admin" && !w.voided && /*#__PURE__*/React.createElement("div", {
+        onClick: e => e.stopPropagation(),
+        style: {
+          marginTop: 6
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 6
+        }
+      }, /*#__PURE__*/React.createElement("button", {
+        style: {
+          ...S.btnOutline,
+          marginTop: 0,
+          width: "auto",
+          padding: "5px 12px",
+          fontSize: 13
+        },
+        onClick: () => openWriteOffModal(w)
+      }, "\u270E \u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C"), /*#__PURE__*/React.createElement("button", {
+        style: {
+          ...S.btnOutline,
+          marginTop: 0,
+          width: "auto",
+          padding: "5px 12px",
+          fontSize: 13,
+          borderColor: C.red,
+          color: C.red
+        },
+        onClick: () => {
+          setAnnullingMovement({
+            type: 'write_off',
+            id: w.id
+          });
+          setMovementAnnulReason("");
+        }
+      }, "\u26D4 \u0410\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u0442\u044C")), annulling && /*#__PURE__*/React.createElement("div", {
+        style: {
+          marginTop: 8,
+          padding: 8,
+          background: "#FEF2F2",
+          borderRadius: 8
+        }
+      }, /*#__PURE__*/React.createElement("input", {
+        style: {
+          ...S.input,
+          marginBottom: 8
+        },
+        placeholder: "\u041F\u0440\u0438\u0447\u0438\u043D\u0430 \u0430\u043D\u043D\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
+        value: movementAnnulReason,
+        onChange: e => setMovementAnnulReason(e.target.value)
+      }), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 6
+        }
+      }, /*#__PURE__*/React.createElement("button", {
+        disabled: savingMovementAnnul,
+        style: {
+          ...S.btnDanger,
+          flex: 1,
+          marginTop: 0,
+          opacity: savingMovementAnnul ? 0.5 : 1
+        },
+        onClick: submitMovementAnnul
+      }, savingMovementAnnul ? "Аннулирование..." : "Аннулировать"), /*#__PURE__*/React.createElement("button", {
+        style: {
+          ...S.btnSecondary,
+          flex: "0 0 auto"
+        },
+        onClick: () => setAnnullingMovement(null)
+      }, "\u041E\u0442\u043C\u0435\u043D\u0430"))))));
     }));
   })()), showReceiptModal && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -18262,7 +18550,7 @@ function AdminCabinet({
       fontFamily: FH,
       color: C.navy
     }
-  }, "\uD83D\uDE9A \u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u0435"), /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDE9A ", editingReceiptId ? `Правка прихода № ${editingReceiptId}` : "Создать поступление"), /*#__PURE__*/React.createElement("button", {
     style: S.btnSecondary,
     onClick: () => setShowReceiptModal(false)
   }, "\u2715 \u0417\u0430\u043A\u0440\u044B\u0442\u044C")), /*#__PURE__*/React.createElement("div", {
@@ -18275,9 +18563,11 @@ function AdminCabinet({
       flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("input", {
+    disabled: !!editingReceiptId,
     style: {
       ...S.input,
-      flex: "1 1 140px"
+      flex: "1 1 140px",
+      opacity: editingReceiptId ? 0.6 : 1
     },
     placeholder: "\u2116 \u043D\u0430\u043A\u043B\u0430\u0434\u043D\u043E\u0439",
     value: receiptDocNumber,
@@ -18288,7 +18578,11 @@ function AdminCabinet({
       flex: "1 1 160px"
     }
   }, /*#__PURE__*/React.createElement("input", {
-    style: S.input,
+    style: {
+      ...S.input,
+      opacity: editingReceiptId ? 0.6 : 1
+    },
+    disabled: !!editingReceiptId,
     placeholder: "\u041F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A (\u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442)",
     value: receiptSupplier,
     onChange: e => {
@@ -18332,12 +18626,20 @@ function AdminCabinet({
   })()), /*#__PURE__*/React.createElement("input", {
     style: {
       ...S.input,
-      flex: "0 1 150px"
+      flex: "0 1 150px",
+      opacity: editingReceiptId ? 0.6 : 1
     },
+    disabled: !!editingReceiptId,
     type: "date",
     value: receiptDate,
     onChange: e => setReceiptDate(e.target.value)
-  })), /*#__PURE__*/React.createElement("div", {
+  })), editingReceiptId && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12.5,
+      color: C.textFaint,
+      margin: "-4px 0 10px"
+    }
+  }, "\u041D\u0430\u043A\u043B\u0430\u0434\u043D\u0443\u044E, \u043F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A\u0430 \u0438 \u0434\u0430\u0442\u0443 \u0437\u0434\u0435\u0441\u044C \u043F\u043E\u043C\u0435\u043D\u044F\u0442\u044C \u043D\u0435\u043B\u044C\u0437\u044F \u2014 \u043C\u043E\u0436\u043D\u043E \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u043E\u0437\u0438\u0446\u0438\u0438."), /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.row,
       marginBottom: 10
@@ -18476,14 +18778,22 @@ function AdminCabinet({
       fontFamily: FH,
       margin: "10px 0"
     }
-  }, "\u0418\u0442\u043E\u0433\u043E: ", receiptGrandTotal.toLocaleString(), " \u20B8"), /*#__PURE__*/React.createElement("button", {
+  }, "\u0418\u0442\u043E\u0433\u043E: ", receiptGrandTotal.toLocaleString(), " \u20B8"), editingReceiptId && /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      marginBottom: 10
+    },
+    placeholder: "\u041F\u0440\u0438\u0447\u0438\u043D\u0430 \u043F\u0440\u0430\u0432\u043A\u0438 (\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
+    value: receiptEditReason,
+    onChange: e => setReceiptEditReason(e.target.value)
+  }), /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnPrimary,
       opacity: savingReceipt || filledReceiptLines.length === 0 ? 0.5 : 1
     },
     disabled: savingReceipt || filledReceiptLines.length === 0,
     onClick: submitReceipt
-  }, savingReceipt ? "Сохраняю..." : "Оприходовать")))), showWriteOffModal && /*#__PURE__*/React.createElement("div", {
+  }, savingReceipt ? "Сохраняю..." : editingReceiptId ? "Сохранить изменения" : "Оприходовать")))), showWriteOffModal && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "fixed",
       inset: 0,
@@ -18516,7 +18826,7 @@ function AdminCabinet({
       fontFamily: FH,
       color: C.navy
     }
-  }, "\uD83D\uDCE4 \u0421\u043E\u0437\u0434\u0430\u0442\u044C \u0441\u043F\u0438\u0441\u0430\u043D\u0438\u0435"), /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCE4 ", editingWriteOffId ? `Правка списания № ${editingWriteOffId}` : "Создать списание"), /*#__PURE__*/React.createElement("button", {
     style: S.btnSecondary,
     onClick: () => setShowWriteOffModal(false)
   }, "\u2715 \u0417\u0430\u043A\u0440\u044B\u0442\u044C")), /*#__PURE__*/React.createElement("div", {
@@ -18534,6 +18844,7 @@ function AdminCabinet({
   }, WRITE_OFF_REASONS.map(([v, l]) => /*#__PURE__*/React.createElement("button", {
     key: v,
     type: "button",
+    disabled: !!editingWriteOffId,
     onClick: () => setWriteOffReason(v),
     style: {
       flex: "1 1 auto",
@@ -18544,7 +18855,8 @@ function AdminCabinet({
       color: writeOffReason === v ? C.white : C.textMid,
       fontSize: 13,
       fontWeight: 600,
-      cursor: "pointer"
+      cursor: editingWriteOffId ? "default" : "pointer",
+      opacity: editingWriteOffId ? 0.6 : 1
     }
   }, l)))), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -18554,9 +18866,11 @@ function AdminCabinet({
       flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("input", {
+    disabled: !!editingWriteOffId,
     style: {
       ...S.input,
-      flex: "1 1 140px"
+      flex: "1 1 140px",
+      opacity: editingWriteOffId ? 0.6 : 1
     },
     placeholder: "\u2116 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u0430 (\u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
     value: writeOffDocNumber,
@@ -18567,7 +18881,11 @@ function AdminCabinet({
       flex: "1 1 160px"
     }
   }, /*#__PURE__*/React.createElement("input", {
-    style: S.input,
+    disabled: !!editingWriteOffId,
+    style: {
+      ...S.input,
+      opacity: editingWriteOffId ? 0.6 : 1
+    },
     placeholder: "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442 (\u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
     value: writeOffSupplier,
     onChange: e => {
@@ -18609,9 +18927,11 @@ function AdminCabinet({
       }
     }, c.name)));
   })()), /*#__PURE__*/React.createElement("input", {
+    disabled: !!editingWriteOffId,
     style: {
       ...S.input,
-      flex: "0 1 150px"
+      flex: "0 1 150px",
+      opacity: editingWriteOffId ? 0.6 : 1
     },
     type: "date",
     value: writeOffDate,
@@ -18619,11 +18939,21 @@ function AdminCabinet({
   })), /*#__PURE__*/React.createElement("div", {
     style: S.formGroup
   }, /*#__PURE__*/React.createElement("input", {
-    style: S.input,
+    disabled: !!editingWriteOffId,
+    style: {
+      ...S.input,
+      opacity: editingWriteOffId ? 0.6 : 1
+    },
     placeholder: "\u041A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0439 (\u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
     value: writeOffNote,
     onChange: e => setWriteOffNote(e.target.value)
-  })), /*#__PURE__*/React.createElement("div", {
+  })), editingWriteOffId && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12.5,
+      color: C.textFaint,
+      margin: "-4px 0 10px"
+    }
+  }, "\u041F\u0440\u0438\u0447\u0438\u043D\u0443, \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442, \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u0430, \u0434\u0430\u0442\u0443 \u0438 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0439 \u0437\u0434\u0435\u0441\u044C \u043F\u043E\u043C\u0435\u043D\u044F\u0442\u044C \u043D\u0435\u043B\u044C\u0437\u044F \u2014 \u043C\u043E\u0436\u043D\u043E \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u043E\u0437\u0438\u0446\u0438\u0438."), /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.row,
       marginBottom: 10
@@ -18762,14 +19092,22 @@ function AdminCabinet({
       fontFamily: FH,
       margin: "10px 0"
     }
-  }, "\u0418\u0442\u043E\u0433\u043E: ", writeOffGrandTotal.toLocaleString(), " \u20B8"), /*#__PURE__*/React.createElement("button", {
+  }, "\u0418\u0442\u043E\u0433\u043E: ", writeOffGrandTotal.toLocaleString(), " \u20B8"), editingWriteOffId && /*#__PURE__*/React.createElement("input", {
+    style: {
+      ...S.input,
+      marginBottom: 10
+    },
+    placeholder: "\u041F\u0440\u0438\u0447\u0438\u043D\u0430 \u043F\u0440\u0430\u0432\u043A\u0438 (\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)",
+    value: writeOffEditReason,
+    onChange: e => setWriteOffEditReason(e.target.value)
+  }), /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnPrimary,
       opacity: savingWriteOff || filledWriteOffLines.length === 0 ? 0.5 : 1
     },
     disabled: savingWriteOff || filledWriteOffLines.length === 0,
     onClick: submitWriteOff
-  }, savingWriteOff ? "Сохраняю..." : "Списать"))))), tab === "clientsWeb" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
+  }, savingWriteOff ? "Сохраняю..." : editingWriteOffId ? "Сохранить изменения" : "Списать"))))), tab === "clientsWeb" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u044B"), /*#__PURE__*/React.createElement("div", {
     style: {

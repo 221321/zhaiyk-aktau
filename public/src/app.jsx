@@ -7173,6 +7173,14 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const newReceiptLine = () => ({ uid: Math.random(), code: "", name: "", unit: "", qty: "", price: "", search: "", showDrop: false });
   const [receiptLines, setReceiptLines] = useState([newReceiptLine()]);
   const [savingReceipt, setSavingReceipt] = useState(false);
+  // Правка уже проведённого прихода — только admin (см. PUT
+  // /api/stock-receipts/:id), переиспользуем ту же модалку/форму, что и
+  // создание, просто предзаполненную и с обязательной причиной правки.
+  // Номер накладной/поставщик/дату сервер при правке не принимает — эти
+  // поля в форме показываем как есть, но делаем нередактируемыми, чтобы не
+  // создавать иллюзию, что их можно поменять здесь.
+  const [editingReceiptId, setEditingReceiptId] = useState(null);
+  const [receiptEditReason, setReceiptEditReason] = useState("");
 
   const updateReceiptLine = (uid, patch) => setReceiptLines(ls => ls.map(l => l.uid === uid ? {...l, ...patch} : l));
   const removeReceiptLine = (uid) => setReceiptLines(ls => ls.length > 1 ? ls.filter(l => l.uid !== uid) : ls);
@@ -7183,25 +7191,45 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const filledReceiptLines = receiptLines.filter(l => l.code && Number(l.qty) > 0);
   const receiptGrandTotal = filledReceiptLines.reduce((s, l) => s + receiptLineTotal(l), 0);
 
-  const openReceiptModal = () => {
-    setReceiptDocNumber(""); setReceiptSupplier(""); setReceiptSupplierCode(""); setReceiptDate(todayStr2);
-    setReceiptLines([newReceiptLine()]);
+  const openReceiptModal = (existing) => {
+    if (existing) {
+      setEditingReceiptId(existing.id);
+      setReceiptEditReason("");
+      setReceiptDocNumber(existing.doc_number || "");
+      setReceiptSupplier(existing.supplier || "");
+      setReceiptSupplierCode(existing.supplier_code || "");
+      setReceiptDate(existing.date || todayStr2);
+      setReceiptLines(existing.items.map(it => ({ uid: Math.random(), code: it.code, name: it.name, unit: it.is_weight_item?'кг':'', qty: String(it.qty), price: it.price?String(it.price):'', search: it.name, showDrop: false })));
+    } else {
+      setEditingReceiptId(null);
+      setReceiptEditReason("");
+      setReceiptDocNumber(""); setReceiptSupplier(""); setReceiptSupplierCode(""); setReceiptDate(todayStr2);
+      setReceiptLines([newReceiptLine()]);
+    }
     setShowReceiptModal(true);
   };
 
   const submitReceipt = async () => {
     if (filledReceiptLines.length === 0) { alert('Добавьте хотя бы одну позицию с количеством'); return; }
+    if (editingReceiptId && !receiptEditReason.trim()) { alert('Укажите причину правки'); return; }
     // Реально двигает остаток одним нажатием — переспрашиваем, чтобы
     // случайный клик (или клик раньше, чем заметили опечатку в количестве)
     // не прибавил лишнее к складу молча.
     const summary = filledReceiptLines.map(l => `${l.name} +${l.qty}`).join('\n');
-    if (!window.confirm(`Оприходовать?\n\n${summary}${receiptGrandTotal>0?`\n\nИтого: ${receiptGrandTotal.toLocaleString()} ₸`:''}`)) return;
+    const confirmMsg = editingReceiptId
+      ? `Сохранить изменения в приходе № ${editingReceiptId}?\n\n${summary}${receiptGrandTotal>0?`\n\nИтого: ${receiptGrandTotal.toLocaleString()} ₸`:''}`
+      : `Оприходовать?\n\n${summary}${receiptGrandTotal>0?`\n\nИтого: ${receiptGrandTotal.toLocaleString()} ₸`:''}`;
+    if (!window.confirm(confirmMsg)) return;
     setSavingReceipt(true);
     try {
-      await apiCall('POST', '/api/stock-receipts', {
-        doc_number: receiptDocNumber, supplier: receiptSupplier, supplier_code: receiptSupplierCode, date: receiptDate,
-        items: filledReceiptLines.map(l => ({ code: l.code, qty: Number(l.qty), price: Number(l.price)||0 })),
-      });
+      const items = filledReceiptLines.map(l => ({ code: l.code, qty: Number(l.qty), price: Number(l.price)||0 }));
+      if (editingReceiptId) {
+        await apiCall('PUT', `/api/stock-receipts/${editingReceiptId}`, { items, reason: receiptEditReason.trim() });
+      } else {
+        await apiCall('POST', '/api/stock-receipts', {
+          doc_number: receiptDocNumber, supplier: receiptSupplier, supplier_code: receiptSupplierCode, date: receiptDate, items,
+        });
+      }
       await loadStockReceipts();
       await loadProducts();
       setShowReceiptModal(false);
@@ -7231,6 +7259,10 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const newWriteOffLine = () => ({ uid: Math.random(), code: "", name: "", unit: "", qty: "", price: "", search: "", showDrop: false });
   const [writeOffLines, setWriteOffLines] = useState([newWriteOffLine()]);
   const [savingWriteOff, setSavingWriteOff] = useState(false);
+  // Правка уже проведённого списания — зеркало правки прихода выше, см.
+  // PUT /api/stock-write-offs/:id. Только admin.
+  const [editingWriteOffId, setEditingWriteOffId] = useState(null);
+  const [writeOffEditReason, setWriteOffEditReason] = useState("");
 
   const updateWriteOffLine = (uid, patch) => setWriteOffLines(ls => ls.map(l => l.uid === uid ? {...l, ...patch} : l));
   const removeWriteOffLine = (uid) => setWriteOffLines(ls => ls.length > 1 ? ls.filter(l => l.uid !== uid) : ls);
@@ -7241,29 +7273,69 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const filledWriteOffLines = writeOffLines.filter(l => l.code && Number(l.qty) > 0);
   const writeOffGrandTotal = filledWriteOffLines.reduce((s, l) => s + writeOffLineTotal(l), 0);
 
-  const openWriteOffModal = () => {
-    setWriteOffReason("supplier_return"); setWriteOffDocNumber(""); setWriteOffSupplier(""); setWriteOffSupplierCode(""); setWriteOffNote(""); setWriteOffDate(todayStr2);
-    setWriteOffLines([newWriteOffLine()]);
+  const openWriteOffModal = (existing) => {
+    if (existing) {
+      setEditingWriteOffId(existing.id);
+      setWriteOffEditReason("");
+      setWriteOffReason(existing.reason); setWriteOffDocNumber(existing.doc_number || ""); setWriteOffSupplier(existing.supplier || ""); setWriteOffSupplierCode(existing.supplier_code || ""); setWriteOffNote(existing.note || ""); setWriteOffDate(existing.date || todayStr2);
+      setWriteOffLines(existing.items.map(it => ({ uid: Math.random(), code: it.code, name: it.name, unit: it.is_weight_item?'кг':'', qty: String(it.qty), price: it.price?String(it.price):'', search: it.name, showDrop: false })));
+    } else {
+      setEditingWriteOffId(null);
+      setWriteOffEditReason("");
+      setWriteOffReason("supplier_return"); setWriteOffDocNumber(""); setWriteOffSupplier(""); setWriteOffSupplierCode(""); setWriteOffNote(""); setWriteOffDate(todayStr2);
+      setWriteOffLines([newWriteOffLine()]);
+    }
     setShowWriteOffModal(true);
   };
 
   const submitWriteOff = async () => {
     if (filledWriteOffLines.length === 0) { alert('Добавьте хотя бы одну позицию с количеством'); return; }
+    if (editingWriteOffId && !writeOffEditReason.trim()) { alert('Укажите причину правки'); return; }
     // Списание необратимо уменьшает остаток — переспрашиваем перед
     // применением, тот же принцип, что и в "Поступлении".
     const summary = filledWriteOffLines.map(l => `${l.name} -${l.qty}`).join('\n');
-    if (!window.confirm(`Списать?\n\n${summary}${writeOffGrandTotal>0?`\n\nИтого: ${writeOffGrandTotal.toLocaleString()} ₸`:''}`)) return;
+    const confirmMsg = editingWriteOffId
+      ? `Сохранить изменения в списании № ${editingWriteOffId}?\n\n${summary}${writeOffGrandTotal>0?`\n\nИтого: ${writeOffGrandTotal.toLocaleString()} ₸`:''}`
+      : `Списать?\n\n${summary}${writeOffGrandTotal>0?`\n\nИтого: ${writeOffGrandTotal.toLocaleString()} ₸`:''}`;
+    if (!window.confirm(confirmMsg)) return;
     setSavingWriteOff(true);
     try {
-      await apiCall('POST', '/api/stock-write-offs', {
-        reason: writeOffReason, doc_number: writeOffDocNumber, supplier: writeOffSupplier, supplier_code: writeOffSupplierCode, note: writeOffNote, date: writeOffDate,
-        items: filledWriteOffLines.map(l => ({ code: l.code, qty: Number(l.qty), price: Number(l.price)||0 })),
-      });
+      const items = filledWriteOffLines.map(l => ({ code: l.code, qty: Number(l.qty), price: Number(l.price)||0 }));
+      if (editingWriteOffId) {
+        await apiCall('PUT', `/api/stock-write-offs/${editingWriteOffId}`, { items, reason: writeOffEditReason.trim() });
+      } else {
+        await apiCall('POST', '/api/stock-write-offs', {
+          reason: writeOffReason, doc_number: writeOffDocNumber, supplier: writeOffSupplier, supplier_code: writeOffSupplierCode, note: writeOffNote, date: writeOffDate, items,
+        });
+      }
       await loadStockWriteOffs();
       await loadProducts();
       setShowWriteOffModal(false);
     } catch(e) { alert(e.message); }
     setSavingWriteOff(false);
+  };
+
+  // Аннулирование прихода/списания целиком — только admin (см. PUT
+  // .../:id/annul на сервере), общая мини-форма причины на обеих карточках
+  // истории, тот же паттерн, что и "Аннулировать заявку" в OrderDetail.
+  const [annullingMovement, setAnnullingMovement] = useState(null); // { type: 'receipt'|'write_off', id }
+  const [movementAnnulReason, setMovementAnnulReason] = useState("");
+  const [savingMovementAnnul, setSavingMovementAnnul] = useState(false);
+
+  const submitMovementAnnul = async () => {
+    if (!movementAnnulReason.trim()) { alert('Укажите причину аннулирования'); return; }
+    const { type, id } = annullingMovement;
+    if (!window.confirm(`Аннулировать ${type==='receipt'?'приход':'списание'} № ${id}? Остаток на складе пересчитается обратно. Действие нельзя отменить.`)) return;
+    setSavingMovementAnnul(true);
+    try {
+      await apiCall('PUT', `/api/stock-${type==='receipt'?'receipts':'write-offs'}/${id}/annul`, { reason: movementAnnulReason.trim() });
+      await loadStockReceipts();
+      await loadStockWriteOffs();
+      await loadProducts();
+      setAnnullingMovement(null);
+      setMovementAnnulReason("");
+    } catch(e) { alert(e.message); }
+    setSavingMovementAnnul(false);
   };
 
   const loadOrders = useCallback(async () => {
@@ -8856,10 +8928,11 @@ function AdminCabinet({ user, onLogout, desktop }) {
                 : filteredReceipts.map(r=>{
                   const key = `r-${r.id}`;
                   const open = !!expandedMovements[key];
+                  const annulling = annullingMovement && annullingMovement.type==='receipt' && annullingMovement.id===r.id;
                   return (
-                    <div key={key} style={{...S.card,padding:10,marginBottom:6,cursor:"pointer"}} onClick={()=>toggleMovementExpanded(key)}>
+                    <div key={key} style={{...S.card,padding:10,marginBottom:6,cursor:"pointer",opacity:r.voided?0.6:1}} onClick={()=>toggleMovementExpanded(key)}>
                       <div style={S.row}>
-                        <p style={S.cardTitle}>🚚 Приход № {r.id}{r.supplier?` · ${r.supplier}`:''}</p>
+                        <p style={S.cardTitle}>🚚 Приход № {r.id}{r.supplier?` · ${r.supplier}`:''}{r.voided&&<span style={{color:C.red}}> · Аннулирован</span>}</p>
                         <span style={{fontSize:13,color:C.textFaint}}>{open?"▲":"▼"}</span>
                       </div>
                       <p style={S.cardSub}>{r.date}{r.total>0?` · Итого: ${r.total.toLocaleString()} ₸`:''}</p>
@@ -8867,6 +8940,25 @@ function AdminCabinet({ user, onLogout, desktop }) {
                         {r.doc_number&&<p style={S.cardSub}>Накладная № {r.doc_number}</p>}
                         <p style={S.cardSub}>{renderItemsLine(r.items, '+')}</p>
                         <p style={{...S.cardSub,color:C.textFaint}}>Занёс: {r.created_by_name}, {new Date(r.created_at).toLocaleString('ru-RU')}</p>
+                        {r.edited_at&&<p style={{...S.cardSub,color:C.textFaint}}>✎ Правил: {r.edited_by_name}, {new Date(r.edited_at).toLocaleString('ru-RU')}</p>}
+                        {r.voided&&<p style={{...S.cardSub,color:C.red}}>⛔ Аннулировал: {r.voided_by_name}, {new Date(r.voided_at).toLocaleString('ru-RU')} — {r.void_reason}</p>}
+                        {user.role==="admin"&&!r.voided&&(
+                          <div onClick={e=>e.stopPropagation()} style={{marginTop:6}}>
+                            <div style={{display:"flex",gap:6}}>
+                              <button style={{...S.btnOutline,marginTop:0,width:"auto",padding:"5px 12px",fontSize:13}} onClick={()=>openReceiptModal(r)}>✎ Редактировать</button>
+                              <button style={{...S.btnOutline,marginTop:0,width:"auto",padding:"5px 12px",fontSize:13,borderColor:C.red,color:C.red}} onClick={()=>{setAnnullingMovement({type:'receipt',id:r.id});setMovementAnnulReason("");}}>⛔ Аннулировать</button>
+                            </div>
+                            {annulling&&(
+                              <div style={{marginTop:8,padding:8,background:"#FEF2F2",borderRadius:8}}>
+                                <input style={{...S.input,marginBottom:8}} placeholder="Причина аннулирования (обязательно)" value={movementAnnulReason} onChange={e=>setMovementAnnulReason(e.target.value)}/>
+                                <div style={{display:"flex",gap:6}}>
+                                  <button disabled={savingMovementAnnul} style={{...S.btnDanger,flex:1,marginTop:0,opacity:savingMovementAnnul?0.5:1}} onClick={submitMovementAnnul}>{savingMovementAnnul?"Аннулирование...":"Аннулировать"}</button>
+                                  <button style={{...S.btnSecondary,flex:"0 0 auto"}} onClick={()=>setAnnullingMovement(null)}>Отмена</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </>}
                     </div>
                   );
@@ -8878,10 +8970,11 @@ function AdminCabinet({ user, onLogout, desktop }) {
                 : filteredWriteOffs.map(w=>{
                   const key = `w-${w.id}`;
                   const open = !!expandedMovements[key];
+                  const annulling = annullingMovement && annullingMovement.type==='write_off' && annullingMovement.id===w.id;
                   return (
-                    <div key={key} style={{...S.card,padding:10,marginBottom:6,cursor:"pointer"}} onClick={()=>toggleMovementExpanded(key)}>
+                    <div key={key} style={{...S.card,padding:10,marginBottom:6,cursor:"pointer",opacity:w.voided?0.6:1}} onClick={()=>toggleMovementExpanded(key)}>
                       <div style={S.row}>
-                        <p style={S.cardTitle}>📤 Списание № {w.id} · {WRITE_OFF_REASONS.find(([v])=>v===w.reason)?.[1]||w.reason}{w.supplier?` · ${w.supplier}`:''}</p>
+                        <p style={S.cardTitle}>📤 Списание № {w.id} · {WRITE_OFF_REASONS.find(([v])=>v===w.reason)?.[1]||w.reason}{w.supplier?` · ${w.supplier}`:''}{w.voided&&<span style={{color:C.red}}> · Аннулировано</span>}</p>
                         <span style={{fontSize:13,color:C.textFaint}}>{open?"▲":"▼"}</span>
                       </div>
                       <p style={S.cardSub}>{w.date}{w.total>0?` · Итого: ${w.total.toLocaleString()} ₸`:''}</p>
@@ -8890,6 +8983,25 @@ function AdminCabinet({ user, onLogout, desktop }) {
                         <p style={S.cardSub}>{renderItemsLine(w.items, '-')}</p>
                         {w.note&&<p style={S.cardSub}>{w.note}</p>}
                         <p style={{...S.cardSub,color:C.textFaint}}>Занёс: {w.created_by_name}, {new Date(w.created_at).toLocaleString('ru-RU')}</p>
+                        {w.edited_at&&<p style={{...S.cardSub,color:C.textFaint}}>✎ Правил: {w.edited_by_name}, {new Date(w.edited_at).toLocaleString('ru-RU')}</p>}
+                        {w.voided&&<p style={{...S.cardSub,color:C.red}}>⛔ Аннулировал: {w.voided_by_name}, {new Date(w.voided_at).toLocaleString('ru-RU')} — {w.void_reason}</p>}
+                        {user.role==="admin"&&!w.voided&&(
+                          <div onClick={e=>e.stopPropagation()} style={{marginTop:6}}>
+                            <div style={{display:"flex",gap:6}}>
+                              <button style={{...S.btnOutline,marginTop:0,width:"auto",padding:"5px 12px",fontSize:13}} onClick={()=>openWriteOffModal(w)}>✎ Редактировать</button>
+                              <button style={{...S.btnOutline,marginTop:0,width:"auto",padding:"5px 12px",fontSize:13,borderColor:C.red,color:C.red}} onClick={()=>{setAnnullingMovement({type:'write_off',id:w.id});setMovementAnnulReason("");}}>⛔ Аннулировать</button>
+                            </div>
+                            {annulling&&(
+                              <div style={{marginTop:8,padding:8,background:"#FEF2F2",borderRadius:8}}>
+                                <input style={{...S.input,marginBottom:8}} placeholder="Причина аннулирования (обязательно)" value={movementAnnulReason} onChange={e=>setMovementAnnulReason(e.target.value)}/>
+                                <div style={{display:"flex",gap:6}}>
+                                  <button disabled={savingMovementAnnul} style={{...S.btnDanger,flex:1,marginTop:0,opacity:savingMovementAnnul?0.5:1}} onClick={submitMovementAnnul}>{savingMovementAnnul?"Аннулирование...":"Аннулировать"}</button>
+                                  <button style={{...S.btnSecondary,flex:"0 0 auto"}} onClick={()=>setAnnullingMovement(null)}>Отмена</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </>}
                     </div>
                   );
@@ -8902,15 +9014,16 @@ function AdminCabinet({ user, onLogout, desktop }) {
           <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}} onClick={e=>{ if(e.target===e.currentTarget) setShowReceiptModal(false); }}>
             <div style={{background:C.surface,margin:"16px auto",borderRadius:16,padding:20,maxWidth:640,minHeight:"calc(100vh - 32px)"}}>
               <div style={{...S.row,marginBottom:16}}>
-                <p style={{margin:0,fontSize:20,fontWeight:800,fontFamily:FH,color:C.navy}}>🚚 Создать поступление</p>
+                <p style={{margin:0,fontSize:20,fontWeight:800,fontFamily:FH,color:C.navy}}>🚚 {editingReceiptId?`Правка прихода № ${editingReceiptId}`:"Создать поступление"}</p>
                 <button style={S.btnSecondary} onClick={()=>setShowReceiptModal(false)}>✕ Закрыть</button>
               </div>
               <div style={S.card}>
                 <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-                  <input style={{...S.input,flex:"1 1 140px"}} placeholder="№ накладной" value={receiptDocNumber} onChange={e=>setReceiptDocNumber(e.target.value)}/>
+                  <input disabled={!!editingReceiptId} style={{...S.input,flex:"1 1 140px",opacity:editingReceiptId?0.6:1}} placeholder="№ накладной" value={receiptDocNumber} onChange={e=>setReceiptDocNumber(e.target.value)}/>
                   <div style={{position:"relative",flex:"1 1 160px"}}>
                     <input
-                      style={S.input}
+                      style={{...S.input,opacity:editingReceiptId?0.6:1}}
+                      disabled={!!editingReceiptId}
                       placeholder="Поставщик (контрагент)"
                       value={receiptSupplier}
                       onChange={e=>{setReceiptSupplier(e.target.value);setReceiptSupplierCode("");setShowReceiptSupplierDrop(true);}}
@@ -8929,8 +9042,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
                       );
                     })()}
                   </div>
-                  <input style={{...S.input,flex:"0 1 150px"}} type="date" value={receiptDate} onChange={e=>setReceiptDate(e.target.value)}/>
+                  <input style={{...S.input,flex:"0 1 150px",opacity:editingReceiptId?0.6:1}} disabled={!!editingReceiptId} type="date" value={receiptDate} onChange={e=>setReceiptDate(e.target.value)}/>
                 </div>
+                {editingReceiptId&&<p style={{fontSize:12.5,color:C.textFaint,margin:"-4px 0 10px"}}>Накладную, поставщика и дату здесь поменять нельзя — можно только позиции.</p>}
 
                 <div style={{...S.row,marginBottom:10}}>
                   <label style={S.label}>Позиции</label>
@@ -8975,11 +9089,15 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   <p style={{textAlign:"right",fontSize:17,fontWeight:800,color:C.navy,fontFamily:FH,margin:"10px 0"}}>Итого: {receiptGrandTotal.toLocaleString()} ₸</p>
                 )}
 
+                {editingReceiptId&&(
+                  <input style={{...S.input,marginBottom:10}} placeholder="Причина правки (обязательно)" value={receiptEditReason} onChange={e=>setReceiptEditReason(e.target.value)}/>
+                )}
+
                 <button
                   style={{...S.btnPrimary,opacity:(savingReceipt||filledReceiptLines.length===0)?0.5:1}}
                   disabled={savingReceipt||filledReceiptLines.length===0}
                   onClick={submitReceipt}
-                >{savingReceipt?"Сохраняю...":"Оприходовать"}</button>
+                >{savingReceipt?"Сохраняю...":(editingReceiptId?"Сохранить изменения":"Оприходовать")}</button>
               </div>
             </div>
           </div>
@@ -8989,7 +9107,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
           <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}} onClick={e=>{ if(e.target===e.currentTarget) setShowWriteOffModal(false); }}>
             <div style={{background:C.surface,margin:"16px auto",borderRadius:16,padding:20,maxWidth:640,minHeight:"calc(100vh - 32px)"}}>
               <div style={{...S.row,marginBottom:16}}>
-                <p style={{margin:0,fontSize:20,fontWeight:800,fontFamily:FH,color:C.navy}}>📤 Создать списание</p>
+                <p style={{margin:0,fontSize:20,fontWeight:800,fontFamily:FH,color:C.navy}}>📤 {editingWriteOffId?`Правка списания № ${editingWriteOffId}`:"Создать списание"}</p>
                 <button style={S.btnSecondary} onClick={()=>setShowWriteOffModal(false)}>✕ Закрыть</button>
               </div>
               <div style={S.card}>
@@ -8997,15 +9115,16 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   <label style={S.label}>Причина</label>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                     {WRITE_OFF_REASONS.map(([v,l])=>(
-                      <button key={v} type="button" onClick={()=>setWriteOffReason(v)} style={{flex:"1 1 auto",padding:"9px 10px",borderRadius:8,border:`1.5px solid ${writeOffReason===v?C.navy:C.border}`,background:writeOffReason===v?C.navy:C.white,color:writeOffReason===v?C.white:C.textMid,fontSize:13,fontWeight:600,cursor:"pointer"}}>{l}</button>
+                      <button key={v} type="button" disabled={!!editingWriteOffId} onClick={()=>setWriteOffReason(v)} style={{flex:"1 1 auto",padding:"9px 10px",borderRadius:8,border:`1.5px solid ${writeOffReason===v?C.navy:C.border}`,background:writeOffReason===v?C.navy:C.white,color:writeOffReason===v?C.white:C.textMid,fontSize:13,fontWeight:600,cursor:editingWriteOffId?"default":"pointer",opacity:editingWriteOffId?0.6:1}}>{l}</button>
                     ))}
                   </div>
                 </div>
                 <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-                  <input style={{...S.input,flex:"1 1 140px"}} placeholder="№ документа (необязательно)" value={writeOffDocNumber} onChange={e=>setWriteOffDocNumber(e.target.value)}/>
+                  <input disabled={!!editingWriteOffId} style={{...S.input,flex:"1 1 140px",opacity:editingWriteOffId?0.6:1}} placeholder="№ документа (необязательно)" value={writeOffDocNumber} onChange={e=>setWriteOffDocNumber(e.target.value)}/>
                   <div style={{position:"relative",flex:"1 1 160px"}}>
                     <input
-                      style={S.input}
+                      disabled={!!editingWriteOffId}
+                      style={{...S.input,opacity:editingWriteOffId?0.6:1}}
                       placeholder="Контрагент (необязательно)"
                       value={writeOffSupplier}
                       onChange={e=>{setWriteOffSupplier(e.target.value);setWriteOffSupplierCode("");setShowWriteOffSupplierDrop(true);}}
@@ -9024,11 +9143,12 @@ function AdminCabinet({ user, onLogout, desktop }) {
                       );
                     })()}
                   </div>
-                  <input style={{...S.input,flex:"0 1 150px"}} type="date" value={writeOffDate} onChange={e=>setWriteOffDate(e.target.value)}/>
+                  <input disabled={!!editingWriteOffId} style={{...S.input,flex:"0 1 150px",opacity:editingWriteOffId?0.6:1}} type="date" value={writeOffDate} onChange={e=>setWriteOffDate(e.target.value)}/>
                 </div>
                 <div style={S.formGroup}>
-                  <input style={S.input} placeholder="Комментарий (необязательно)" value={writeOffNote} onChange={e=>setWriteOffNote(e.target.value)}/>
+                  <input disabled={!!editingWriteOffId} style={{...S.input,opacity:editingWriteOffId?0.6:1}} placeholder="Комментарий (необязательно)" value={writeOffNote} onChange={e=>setWriteOffNote(e.target.value)}/>
                 </div>
+                {editingWriteOffId&&<p style={{fontSize:12.5,color:C.textFaint,margin:"-4px 0 10px"}}>Причину, документ, контрагента, дату и комментарий здесь поменять нельзя — можно только позиции.</p>}
 
                 <div style={{...S.row,marginBottom:10}}>
                   <label style={S.label}>Позиции</label>
@@ -9073,11 +9193,15 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   <p style={{textAlign:"right",fontSize:17,fontWeight:800,color:C.navy,fontFamily:FH,margin:"10px 0"}}>Итого: {writeOffGrandTotal.toLocaleString()} ₸</p>
                 )}
 
+                {editingWriteOffId&&(
+                  <input style={{...S.input,marginBottom:10}} placeholder="Причина правки (обязательно)" value={writeOffEditReason} onChange={e=>setWriteOffEditReason(e.target.value)}/>
+                )}
+
                 <button
                   style={{...S.btnPrimary,opacity:(savingWriteOff||filledWriteOffLines.length===0)?0.5:1}}
                   disabled={savingWriteOff||filledWriteOffLines.length===0}
                   onClick={submitWriteOff}
-                >{savingWriteOff?"Сохраняю...":"Списать"}</button>
+                >{savingWriteOff?"Сохраняю...":(editingWriteOffId?"Сохранить изменения":"Списать")}</button>
               </div>
             </div>
           </div>
