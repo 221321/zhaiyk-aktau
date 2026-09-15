@@ -14715,6 +14715,15 @@ function AdminCabinet({
     loadStockReceipts();
   }, []);
   const todayStr2 = new Date().toISOString().slice(0, 10);
+  // "Поступление" и "Списание" объединены в одну вкладку — общий поиск
+  // (по номеру/накладной/поставщику) и раскрытие отдельной карточки по
+  // клику, вместо всегда развёрнутого списка (см. tab==="stockMovements").
+  const [stockMovementSearch, setStockMovementSearch] = useState("");
+  const [expandedMovements, setExpandedMovements] = useState({});
+  const toggleMovementExpanded = key => setExpandedMovements(m => ({
+    ...m,
+    [key]: !m[key]
+  }));
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receiptDocNumber, setReceiptDocNumber] = useState("");
   const [receiptSupplier, setReceiptSupplier] = useState("");
@@ -15656,7 +15665,7 @@ function AdminCabinet({
   // владельца (admin), менеджеру эта вкладка не нужна и не должна быть
   // видна вовсе (просьба владельца), в отличие от operator, которому и так
   // урезан весь список вкладок выше.
-  const TABS = readOnlyOp ? [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]] : user.role === "manager" ? [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["stockReceipts", "🚚", "Поступление"], ["stockWriteOffs", "📤", "Списание"], ["clientsWeb", "🏢", "Контрагенты"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["stockReceipts", "🚚", "Поступление"], ["stockWriteOffs", "📤", "Списание"], ["clientsWeb", "🏢", "Контрагенты"], ["employees", "👤", "Сотрудники"]];
+  const TABS = readOnlyOp ? [["all", "📋", "Заявки"], ["cashbox", "💵", "Касса"]] : user.role === "manager" ? [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["stockMovements", "🚚", "Приход/Списание"], ["clientsWeb", "🏢", "Контрагенты"]] : [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["aliases", "🏷", "Товары"], ["stock", "📦", "Остатки"], ["stockMovements", "🚚", "Приход/Списание"], ["clientsWeb", "🏢", "Контрагенты"], ["employees", "👤", "Сотрудники"]];
   const TAB_TITLES = {
     all: "Заявки",
     report: "Отчёт",
@@ -15665,8 +15674,7 @@ function AdminCabinet({
     stock: "Остатки",
     catalog: "Каталог",
     nkt: "Коды НКТ",
-    stockReceipts: "Поступление",
-    stockWriteOffs: "Списание",
+    stockMovements: "Поступление/Списание",
     clientsWeb: "Контрагенты",
     employees: "Сотрудники"
   };
@@ -18072,9 +18080,9 @@ function AdminCabinet({
       color: C.textFaint,
       marginTop: 2
     }
-  }, "NTIN: ", r.ntin_code || '—', " \xB7 GTIN: ", r.gtin || '—', r.is_markedeac ? ' · маркированный' : '')))))), tab === "stockReceipts" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
+  }, "NTIN: ", r.ntin_code || '—', " \xB7 GTIN: ", r.gtin || '—', r.is_markedeac ? ' · маркированный' : '')))))), tab === "stockMovements" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
-  }, "\u041F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u0435"), /*#__PURE__*/React.createElement("div", {
+  }, "\u041F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u0435 \u0438 \u0441\u043F\u0438\u0441\u0430\u043D\u0438\u0435"), /*#__PURE__*/React.createElement("div", {
     style: {
       maxWidth: desktop ? 680 : "none"
     }
@@ -18085,49 +18093,143 @@ function AdminCabinet({
       marginTop: desktop ? 0 : -8,
       marginBottom: 12
     }
-  }, "\u041F\u0440\u0438\u0445\u043E\u0434 \u043F\u043E \u043D\u0430\u043A\u043B\u0430\u0434\u043D\u043E\u0439 \u043E\u0442 \u043F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A\u0430 \u2014 \u0441\u0440\u0430\u0437\u0443 \u043F\u0440\u0438\u0431\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043A \u043E\u0441\u0442\u0430\u0442\u043A\u0443, \u0442\u043E\u0440\u0433\u043E\u0432\u044B\u0435 \u0432\u0438\u0434\u044F\u0442 \u043E\u0431\u043D\u043E\u0432\u043B\u0451\u043D\u043D\u044B\u0439 \u043E\u0441\u0442\u0430\u0442\u043E\u043A \u0441\u0440\u0430\u0437\u0443 \u0432 \u043E\u0431\u044B\u0447\u043D\u043E\u043C \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435."), /*#__PURE__*/React.createElement("button", {
+  }, "\u041F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u0435 \u2014 \u043F\u0440\u0438\u0445\u043E\u0434 \u043F\u043E \u043D\u0430\u043A\u043B\u0430\u0434\u043D\u043E\u0439 \u043E\u0442 \u043F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A\u0430, \u043F\u0440\u0438\u0431\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043A \u043E\u0441\u0442\u0430\u0442\u043A\u0443. \u0421\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u2014 \u0432\u043E\u0437\u0432\u0440\u0430\u0442 \u043F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A\u0443 \u0438\u043B\u0438 \u043F\u043E\u0440\u0447\u0430/\u0431\u0440\u0430\u043A, \u0443\u043C\u0435\u043D\u044C\u0448\u0430\u0435\u0442 \u043E\u0441\u0442\u0430\u0442\u043E\u043A. \u041E\u0431\u0430 \u0441\u0440\u0430\u0437\u0443 \u0432\u0438\u0434\u043D\u044B \u0432 \u043E\u0431\u044B\u0447\u043D\u043E\u043C \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginBottom: 16,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnPrimary,
-      marginBottom: 16
+      flex: "1 1 auto",
+      marginTop: 0
     },
     onClick: openReceiptModal
-  }, "+ \u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u0435"), /*#__PURE__*/React.createElement("p", {
+  }, "+ \u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u0435"), /*#__PURE__*/React.createElement("button", {
     style: {
-      fontSize: 14,
-      fontWeight: 700,
-      color: C.navy,
-      margin: "0 0 8px"
-    }
-  }, "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u043F\u0440\u0438\u0445\u043E\u0434\u043E\u0432"), stockReceipts.length === 0 ? /*#__PURE__*/React.createElement("div", {
+      ...S.btnOutline,
+      flex: "1 1 auto",
+      marginTop: 0
+    },
+    onClick: openWriteOffModal
+  }, "+ \u0421\u043E\u0437\u0434\u0430\u0442\u044C \u0441\u043F\u0438\u0441\u0430\u043D\u0438\u0435")), /*#__PURE__*/React.createElement("input", {
+    type: "search",
     style: {
-      textAlign: "center",
-      padding: "16px 0",
-      color: C.textFaint,
-      fontSize: 15
-    }
-  }, "\u041F\u0440\u0438\u0445\u043E\u0434\u043E\u0432 \u043F\u043E\u043A\u0430 \u043D\u0435 \u0431\u044B\u043B\u043E") : stockReceipts.slice().reverse().map(r => /*#__PURE__*/React.createElement("div", {
-    key: r.id,
-    style: {
-      ...S.card,
-      padding: 10,
-      marginBottom: 6
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: S.cardTitle
-  }, r.doc_number ? `Накладная № ${r.doc_number}` : 'Без номера накладной', r.supplier ? ` · ${r.supplier}` : ''), /*#__PURE__*/React.createElement("p", {
-    style: S.cardSub
-  }, r.date, " \xB7 ", r.items.map(it => `${it.name} +${it.qty}${it.is_weight_item ? ' кг' : ''}${it.price ? ` × ${it.price.toLocaleString()} ₸ = ${it.line_total.toLocaleString()} ₸` : ''}`).join(', ')), r.total > 0 && /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.cardSub,
-      fontWeight: 700,
-      color: C.navy
-    }
-  }, "\u0418\u0442\u043E\u0433\u043E: ", r.total.toLocaleString(), " \u20B8"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.cardSub,
-      color: C.textFaint
-    }
-  }, "\u0417\u0430\u043D\u0451\u0441: ", r.created_by_name, ", ", new Date(r.created_at).toLocaleString('ru-RU'))))), showReceiptModal && /*#__PURE__*/React.createElement("div", {
+      ...S.input,
+      marginBottom: 16
+    },
+    placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u043D\u043E\u043C\u0435\u0440\u0443, \u043D\u0430\u043A\u043B\u0430\u0434\u043D\u043E\u0439, \u043F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A\u0443...",
+    value: stockMovementSearch,
+    onChange: e => setStockMovementSearch(e.target.value),
+    autoComplete: "off",
+    name: "stock-movements-search"
+  }), (() => {
+    const q = stockMovementSearch.trim().toLowerCase();
+    const matchesQuery = m => !q || String(m.id).includes(q) || (m.doc_number || '').toLowerCase().includes(q) || (m.supplier || '').toLowerCase().includes(q);
+    const filteredReceipts = stockReceipts.filter(matchesQuery).slice().reverse();
+    const filteredWriteOffs = stockWriteOffs.filter(matchesQuery).slice().reverse();
+    const renderItemsLine = (items, sign) => items.map(it => `${it.name} ${sign}${it.qty}${it.is_weight_item ? ' кг' : ''}${it.price ? ` × ${it.price.toLocaleString()} ₸ = ${it.line_total.toLocaleString()} ₸` : ''}`).join(', ');
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+      style: {
+        fontSize: 14,
+        fontWeight: 700,
+        color: C.navy,
+        margin: "0 0 8px"
+      }
+    }, "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u043F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u0439 (", filteredReceipts.length, ")"), filteredReceipts.length === 0 ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center",
+        padding: "16px 0",
+        color: C.textFaint,
+        fontSize: 15,
+        marginBottom: 16
+      }
+    }, q ? "Ничего не найдено" : "Приходов пока не было") : filteredReceipts.map(r => {
+      const key = `r-${r.id}`;
+      const open = !!expandedMovements[key];
+      return /*#__PURE__*/React.createElement("div", {
+        key: key,
+        style: {
+          ...S.card,
+          padding: 10,
+          marginBottom: 6,
+          cursor: "pointer"
+        },
+        onClick: () => toggleMovementExpanded(key)
+      }, /*#__PURE__*/React.createElement("div", {
+        style: S.row
+      }, /*#__PURE__*/React.createElement("p", {
+        style: S.cardTitle
+      }, "\uD83D\uDE9A \u041F\u0440\u0438\u0445\u043E\u0434 \u2116 ", r.id, r.supplier ? ` · ${r.supplier}` : ''), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 13,
+          color: C.textFaint
+        }
+      }, open ? "▲" : "▼")), /*#__PURE__*/React.createElement("p", {
+        style: S.cardSub
+      }, r.date, r.total > 0 ? ` · Итого: ${r.total.toLocaleString()} ₸` : ''), open && /*#__PURE__*/React.createElement(React.Fragment, null, r.doc_number && /*#__PURE__*/React.createElement("p", {
+        style: S.cardSub
+      }, "\u041D\u0430\u043A\u043B\u0430\u0434\u043D\u0430\u044F \u2116 ", r.doc_number), /*#__PURE__*/React.createElement("p", {
+        style: S.cardSub
+      }, renderItemsLine(r.items, '+')), /*#__PURE__*/React.createElement("p", {
+        style: {
+          ...S.cardSub,
+          color: C.textFaint
+        }
+      }, "\u0417\u0430\u043D\u0451\u0441: ", r.created_by_name, ", ", new Date(r.created_at).toLocaleString('ru-RU'))));
+    }), /*#__PURE__*/React.createElement("p", {
+      style: {
+        fontSize: 14,
+        fontWeight: 700,
+        color: C.navy,
+        margin: "16px 0 8px"
+      }
+    }, "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0441\u043F\u0438\u0441\u0430\u043D\u0438\u0439 (", filteredWriteOffs.length, ")"), filteredWriteOffs.length === 0 ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center",
+        padding: "16px 0",
+        color: C.textFaint,
+        fontSize: 15
+      }
+    }, q ? "Ничего не найдено" : "Списаний пока не было") : filteredWriteOffs.map(w => {
+      const key = `w-${w.id}`;
+      const open = !!expandedMovements[key];
+      return /*#__PURE__*/React.createElement("div", {
+        key: key,
+        style: {
+          ...S.card,
+          padding: 10,
+          marginBottom: 6,
+          cursor: "pointer"
+        },
+        onClick: () => toggleMovementExpanded(key)
+      }, /*#__PURE__*/React.createElement("div", {
+        style: S.row
+      }, /*#__PURE__*/React.createElement("p", {
+        style: S.cardTitle
+      }, "\uD83D\uDCE4 \u0421\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u2116 ", w.id, " \xB7 ", WRITE_OFF_REASONS.find(([v]) => v === w.reason)?.[1] || w.reason, w.supplier ? ` · ${w.supplier}` : ''), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 13,
+          color: C.textFaint
+        }
+      }, open ? "▲" : "▼")), /*#__PURE__*/React.createElement("p", {
+        style: S.cardSub
+      }, w.date, w.total > 0 ? ` · Итого: ${w.total.toLocaleString()} ₸` : ''), open && /*#__PURE__*/React.createElement(React.Fragment, null, w.doc_number && /*#__PURE__*/React.createElement("p", {
+        style: S.cardSub
+      }, "\u2116 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u0430: ", w.doc_number), /*#__PURE__*/React.createElement("p", {
+        style: S.cardSub
+      }, renderItemsLine(w.items, '-')), w.note && /*#__PURE__*/React.createElement("p", {
+        style: S.cardSub
+      }, w.note), /*#__PURE__*/React.createElement("p", {
+        style: {
+          ...S.cardSub,
+          color: C.textFaint
+        }
+      }, "\u0417\u0430\u043D\u0451\u0441: ", w.created_by_name, ", ", new Date(w.created_at).toLocaleString('ru-RU'))));
+    }));
+  })()), showReceiptModal && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "fixed",
       inset: 0,
@@ -18381,64 +18483,7 @@ function AdminCabinet({
     },
     disabled: savingReceipt || filledReceiptLines.length === 0,
     onClick: submitReceipt
-  }, savingReceipt ? "Сохраняю..." : "Оприходовать"))))), tab === "stockWriteOffs" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
-    style: S.sectionTitle
-  }, "\u0421\u043F\u0438\u0441\u0430\u043D\u0438\u0435"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      maxWidth: desktop ? 680 : "none"
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 14,
-      color: C.textSub,
-      marginTop: desktop ? 0 : -8,
-      marginBottom: 12
-    }
-  }, "\u0412\u043E\u0437\u0432\u0440\u0430\u0442 \u043F\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A\u0443 \u0438\u043B\u0438 \u043F\u043E\u0440\u0447\u0430/\u0431\u0440\u0430\u043A \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435 \u2014 \u0443\u043C\u0435\u043D\u044C\u0448\u0430\u0435\u0442 \u043E\u0441\u0442\u0430\u0442\u043E\u043A. \u041F\u043E\u0440\u0447\u0430, \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043D\u0430\u044F \u0443 \u043A\u043B\u0438\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435 \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0438, \u043E\u0444\u043E\u0440\u043C\u043B\u044F\u0435\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 \"\u0412\u043E\u0437\u0432\u0440\u0430\u0442\u044B\", \u043D\u0435 \u0437\u0434\u0435\u0441\u044C."), /*#__PURE__*/React.createElement("button", {
-    style: {
-      ...S.btnPrimary,
-      marginBottom: 16
-    },
-    onClick: openWriteOffModal
-  }, "+ \u0421\u043E\u0437\u0434\u0430\u0442\u044C \u0441\u043F\u0438\u0441\u0430\u043D\u0438\u0435"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 14,
-      fontWeight: 700,
-      color: C.navy,
-      margin: "0 0 8px"
-    }
-  }, "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0441\u043F\u0438\u0441\u0430\u043D\u0438\u0439"), stockWriteOffs.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      textAlign: "center",
-      padding: "16px 0",
-      color: C.textFaint,
-      fontSize: 15
-    }
-  }, "\u0421\u043F\u0438\u0441\u0430\u043D\u0438\u0439 \u043F\u043E\u043A\u0430 \u043D\u0435 \u0431\u044B\u043B\u043E") : stockWriteOffs.slice().reverse().map(w => /*#__PURE__*/React.createElement("div", {
-    key: w.id,
-    style: {
-      ...S.card,
-      padding: 10,
-      marginBottom: 6
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: S.cardTitle
-  }, WRITE_OFF_REASONS.find(([v]) => v === w.reason)?.[1] || w.reason, w.doc_number ? ` · № ${w.doc_number}` : '', w.supplier ? ` · ${w.supplier}` : ''), /*#__PURE__*/React.createElement("p", {
-    style: S.cardSub
-  }, w.date, " \xB7 ", w.items.map(it => `${it.name} -${it.qty}${it.is_weight_item ? ' кг' : ''}${it.price ? ` × ${it.price.toLocaleString()} ₸ = ${it.line_total.toLocaleString()} ₸` : ''}`).join(', ')), w.total > 0 && /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.cardSub,
-      fontWeight: 700,
-      color: C.red
-    }
-  }, "\u0418\u0442\u043E\u0433\u043E: ", w.total.toLocaleString(), " \u20B8"), w.note && /*#__PURE__*/React.createElement("p", {
-    style: S.cardSub
-  }, w.note), /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.cardSub,
-      color: C.textFaint
-    }
-  }, "\u0417\u0430\u043D\u0451\u0441: ", w.created_by_name, ", ", new Date(w.created_at).toLocaleString('ru-RU'))))), showWriteOffModal && /*#__PURE__*/React.createElement("div", {
+  }, savingReceipt ? "Сохраняю..." : "Оприходовать")))), showWriteOffModal && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "fixed",
       inset: 0,
@@ -19567,7 +19612,7 @@ function AdminCabinet({
       }, lb))));
     }
     const mobilePrimaryTabs = [["all", "📋", "Заявки"], ["report", "📊", "Отчёт"], ["cashbox", "💵", "Касса"], ["stock", "📦", "Остатки"]];
-    const mobileMoreTabs = [["aliases", "🏷", "Товары"], ["stockReceipts", "🚚", "Поступление"], ["stockWriteOffs", "📤", "Списание"], ["clientsWeb", "🏢", "Контрагенты"], ...(user.role === "admin" ? [["employees", "👤", "Сотрудники"]] : [])];
+    const mobileMoreTabs = [["aliases", "🏷", "Товары"], ["stockMovements", "🚚", "Приход/Списание"], ["clientsWeb", "🏢", "Контрагенты"], ...(user.role === "admin" ? [["employees", "👤", "Сотрудники"]] : [])];
     const moreActive = mobileMoreTabs.some(([k]) => k === tab);
     return /*#__PURE__*/React.createElement(React.Fragment, null, showMoreTabs && /*#__PURE__*/React.createElement("div", {
       style: {
