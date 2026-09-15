@@ -18862,24 +18862,60 @@ function AdminCabinet({
       ...S.input,
       margin: "16px 0"
     },
-    placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044E, \u0442\u0435\u043B\u0435\u0444\u043E\u043D\u0443, \u043A\u043E\u0434\u0443...",
+    placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u0432\u0441\u0435\u043C \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u0430\u043C \u2014 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435, \u0442\u0435\u043B\u0435\u0444\u043E\u043D, \u043A\u043E\u0434...",
     value: webClientSearch,
     onChange: e => setWebClientSearch(e.target.value),
     autoComplete: "off",
     name: "clients-web-search"
   }), (() => {
     const q = webClientSearch.trim().toLowerCase();
-    const list = clientsWeb.filter(c => !q || (c.name || '').toLowerCase().includes(q) || (c.phone || '').includes(q) || (c.code || '').toLowerCase().includes(q) || (c.bin || '').includes(q));
-    if (list.length === 0) return /*#__PURE__*/React.createElement("div", {
+    // Без запроса — как раньше, только созданные здесь (с "кто и
+    // когда"). С запросом — ищем среди ВСЕХ контрагентов (1С + сайт,
+    // clients уже включает и то, и другое, см. GET /api/clients) —
+    // иначе непонятно, почему в разделе "Контрагенты" поиск не
+    // находит контрагента из 1С.
+    if (!q) {
+      if (clientsWeb.length === 0) return /*#__PURE__*/React.createElement("div", {
+        style: {
+          textAlign: "center",
+          padding: "16px 0",
+          color: C.textFaint,
+          fontSize: 15
+        }
+      }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442\u043E\u0432, \u0441\u043E\u0437\u0434\u0430\u043D\u043D\u044B\u0445 \u043D\u0430 \u0441\u0430\u0439\u0442\u0435, \u043F\u043E\u043A\u0430 \u043D\u0435\u0442");
+      return clientsWeb.slice().reverse().map(c => /*#__PURE__*/React.createElement("div", {
+        key: c.code || c.id,
+        style: {
+          ...S.card,
+          padding: 10,
+          marginBottom: 6
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: S.row
+      }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+        style: S.cardTitle
+      }, c.name), /*#__PURE__*/React.createElement("p", {
+        style: S.cardSub
+      }, c.code ? `${c.code} · ` : '', c.phone, c.bin ? ` · БИН ${c.bin}` : ''), c.address && /*#__PURE__*/React.createElement("p", {
+        style: S.cardSub
+      }, "\uD83D\uDCCD ", c.address), /*#__PURE__*/React.createElement("p", {
+        style: {
+          ...S.cardSub,
+          color: C.textFaint
+        }
+      }, "\u0421\u043E\u0437\u0434\u0430\u043B: ", c.created_by_name, ", ", new Date(c.created_at).toLocaleDateString('ru-RU'))))));
+    }
+    const matched = clients.filter(c => (c.name || '').toLowerCase().includes(q) || (c.contact_phone || '').includes(q) || (c.code || '').toLowerCase().includes(q) || (c.bin || '').includes(q));
+    if (matched.length === 0) return /*#__PURE__*/React.createElement("div", {
       style: {
         textAlign: "center",
         padding: "16px 0",
         color: C.textFaint,
         fontSize: 15
       }
-    }, q ? "Ничего не найдено" : "Контрагентов, созданных на сайте, пока нет");
-    return list.slice().reverse().map(c => /*#__PURE__*/React.createElement("div", {
-      key: c.id,
+    }, "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E");
+    return matched.map(c => /*#__PURE__*/React.createElement("div", {
+      key: c.code,
       style: {
         ...S.card,
         padding: 10,
@@ -18891,14 +18927,13 @@ function AdminCabinet({
       style: S.cardTitle
     }, c.name), /*#__PURE__*/React.createElement("p", {
       style: S.cardSub
-    }, c.code ? `${c.code} · ` : '', c.phone, c.bin ? ` · БИН ${c.bin}` : ''), c.address && /*#__PURE__*/React.createElement("p", {
-      style: S.cardSub
-    }, "\uD83D\uDCCD ", c.address), /*#__PURE__*/React.createElement("p", {
+    }, c.code ? `${c.code} · ` : '', c.contact_phone, c.bin ? ` · БИН ${c.bin}` : '', " ", /*#__PURE__*/React.createElement("span", {
       style: {
-        ...S.cardSub,
         color: C.textFaint
       }
-    }, "\u0421\u043E\u0437\u0434\u0430\u043B: ", c.created_by_name, ", ", new Date(c.created_at).toLocaleDateString('ru-RU'))))));
+    }, "(", c.is_site_created ? 'Сайт' : '1С', ")")), c.address && /*#__PURE__*/React.createElement("p", {
+      style: S.cardSub
+    }, "\uD83D\uDCCD ", c.address)))));
   })())), tab === "employees" && /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u0421\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0438"), /*#__PURE__*/React.createElement("div", {

@@ -9087,7 +9087,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
           <input
             type="search"
             style={{...S.input,margin:"16px 0"}}
-            placeholder="Поиск по названию, телефону, коду..."
+            placeholder="Поиск по всем контрагентам — название, телефон, код..."
             value={webClientSearch}
             onChange={e=>setWebClientSearch(e.target.value)}
             autoComplete="off"
@@ -9095,16 +9095,35 @@ function AdminCabinet({ user, onLogout, desktop }) {
           />
           {(() => {
             const q = webClientSearch.trim().toLowerCase();
-            const list = clientsWeb.filter(c => !q || (c.name||'').toLowerCase().includes(q) || (c.phone||'').includes(q) || (c.code||'').toLowerCase().includes(q) || (c.bin||'').includes(q));
-            if (list.length===0) return <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>{q?"Ничего не найдено":"Контрагентов, созданных на сайте, пока нет"}</div>;
-            return list.slice().reverse().map(c=>(
-              <div key={c.id} style={{...S.card,padding:10,marginBottom:6}}>
+            // Без запроса — как раньше, только созданные здесь (с "кто и
+            // когда"). С запросом — ищем среди ВСЕХ контрагентов (1С + сайт,
+            // clients уже включает и то, и другое, см. GET /api/clients) —
+            // иначе непонятно, почему в разделе "Контрагенты" поиск не
+            // находит контрагента из 1С.
+            if (!q) {
+              if (clientsWeb.length===0) return <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>Контрагентов, созданных на сайте, пока нет</div>;
+              return clientsWeb.slice().reverse().map(c=>(
+                <div key={c.code||c.id} style={{...S.card,padding:10,marginBottom:6}}>
+                  <div style={S.row}>
+                    <div>
+                      <p style={S.cardTitle}>{c.name}</p>
+                      <p style={S.cardSub}>{c.code?`${c.code} · `:''}{c.phone}{c.bin?` · БИН ${c.bin}`:''}</p>
+                      {c.address&&<p style={S.cardSub}>📍 {c.address}</p>}
+                      <p style={{...S.cardSub,color:C.textFaint}}>Создал: {c.created_by_name}, {new Date(c.created_at).toLocaleDateString('ru-RU')}</p>
+                    </div>
+                  </div>
+                </div>
+              ));
+            }
+            const matched = clients.filter(c => (c.name||'').toLowerCase().includes(q) || (c.contact_phone||'').includes(q) || (c.code||'').toLowerCase().includes(q) || (c.bin||'').includes(q));
+            if (matched.length===0) return <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>Ничего не найдено</div>;
+            return matched.map(c=>(
+              <div key={c.code} style={{...S.card,padding:10,marginBottom:6}}>
                 <div style={S.row}>
                   <div>
                     <p style={S.cardTitle}>{c.name}</p>
-                    <p style={S.cardSub}>{c.code?`${c.code} · `:''}{c.phone}{c.bin?` · БИН ${c.bin}`:''}</p>
+                    <p style={S.cardSub}>{c.code?`${c.code} · `:''}{c.contact_phone}{c.bin?` · БИН ${c.bin}`:''} <span style={{color:C.textFaint}}>({c.is_site_created?'Сайт':'1С'})</span></p>
                     {c.address&&<p style={S.cardSub}>📍 {c.address}</p>}
-                    <p style={{...S.cardSub,color:C.textFaint}}>Создал: {c.created_by_name}, {new Date(c.created_at).toLocaleDateString('ru-RU')}</p>
                   </div>
                 </div>
               </div>
