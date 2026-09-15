@@ -63,3 +63,46 @@ test('после revoked цену менять нельзя', async () => {
     (err) => err.status === 400
   );
 });
+
+// Раньше при ОФОРМЛЕНИИ заявки (POST /api/orders) цена позиции бралась из
+// того, что прислал клиент, без всякой проверки — торговый или менеджер
+// мог подставить в price что угодно. Правка выше (PUT .../prices) остаётся
+// единственным способом свободно назначить цену, и доступна только admin —
+// значит и при создании заявки price должен браться из каталога (price1),
+// а не из тела запроса, для всех ролей кроме admin.
+test('торговый не может назначить произвольную цену при создании заявки — сервер подставляет цену из каталога', async () => {
+  const order = await createOrder(server.baseUrl, salesToken, { items: [{ code: 'P001', name: 'Мука', qty: 10, price: 1, commission: 5 }] });
+  assert.equal(order.items[0].price, 1000);
+  assert.equal(order.total, 10000);
+});
+
+test('manager не может назначить произвольную цену при создании заявки — сервер подставляет цену из каталога', async () => {
+  const order = await createOrder(server.baseUrl, managerToken, { items: [{ code: 'P001', name: 'Мука', qty: 10, price: 1, commission: 5 }] });
+  assert.equal(order.items[0].price, 1000);
+  assert.equal(order.total, 10000);
+});
+
+test('total заявки при создании всегда считается от позиций, а не берётся из запроса', async () => {
+  const order = await apiCall(server.baseUrl, 'POST', '/api/orders', {
+    clientName: 'Тестовый клиент', clientCode: 'CL1', address: 'г. Актау', timeSlot: 'До обеда (09:00 – 14:00)',
+    items: [{ code: 'P001', name: 'Мука', qty: 10, price: 1000, commission: 5 }],
+    total: 1, // подделанный итог — не совпадает с 10×1000
+    paymentCash: 0, paymentQr: 0, paymentDebt: 0, comment: '', contactName: 'Тест', contactPhone: '87001112233',
+  }, salesToken);
+  assert.equal(order.total, 10000);
+});
+
+test('admin может назначить цену свободно уже при создании заявки', async () => {
+  const order = await createOrder(server.baseUrl, adminToken, { items: [{ code: 'P001', name: 'Мука', qty: 10, price: 1, commission: 5 }] });
+  assert.equal(order.items[0].price, 1);
+  assert.equal(order.total, 10);
+});
+
+test('торговый не может назначить произвольную цену при правке состава уже оформленной заявки', async () => {
+  const order = await createOrder(server.baseUrl, salesToken, { items: [{ code: 'P001', name: 'Мука', qty: 10, price: 1000, commission: 5 }] });
+  const res = await apiCall(server.baseUrl, 'PUT', `/api/orders/${order.id}/items`, {
+    items: [{ code: 'P001', name: 'Мука', qty: 10, price: 1, commission: 5 }],
+  }, salesToken);
+  assert.equal(res.items[0].price, 1000);
+  assert.equal(res.total, 10000);
+});

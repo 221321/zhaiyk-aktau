@@ -392,7 +392,7 @@ app.post('/api/orders/:id/qr-photo', authMiddleware, (req, res) => {
 });
 
 app.post('/api/orders', authMiddleware, (req, res) => {
-  const { clientName, clientCode, address, timeSlot, items, total, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone } = req.body;
+  const { clientName, clientCode, address, timeSlot, items, paymentCash, paymentQr, paymentDebt, comment, contactName, contactPhone } = req.body;
 
   if (!contactPhone || !contactPhone.trim()) {
     return res.status(400).json({ error: 'Укажите телефон контактного лица' });
@@ -420,6 +420,10 @@ app.post('/api/orders', authMiddleware, (req, res) => {
       return { ...it, price: rec && rec.price1 != null ? rec.price1 : it.price, commission: rec && rec.commission != null ? rec.commission : 4 };
     });
   }
+
+  // Цену может свободно назначать только admin — торговый/менеджер
+  // ограничен ценами из каталога (см. enforceCatalogPrice).
+  finalItems = enforceCatalogPrice(finalItems, req.user.role, aliasMap);
 
   // cost — себестоимость на момент оформления заявки, для обоих источников
   // (торгпред и магазин), см. getCostMap. Пишется в саму заявку, чтобы
@@ -505,9 +509,12 @@ app.post('/api/orders', authMiddleware, (req, res) => {
   }
 
   const id = db.get('nextOrderId').value();
-  const finalTotal = req.user.role === 'store'
-    ? finalItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0)
-    : (total || 0);
+  // Сумма заявки всегда считается от факт. позиций (qty × price, уже
+  // проверенных/подставленных из каталога выше для не-admin), а не берётся
+  // из total, присланного клиентом, — иначе цену позиции можно было бы
+  // зафиксировать правильной, а итог заявки (и, значит, сумму к оплате при
+  // доставке, см. PUT /api/orders/:id/status) всё равно назвать любым.
+  const finalTotal = finalItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
   // Комиссия — фиксированная сумма в ₸ за единицу товара, а не % от суммы строки.
   const commissionTotal = finalItems.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.commission) || 0), 0);
   const order = {
@@ -603,12 +610,11 @@ app.put('/api/orders/:id/items', authMiddleware, (req, res) => {
   // оформлении (см. POST /api/orders выше): не ссылка на текущую карточку
   // товара, а зафиксированное на позиции значение.
   const costMap = getCostMap();
-  const finalItems = itemsInput.map(it => {
+  let finalItems = itemsInput.map(it => {
     const rec = aliasMap[it.code];
     const isWeightItem = !!(rec && rec.priced_by_weight);
     // Магазину, как и при создании (POST /api/orders), цену/комиссию
-    // трогать нельзя — только из каталога; торговому (sales/senior_sales)
-    // доверяем то, что прислал фронт, как и при оформлении.
+    // трогать нельзя — только из каталога.
     const price = req.user.role === 'store' ? (rec && rec.price1 != null ? rec.price1 : it.price) : it.price;
     const commission = req.user.role === 'store' ? (rec && rec.commission != null ? rec.commission : 4) : (it.commission || 0);
     return {
@@ -620,6 +626,10 @@ app.put('/api/orders/:id/items', authMiddleware, (req, res) => {
       boxes: isWeightItem ? (it.boxes != null ? Number(it.boxes) : (Number(it.qty) || 0)) : undefined,
     };
   });
+
+  // Цену может свободно назначать только admin — торговому/менеджеру, как и
+  // при создании заявки (см. POST /api/orders), цена ограничена каталогом.
+  finalItems = enforceCatalogPrice(finalItems, req.user.role, aliasMap);
 
   // Тот же дубль-код, что и при создании (см. POST /api/orders) — тут его
   // так же легко внести при правке состава.
@@ -3793,6 +3803,38 @@ function computeStockBreakdown() {
 // заказ/продажу (см. items[].cost ниже), а не читается заново из карточки
 // товара при подсчёте прибыли в отчётах. Так прошлые продажи не "уедут" в
 // отчёте задним числом, если закупочную цену потом поправят в карточке.
+// Разрешённые цены позиции — price1/price2/price3 с вкладки "Товары"
+// (productAliases), а если ни один уровень не задан — базовая цена из 1С
+// (products.price). Пустой массив — про товар вообще нет ценовых данных.
+function getAllowedPrices(code, aliasMap, productPriceMap) {
+  const rec = aliasMap[code];
+  const tiers = [rec && rec.price1, rec && rec.price2, rec && rec.price3]
+    .filter(v => v != null)
+    .map(Number);
+  if (tiers.length > 0) return tiers;
+  const base = productPriceMap[code];
+  return base != null ? [Number(base)] : [];
+}
+
+// Цену позиции при оформлении и правке заявки может свободно назначать
+// только admin — раньше торговый/менеджер мог прислать в price что угодно,
+// стоило товару остаться без заданных price1/2/3 (см. POST /api/orders и
+// PUT /api/orders/:id/items). Для всех остальных ролей цена всегда берётся
+// из каталога: если присланная совпадает с одним из допустимых уровней —
+// остаётся, иначе подставляется первый допустимый.
+function enforceCatalogPrice(items, role, aliasMap) {
+  if (role === 'admin') return items;
+  const productPriceMap = {};
+  db.get('products').value().forEach(p => { productPriceMap[p.code] = p.price; });
+  return items.map(it => {
+    if (!it.code) return it;
+    const allowed = getAllowedPrices(it.code, aliasMap, productPriceMap);
+    if (allowed.length === 0) return it;
+    const submitted = Number(it.price);
+    return allowed.includes(submitted) ? it : { ...it, price: allowed[0] };
+  });
+}
+
 function getCostMap() {
   const products = db.get('products').value();
   const aliases = db.get('productAliases').value();

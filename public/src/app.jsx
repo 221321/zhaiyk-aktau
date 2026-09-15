@@ -3283,7 +3283,10 @@ function SalesCabinet({ user, token, onLogout }) {
     if (stockIsOut(prod)) return;
     updateLine(uid,{
       productId:prod.id,code:prod.code,name:prod.name,unit:prod.unit,
-      price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",
+      // Цену может свободно менять только admin (см. disabled на инпуте цены
+      // ниже) — при одном уровне каталога подставляем его, при нескольких
+      // ждём выбор кнопкой, а без уровней вовсе — базовую цену из каталога.
+      price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:(prod.priceOptions&&prod.priceOptions.length>1?"":prod.price),
       search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock,
       stockWeightKg:prod.stock_weight_kg,
       avgBoxWeight:prod.avg_box_weight,
@@ -3382,7 +3385,10 @@ function SalesCabinet({ user, token, onLogout }) {
     if (stockIsOut(prod)) return;
     updateEditLine(uid,{
       productId:prod.id,code:prod.code,name:prod.name,unit:prod.unit,
-      price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",
+      // Цену может свободно менять только admin (см. disabled на инпуте цены
+      // ниже) — при одном уровне каталога подставляем его, при нескольких
+      // ждём выбор кнопкой, а без уровней вовсе — базовую цену из каталога.
+      price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:(prod.priceOptions&&prod.priceOptions.length>1?"":prod.price),
       search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock,
       stockWeightKg:prod.stock_weight_kg,
       avgBoxWeight:prod.avg_box_weight,
@@ -3509,8 +3515,8 @@ function SalesCabinet({ user, token, onLogout }) {
                       }}
                       onFocus={e=>e.target.select()}
                     />
-                    <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"right",background:(line.priceOptions&&line.priceOptions.length>0)?C.surface:C.white,color:(line.priceOptions&&line.priceOptions.length>0)?C.textSub:C.text}} placeholder="цена" value={line.price} type="number"
-                      disabled={line.priceOptions&&line.priceOptions.length>0}
+                    <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"right",background:C.surface,color:C.textSub}} placeholder="цена" value={line.price} type="number"
+                      disabled // цену может менять только admin
                       onChange={e=>updateEditLine(line.uid,{price:e.target.value})}
                       onFocus={e=>e.target.select()}
                     />
@@ -3768,8 +3774,8 @@ function SalesCabinet({ user, token, onLogout }) {
                       }}
                       onFocus={e=>e.target.select()}
                     />
-                    <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"right",background:(line.priceOptions&&line.priceOptions.length>0)?C.surface:C.white,color:(line.priceOptions&&line.priceOptions.length>0)?C.textSub:C.text}} placeholder="цена" value={line.price} type="number"
-                      disabled={line.priceOptions&&line.priceOptions.length>0}
+                    <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"right",background:C.surface,color:C.textSub}} placeholder="цена" value={line.price} type="number"
+                      disabled // цену может менять только admin
                       onChange={e=>updateLine(line.uid,{price:e.target.value})}
                       onFocus={e=>e.target.select()}
                     />
@@ -6142,7 +6148,10 @@ function NewOrderModal({ products, clients, onClose, onCreated, isAdmin }) {
     if (stockIsOut(prod)) return;
     updateLine(uid,{
       productId:prod.id,code:prod.code,name:prod.name,unit:prod.unit,
-      price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:"",
+      // Цену может свободно менять только admin (см. disabled на инпуте цены
+      // ниже) — при одном уровне каталога подставляем его, при нескольких
+      // ждём выбор кнопкой, а без уровней вовсе — базовую цену из каталога.
+      price:prod.priceOptions&&prod.priceOptions.length===1?prod.priceOptions[0]:(prod.priceOptions&&prod.priceOptions.length>1?"":prod.price),
       search:prod.name,showDrop:false,qty:"",priceOptions:prod.priceOptions||[],commission:prod.commission||0,stock:prod.stock,
       stockWeightKg:prod.stock_weight_kg,
       avgBoxWeight:prod.avg_box_weight,
@@ -6288,8 +6297,11 @@ function NewOrderModal({ products, clients, onClose, onCreated, isAdmin }) {
                     }}
                     onFocus={e=>e.target.select()}
                   />
-                  <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"right",background:(!isAdmin&&line.priceOptions&&line.priceOptions.length>0)?C.surface:C.white,color:(!isAdmin&&line.priceOptions&&line.priceOptions.length>0)?C.textSub:C.text}} placeholder="цена" value={line.price} type="number"
-                    disabled={!isAdmin&&line.priceOptions&&line.priceOptions.length>0}
+                  <input style={{...S.input,padding:"8px 6px",fontSize:15,textAlign:"right",background:!isAdmin?C.surface:C.white,color:!isAdmin?C.textSub:C.text}} placeholder="цена" value={line.price} type="number"
+                    // Свободно менять цену при оформлении заявки может только
+                    // admin — менеджеру доступен лишь выбор из уровней каталога
+                    // (кнопки ниже).
+                    disabled={!isAdmin}
                     onChange={e=>updateLine(line.uid,{price:e.target.value})}
                     onFocus={e=>e.target.select()}
                   />
