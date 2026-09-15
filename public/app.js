@@ -14537,7 +14537,6 @@ function AdminCabinet({
   }, []);
   const [webClientSearch, setWebClientSearch] = useState("");
   const [newWebClient, setNewWebClient] = useState({
-    entity_type: 'legal',
     name: '',
     phone: '',
     bin: '',
@@ -14600,7 +14599,6 @@ function AdminCabinet({
       await apiCall('POST', '/api/clients-web', newWebClient);
       await loadClientsWeb();
       setNewWebClient({
-        entity_type: 'legal',
         name: '',
         phone: '',
         bin: '',
@@ -18431,7 +18429,7 @@ function AdminCabinet({
       marginTop: desktop ? 0 : -8,
       marginBottom: 12
     }
-  }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442, \u0441\u043E\u0437\u0434\u0430\u043D\u043D\u044B\u0439 \u0437\u0434\u0435\u0441\u044C, \u0435\u0449\u0451 \u043D\u0435 \u0432 1\u0421 \u2014 \u043A\u043E\u0434 (WEB-...) \u0432\u044B\u0434\u0430\u0451\u0442 \u0441\u0430\u0439\u0442, \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u0437\u0436\u0435 \u0431\u0443\u0445\u0433\u0430\u043B\u0442\u0435\u0440 \u043F\u0440\u0438\u043D\u044F\u043B \u0435\u0433\u043E \u0432 1\u0421 \u0431\u0435\u0437 \u043A\u043E\u043B\u043B\u0438\u0437\u0438\u0439. \u0424\u0438\u0437.\u043B\u0438\u0446\u0430 \u2014 \u0431\u0435\u0437 \u043A\u043E\u0434\u0430, \u043F\u0440\u043E\u0441\u0442\u043E \u043E\u0442\u043C\u0435\u0442\u043A\u0430 \"\u0441\u043E\u0437\u0434\u0430\u043D \u0432 \u043F\u0440\u043E\u0433\u0440\u0430\u043C\u043C\u0435\"."), /*#__PURE__*/React.createElement("div", {
+  }, "\u041A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442, \u0441\u043E\u0437\u0434\u0430\u043D\u043D\u044B\u0439 \u0437\u0434\u0435\u0441\u044C, \u0435\u0449\u0451 \u043D\u0435 \u0432 1\u0421 \u2014 \u043A\u043E\u0434 (WEB-...) \u0432\u044B\u0434\u0430\u0451\u0442 \u0441\u0430\u0439\u0442, \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u0437\u0436\u0435 \u0431\u0443\u0445\u0433\u0430\u043B\u0442\u0435\u0440 \u043F\u0440\u0438\u043D\u044F\u043B \u0435\u0433\u043E \u0432 1\u0421 \u0431\u0435\u0437 \u043A\u043E\u043B\u043B\u0438\u0437\u0438\u0439."), /*#__PURE__*/React.createElement("div", {
     style: S.card
   }, /*#__PURE__*/React.createElement("p", {
     style: {
@@ -18439,27 +18437,6 @@ function AdminCabinet({
       marginBottom: 10
     }
   }, "\u041D\u043E\u0432\u044B\u0439 \u043A\u043E\u043D\u0442\u0440\u0430\u0433\u0435\u043D\u0442"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8,
-      marginBottom: 10
-    }
-  }, [["legal", "Юр.лицо"], ["individual", "Физ.лицо"]].map(([v, l]) => /*#__PURE__*/React.createElement("button", {
-    key: v,
-    type: "button",
-    onClick: () => updateNewWebClient('entity_type', v),
-    style: {
-      flex: 1,
-      padding: "9px 10px",
-      borderRadius: 8,
-      border: `1.5px solid ${newWebClient.entity_type === v ? C.navy : C.border}`,
-      background: newWebClient.entity_type === v ? C.navy : C.white,
-      color: newWebClient.entity_type === v ? C.white : C.textMid,
-      fontSize: 14,
-      fontWeight: 600,
-      cursor: "pointer"
-    }
-  }, l))), /*#__PURE__*/React.createElement("div", {
     style: S.formGroup
   }, /*#__PURE__*/React.createElement("label", {
     style: S.label
@@ -18558,7 +18535,6 @@ function AdminCabinet({
     type: "button",
     onClick: () => {
       setNewWebClient({
-        entity_type: 'legal',
         name: '',
         phone: '',
         bin: '',
@@ -18621,7 +18597,7 @@ function AdminCabinet({
       style: S.cardTitle
     }, c.name), /*#__PURE__*/React.createElement("p", {
       style: S.cardSub
-    }, c.entity_type === 'legal' ? 'Юр.лицо' : 'Физ.лицо', c.code ? ` · ${c.code}` : '', " \xB7 ", c.phone, c.bin ? ` · БИН ${c.bin}` : ''), c.address && /*#__PURE__*/React.createElement("p", {
+    }, c.code ? `${c.code} · ` : '', c.phone, c.bin ? ` · БИН ${c.bin}` : ''), c.address && /*#__PURE__*/React.createElement("p", {
       style: S.cardSub
     }, "\uD83D\uDCCD ", c.address), /*#__PURE__*/React.createElement("p", {
       style: {

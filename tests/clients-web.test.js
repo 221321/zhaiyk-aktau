@@ -22,37 +22,28 @@ test.before(async () => {
 
 test.after(() => server.stop());
 
-test('admin создаёт юр.лицо — получает код WEB-000001', async () => {
+test('admin создаёт контрагента — получает код WEB-000001', async () => {
   const rec = await apiCall(server.baseUrl, 'POST', '/api/clients-web', {
-    entity_type: 'legal', name: 'ТОО Ромашка', phone: '87001234567', bin: '123456789012', address: 'г. Актау, 1 мкр',
+    name: 'ТОО Ромашка', phone: '87001234567', bin: '123456789012', address: 'г. Актау, 1 мкр',
   }, adminToken);
   assert.equal(rec.code, 'WEB-000001');
-  assert.equal(rec.entity_type, 'legal');
   assert.equal(rec.name, 'ТОО Ромашка');
   assert.equal(rec.bin, '123456789012');
   assert.equal(rec.archived, false);
   assert.equal(rec.created_by_name, 'Администратор');
 });
 
-test('manager создаёт следующего юр.лица — код инкрементируется', async () => {
+test('manager создаёт следующего контрагента — код инкрементируется', async () => {
   const rec = await apiCall(server.baseUrl, 'POST', '/api/clients-web', {
-    entity_type: 'legal', name: 'ИП Береке', phone: '87007654321',
+    name: 'Асель Жумабекова', phone: '87007654321',
   }, managerToken);
   assert.equal(rec.code, 'WEB-000002');
   assert.equal(rec.created_by_name, 'Айгуль Нурова');
 });
 
-test('физ.лицо создаётся без кода — код/1С его не касаются', async () => {
-  const rec = await apiCall(server.baseUrl, 'POST', '/api/clients-web', {
-    entity_type: 'individual', name: 'Асель Жумабекова', phone: '87011112233',
-  }, adminToken);
-  assert.equal(rec.code, null);
-  assert.equal(rec.entity_type, 'individual');
-});
-
 test('sales/driver — нет доступа (403)', async () => {
   await assert.rejects(
-    apiCall(server.baseUrl, 'POST', '/api/clients-web', { entity_type: 'legal', name: 'X', phone: '1' }, salesToken),
+    apiCall(server.baseUrl, 'POST', '/api/clients-web', { name: 'X', phone: '1' }, salesToken),
     (err) => err.status === 403
   );
   await assert.rejects(
@@ -70,15 +61,11 @@ test('без токена — 401/403', async () => {
 
 test('обязательные поля: без наименования/телефона — 400', async () => {
   await assert.rejects(
-    apiCall(server.baseUrl, 'POST', '/api/clients-web', { entity_type: 'legal', name: '', phone: '87001234567' }, adminToken),
+    apiCall(server.baseUrl, 'POST', '/api/clients-web', { name: '', phone: '87001234567' }, adminToken),
     (err) => err.status === 400
   );
   await assert.rejects(
-    apiCall(server.baseUrl, 'POST', '/api/clients-web', { entity_type: 'legal', name: 'Есть имя', phone: '' }, adminToken),
-    (err) => err.status === 400
-  );
-  await assert.rejects(
-    apiCall(server.baseUrl, 'POST', '/api/clients-web', { entity_type: 'unknown', name: 'Есть имя', phone: '1' }, adminToken),
+    apiCall(server.baseUrl, 'POST', '/api/clients-web', { name: 'Есть имя', phone: '' }, adminToken),
     (err) => err.status === 400
   );
 });
@@ -86,7 +73,7 @@ test('обязательные поля: без наименования/тел�
 test('GET /api/clients-web возвращает все созданные записи', async () => {
   const list = await apiCall(server.baseUrl, 'GET', '/api/clients-web', undefined, managerToken);
   assert.ok(Array.isArray(list));
-  assert.ok(list.length >= 3);
+  assert.ok(list.length >= 2);
   assert.ok(list.some(c => c.code === 'WEB-000001'));
 });
 

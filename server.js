@@ -2584,20 +2584,16 @@ app.post('/api/clients-web', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
-  const { entity_type, name, phone, bin, address } = req.body || {};
-  if (entity_type !== 'legal' && entity_type !== 'individual') {
-    return res.status(400).json({ error: 'Не указан тип контрагента' });
-  }
+  const { name, phone, bin, address } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'Не указано наименование' });
   if (!phone || !phone.trim()) return res.status(400).json({ error: 'Не указан телефон' });
 
-  // Физ.лица — код/1С их вообще не касается, отдельная чисто сайтовая
-  // ветка (см. бриф): просто пометка, кто создал, без нумерации.
-  const code = entity_type === 'legal' ? nextWebClientCode() : null;
+  // Деление юр./физ. лицо убрано по просьбе владельца (упростили форму) —
+  // код теперь выдаётся всем одинаково, независимо от типа контрагента.
+  const code = nextWebClientCode();
   const record = {
     id: Date.now(),
     code,
-    entity_type,
     name: name.trim(),
     phone: phone.trim(),
     bin: (bin || '').trim(),
