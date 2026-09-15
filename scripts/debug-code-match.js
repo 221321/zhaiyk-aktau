@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 // Разовая диагностика: почему доставка конкретного товара не списывает
 // остаток (см. reconcile-debug.js — по коду только sync-записи, ни одной
-// delivery). Проверяет, совпадает ли it.code в позициях доставленных заявок
-// с code в коллекции stock БАЙТ В БАЙТ (JSON.stringify показывает скрытые
-// пробелы/непечатные символы, которые "==" не видно).
+// delivery). Печатает текущую карточку товара (priced_by_weight — от неё
+// зависит пул при доставке, см. PUT /api/orders/:id/status) и ПОЛНЫЕ позиции
+// этого кода во всех доставленных заявках — is_weight_item/boxes/
+// weight_confirmed/qty, чтобы увидеть, не разъехался ли снимок весового
+// флага на позиции с текущей карточкой (тогда boxesDelta считается по
+// устаревшему/отсутствующему boxes и уходит в 0 — а pushLedgerEntry молча
+// пропускает запись с delta=0).
 //
 // Запуск на сервере из папки деплоя:
 //   node scripts/debug-code-match.js 00000000177
@@ -22,27 +26,20 @@ const stockRec = db.get('stock').find({ code }).value();
 console.log('=== stock запись (поиск по code === %s) ===', JSON.stringify(code));
 console.log(stockRec);
 
-const allStock = db.get('stock').value();
-console.log('\n=== Все коды в stock, похожие на искомый (includes) ===');
-allStock.filter(s => s.code && s.code.includes(code.slice(-6))).forEach(s => {
-  console.log(JSON.stringify(s.code), '=== equal to target?', s.code === code, '| qty=', s.qty, 'weight_kg=', s.weight_kg);
-});
+const aliasRec = db.get('productAliases').find({ code }).value();
+console.log('\n=== productAliases (ТЕКУЩАЯ карточка товара — priced_by_weight решает пул при доставке) ===');
+console.log(aliasRec);
 
-console.log('\n=== Позиции с этим кодом в заявках status=delivered ===');
+console.log('\n=== Полные позиции с этим кодом в заявках status=delivered ===');
 const orders = db.get('orders').value().filter(o => o.status === 'delivered');
 let found = 0;
 orders.forEach(o => {
   const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
   items.forEach(it => {
-    if (!it.code) return;
-    if (it.code === code || it.code.includes(code.slice(-6))) {
-      found++;
-      if (found <= 10) {
-        console.log(
-          `order #${o.id} | it.code=${JSON.stringify(it.code)} | equal to target? ${it.code === code} | qty=${it.qty} | is_weight_item=${it.is_weight_item}`
-        );
-      }
-    }
+    if (!it.code || it.code !== code) return;
+    found++;
+    console.log(`--- order #${o.id} (delivered_at=${o.delivered_at || '?'}) ---`);
+    console.log(JSON.stringify(it, null, 2));
   });
 });
-console.log(`\nВсего позиций с этим/похожим кодом среди delivered-заявок: ${found}`);
+console.log(`\nВсего позиций с этим кодом среди delivered-заявок: ${found}`);
