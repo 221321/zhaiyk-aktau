@@ -57,7 +57,16 @@ test('цена по позиции — считает сумму строки и
 
   // Цена продажи (price1 из product-aliases) не должна была измениться от прихода
   const products = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
-  assert.notEqual(products.find(p => p.code === 'R1').price1, 900, 'цена прихода — это не цена продажи, они не связаны');
+  const r1 = products.find(p => p.code === 'R1');
+  assert.notEqual(r1.price1, 900, 'цена прихода — это не цена продажи, они не связаны');
+  // Зато закупочная цена (cost) в карточке товара должна обновиться на цену этого прихода
+  assert.equal(r1.cost, 900, 'цена прихода должна стать последней закупочной ценой в карточке товара');
+});
+
+test('следующий приход с другой ценой перезаписывает закупочную цену — побеждает последняя', async () => {
+  await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', { items: [{ code: 'R1', qty: 1, price: 1100 }] }, adminToken);
+  const products = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.equal(products.find(p => p.code === 'R1').cost, 1100);
 });
 
 test('приход без цены — цена и суммы нулевые, поведение как раньше', async () => {
