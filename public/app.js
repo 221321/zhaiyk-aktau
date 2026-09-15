@@ -15613,8 +15613,8 @@ function AdminCabinet({
         orders: 0
       };
       bucket[key].revenue += o.total || 0;
-      bucket[key].cash += (o.payment_cash || 0) + orderSettledCash(o);
-      bucket[key].qr += (o.payment_qr || 0) + orderSettledQr(o);
+      bucket[key].cash += (o.payment_cash || 0) + orderSettledCash(o) - orderRefundedCash(o);
+      bucket[key].qr += (o.payment_qr || 0) + orderSettledQr(o) - orderRefundedQr(o);
       bucket[key].debt += orderRemainingDebt(o);
       bucket[key].orders += 1;
       const orderItems = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : o.items || [];
@@ -15731,8 +15731,8 @@ function AdminCabinet({
         debt: 0,
         orders: 0
       };
-      cashByDriver[key].cash += (o.payment_cash || 0) + orderSettledCash(o);
-      cashByDriver[key].qr += (o.payment_qr || 0) + orderSettledQr(o);
+      cashByDriver[key].cash += (o.payment_cash || 0) + orderSettledCash(o) - orderRefundedCash(o);
+      cashByDriver[key].qr += (o.payment_qr || 0) + orderSettledQr(o) - orderRefundedQr(o);
       cashByDriver[key].debt += orderRemainingDebt(o);
       cashByDriver[key].orders += 1;
     });
