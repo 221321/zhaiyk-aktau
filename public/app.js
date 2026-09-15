@@ -14309,7 +14309,6 @@ function AdminCabinet({
     }
     if (preset !== "day") setTimeSlotFilter("");
   };
-  const [employees, setEmployees] = useState([]);
   const [users, setUsers] = useState([]);
   const [empSearch, setEmpSearch] = useState("");
   const [empForm, setEmpForm] = useState({});
@@ -14321,22 +14320,15 @@ function AdminCabinet({
   const [savingRole, setSavingRole] = useState(null);
   const [resettingSession, setResettingSession] = useState(null);
   const [empSectionsOpen, setEmpSectionsOpen] = useState({
-    noAccount: true,
     accounts: true,
     noStoreAccount: false
   });
-  const loadEmployees = useCallback(async () => {
-    try {
-      setEmployees(await apiCall('GET', '/api/employees'));
-    } catch (e) {}
-  }, []);
   const loadUsers = useCallback(async () => {
     try {
       setUsers(await apiCall('GET', '/api/users'));
     } catch (e) {}
   }, []);
   useEffect(() => {
-    loadEmployees();
     loadUsers();
   }, []);
   const ROLE_OPTIONS = [["sales", "Торговый представитель"], ["senior_sales", "Старший торговый представитель"], ["driver", "Водитель"], ["cashier", "Кассир"], ["warehouse", "Зав. склад"], ["operator", "Оператор"], ["manager", "Менеджер"], ["admin", "Администратор"], ["store", "Магазин"]];
@@ -14347,37 +14339,6 @@ function AdminCabinet({
       [field]: value
     }
   }));
-  const createEmpAccount = async (emp, formKey) => {
-    const form = empForm[formKey] || {};
-    if (!form.login || !form.password || !form.role) {
-      alert('Заполните логин, пароль и роль');
-      return;
-    }
-    if (form.password.length < 4) {
-      alert('Пароль минимум 4 символа');
-      return;
-    }
-    setSavingEmp(formKey);
-    try {
-      await apiCall('POST', '/api/users', {
-        login: form.login,
-        password: form.password,
-        name: emp.name,
-        role: form.role,
-        region: form.region || '',
-        employee_code: emp.code
-      });
-      await loadEmployees();
-      await loadUsers();
-      setEmpForm(f => ({
-        ...f,
-        [formKey]: {}
-      }));
-    } catch (e) {
-      alert(e.message);
-    }
-    setSavingEmp(null);
-  };
   const createStoreAccount = async (client, formKey) => {
     const form = empForm[formKey] || {};
     if (!form.login || !form.password) {
@@ -19409,7 +19370,7 @@ function AdminCabinet({
       marginTop: desktop ? 0 : -8,
       marginBottom: 12
     }
-  }, "\u0424\u0418\u041E \u043C\u043E\u0436\u0435\u0442 \u043F\u0440\u0438\u0439\u0442\u0438 \u0438\u0437 1\u0421 (\u0441\u043C. \"\u0411\u0435\u0437 \u0443\u0447\u0451\u0442\u043D\u043E\u0439 \u0437\u0430\u043F\u0438\u0441\u0438\" \u043D\u0438\u0436\u0435) \u0438\u043B\u0438 \u0435\u0433\u043E \u043C\u043E\u0436\u043D\u043E \u0432\u0432\u0435\u0441\u0442\u0438 \u0441\u0430\u043C\u043E\u043C\u0443 \u2014 \"+ \u041D\u043E\u0432\u044B\u0439 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\". \u0412 \u043E\u0431\u043E\u0438\u0445 \u0441\u043B\u0443\u0447\u0430\u044F\u0445 \u0437\u0430\u0434\u0430\u0439 \u0440\u043E\u043B\u044C, \u043B\u043E\u0433\u0438\u043D \u0438 \u043F\u0430\u0440\u043E\u043B\u044C \u2014 \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0440\u0430\u0431\u043E\u0447\u0438\u0439 \u0432\u0445\u043E\u0434 \u043D\u0430 \u0441\u0430\u0439\u0442."), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
+  }, "\"+ \u041D\u043E\u0432\u044B\u0439 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\" \u2014 \u0437\u0430\u0434\u0430\u0439 \u0424\u0418\u041E, \u0440\u043E\u043B\u044C, \u043B\u043E\u0433\u0438\u043D \u0438 \u043F\u0430\u0440\u043E\u043B\u044C, \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0440\u0430\u0431\u043E\u0447\u0438\u0439 \u0432\u0445\u043E\u0434 \u043D\u0430 \u0441\u0430\u0439\u0442."), !readOnlyOp && /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.btnOutline,
       width: "auto",
@@ -19535,16 +19496,6 @@ function AdminCabinet({
     name: "emp-search"
   }), (() => {
     const q = empSearch.trim().toLowerCase();
-    // _origIdx фиксируется до фильтрации, чтобы formKey сотрудника без
-    // кода 1С не менялся при наборе текста в поиске — иначе позиция
-    // сотрудника в отфильтрованном списке сдвигается, его formKey
-    // "достаётся" другому сотруднику, и уже введённые логин/пароль
-    // показываются под чужим именем (данные не были ничьи, но
-    // визуально привязываются не к тому человеку)
-    const noAccount = employees.map((e, _origIdx) => ({
-      ...e,
-      _origIdx
-    })).filter(e => !e.has_account && (!q || e.name.toLowerCase().includes(q) || (e.code || '').includes(q)));
     const accounts = users.filter(u => !q || u.name.toLowerCase().includes(q) || u.login.toLowerCase().includes(q));
     const storeClientCodes = new Set(users.filter(u => u.role === "store").map(u => u.client_code));
     const noStoreAccount = clients.filter(cl => !storeClientCodes.has(cl.code) && (!q || cl.name.toLowerCase().includes(q) || (cl.code || '').includes(q)));
@@ -19622,92 +19573,6 @@ function AdminCabinet({
       }, children));
     };
     return /*#__PURE__*/React.createElement(React.Fragment, null, renderEmpSection({
-      id: "noAccount",
-      title: "Без учётной записи",
-      badgeColor: C.red,
-      count: noAccount.length,
-      children: noAccount.length === 0 ? /*#__PURE__*/React.createElement("div", {
-        style: {
-          textAlign: "center",
-          padding: "16px 0",
-          color: C.textFaint,
-          fontSize: 15
-        }
-      }, q ? "Ничего не найдено" : "Все сотрудники из 1С уже с аккаунтами") : noAccount.map(emp => {
-        const formKey = (emp.code || 'nocode') + '_' + emp._origIdx;
-        return /*#__PURE__*/React.createElement("div", {
-          key: formKey,
-          style: {
-            ...S.card,
-            padding: 10,
-            marginBottom: 6
-          }
-        }, /*#__PURE__*/React.createElement("div", {
-          style: {
-            fontSize: 13,
-            color: C.textFaint,
-            marginBottom: 2
-          }
-        }, "\u041A\u043E\u0434 1\u0421: ", emp.code), /*#__PURE__*/React.createElement("div", {
-          style: {
-            fontSize: 15,
-            fontWeight: 600,
-            marginBottom: readOnlyOp ? 0 : 8,
-            color: C.textMid
-          }
-        }, emp.name), !readOnlyOp && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("select", {
-          style: {
-            ...S.select,
-            padding: "7px 8px",
-            fontSize: 14,
-            marginBottom: 6
-          },
-          value: (empForm[formKey] || {}).role || '',
-          onChange: e => updateEmpForm(formKey, 'role', e.target.value)
-        }, /*#__PURE__*/React.createElement("option", {
-          value: ""
-        }, "\u2014 \u0420\u043E\u043B\u044C \u2014"), ROLE_OPTIONS.map(([v, l]) => /*#__PURE__*/React.createElement("option", {
-          key: v,
-          value: v
-        }, l))), /*#__PURE__*/React.createElement("div", {
-          style: {
-            display: "flex",
-            gap: 6
-          }
-        }, /*#__PURE__*/React.createElement("input", {
-          style: {
-            ...S.input,
-            padding: "7px 8px",
-            fontSize: 14
-          },
-          placeholder: "\u041B\u043E\u0433\u0438\u043D",
-          value: (empForm[formKey] || {}).login || '',
-          onChange: e => updateEmpForm(formKey, 'login', e.target.value)
-        }), /*#__PURE__*/React.createElement("input", {
-          style: {
-            ...S.input,
-            padding: "7px 8px",
-            fontSize: 14
-          },
-          placeholder: "\u041F\u0430\u0440\u043E\u043B\u044C",
-          value: (empForm[formKey] || {}).password || '',
-          onChange: e => updateEmpForm(formKey, 'password', e.target.value)
-        }), /*#__PURE__*/React.createElement("button", {
-          style: {
-            ...S.btnPrimary,
-            padding: "7px 14px",
-            fontSize: 14,
-            marginTop: 0,
-            boxShadow: "none",
-            width: "auto",
-            whiteSpace: "nowrap",
-            opacity: savingEmp === formKey ? 0.5 : 1
-          },
-          disabled: savingEmp === formKey,
-          onClick: () => createEmpAccount(emp, formKey)
-        }, "\u0421\u043E\u0437\u0434\u0430\u0442\u044C"))));
-      })
-    }), renderEmpSection({
       id: "accounts",
       title: "Учётные записи",
       badgeColor: C.green,

@@ -6903,7 +6903,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
     if (preset !== "day") setTimeSlotFilter("");
   };
 
-  const [employees, setEmployees] = useState([]);
   const [users, setUsers] = useState([]);
   const [empSearch, setEmpSearch] = useState("");
   const [empForm, setEmpForm] = useState({});
@@ -6914,32 +6913,16 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [roleEdits, setRoleEdits] = useState({});
   const [savingRole, setSavingRole] = useState(null);
   const [resettingSession, setResettingSession] = useState(null);
-  const [empSectionsOpen, setEmpSectionsOpen] = useState({ noAccount: true, accounts: true, noStoreAccount: false });
+  const [empSectionsOpen, setEmpSectionsOpen] = useState({ accounts: true, noStoreAccount: false });
 
-  const loadEmployees = useCallback(async () => {
-    try { setEmployees(await apiCall('GET','/api/employees')); } catch(e) {}
-  }, []);
   const loadUsers = useCallback(async () => {
     try { setUsers(await apiCall('GET','/api/users')); } catch(e) {}
   }, []);
-  useEffect(() => { loadEmployees(); loadUsers(); }, []);
+  useEffect(() => { loadUsers(); }, []);
 
   const ROLE_OPTIONS = [["sales","Торговый представитель"],["senior_sales","Старший торговый представитель"],["driver","Водитель"],["cashier","Кассир"],["warehouse","Зав. склад"],["operator","Оператор"],["manager","Менеджер"],["admin","Администратор"],["store","Магазин"]];
 
   const updateEmpForm = (formKey, field, value) => setEmpForm(f => ({...f, [formKey]: {...f[formKey], [field]: value}}));
-
-  const createEmpAccount = async (emp, formKey) => {
-    const form = empForm[formKey] || {};
-    if (!form.login || !form.password || !form.role) { alert('Заполните логин, пароль и роль'); return; }
-    if (form.password.length < 4) { alert('Пароль минимум 4 символа'); return; }
-    setSavingEmp(formKey);
-    try {
-      await apiCall('POST','/api/users', { login: form.login, password: form.password, name: emp.name, role: form.role, region: form.region||'', employee_code: emp.code });
-      await loadEmployees(); await loadUsers();
-      setEmpForm(f => ({...f, [formKey]: {}}));
-    } catch(e) { alert(e.message); }
-    setSavingEmp(null);
-  };
 
   const createStoreAccount = async (client, formKey) => {
     const form = empForm[formKey] || {};
@@ -9345,7 +9328,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         {!desktop&&<p style={S.sectionTitle}>Сотрудники</p>}
         <div style={{maxWidth: desktop?560:"none"}}>
           <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
-            ФИО может прийти из 1С (см. "Без учётной записи" ниже) или его можно ввести самому — "+ Новый сотрудник". В обоих случаях задай роль, логин и пароль — появится рабочий вход на сайт.
+            "+ Новый сотрудник" — задай ФИО, роль, логин и пароль, появится рабочий вход на сайт.
           </p>
           {!readOnlyOp&&(
             <button style={{...S.btnOutline,width:"auto",padding:"8px 14px",fontSize:14,marginBottom:12}} onClick={()=>setShowNewEmployeeModal(true)}>+ Новый сотрудник</button>
@@ -9400,15 +9383,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
           />
           {(() => {
             const q = empSearch.trim().toLowerCase();
-            // _origIdx фиксируется до фильтрации, чтобы formKey сотрудника без
-            // кода 1С не менялся при наборе текста в поиске — иначе позиция
-            // сотрудника в отфильтрованном списке сдвигается, его formKey
-            // "достаётся" другому сотруднику, и уже введённые логин/пароль
-            // показываются под чужим именем (данные не были ничьи, но
-            // визуально привязываются не к тому человеку)
-            const noAccount = employees
-              .map((e,_origIdx)=>({...e,_origIdx}))
-              .filter(e=>!e.has_account&&(!q||e.name.toLowerCase().includes(q)||(e.code||'').includes(q)));
             const accounts = users.filter(u=>!q||u.name.toLowerCase().includes(q)||u.login.toLowerCase().includes(q));
             const storeClientCodes = new Set(users.filter(u=>u.role==="store").map(u=>u.client_code));
             const noStoreAccount = clients.filter(cl=>!storeClientCodes.has(cl.code)&&(!q||cl.name.toLowerCase().includes(q)||(cl.code||'').includes(q)));
@@ -9448,31 +9422,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
             };
 
             return <>
-              {renderEmpSection({ id:"noAccount", title:"Без учётной записи", badgeColor:C.red, count:noAccount.length, children:
-                noAccount.length===0
-                  ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>{q?"Ничего не найдено":"Все сотрудники из 1С уже с аккаунтами"}</div>
-                  : noAccount.map((emp)=>{
-                      const formKey = (emp.code||'nocode')+'_'+emp._origIdx;
-                      return (
-                      <div key={formKey} style={{...S.card,padding:10,marginBottom:6}}>
-                        <div style={{fontSize:13,color:C.textFaint,marginBottom:2}}>Код 1С: {emp.code}</div>
-                        <div style={{fontSize:15,fontWeight:600,marginBottom:readOnlyOp?0:8,color:C.textMid}}>{emp.name}</div>
-                        {!readOnlyOp&&<>
-                        <select style={{...S.select,padding:"7px 8px",fontSize:14,marginBottom:6}} value={(empForm[formKey]||{}).role||''} onChange={e=>updateEmpForm(formKey,'role',e.target.value)}>
-                          <option value="">— Роль —</option>
-                          {ROLE_OPTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
-                        </select>
-                        <div style={{display:"flex",gap:6}}>
-                          <input style={{...S.input,padding:"7px 8px",fontSize:14}} placeholder="Логин" value={(empForm[formKey]||{}).login||''} onChange={e=>updateEmpForm(formKey,'login',e.target.value)}/>
-                          <input style={{...S.input,padding:"7px 8px",fontSize:14}} placeholder="Пароль" value={(empForm[formKey]||{}).password||''} onChange={e=>updateEmpForm(formKey,'password',e.target.value)}/>
-                          <button style={{...S.btnPrimary,padding:"7px 14px",fontSize:14,marginTop:0,boxShadow:"none",width:"auto",whiteSpace:"nowrap",opacity:savingEmp===formKey?0.5:1}} disabled={savingEmp===formKey} onClick={()=>createEmpAccount(emp,formKey)}>Создать</button>
-                        </div>
-                        </>}
-                      </div>
-                      );
-                    })
-              })}
-
               {renderEmpSection({ id:"accounts", title:"Учётные записи", badgeColor:C.green, count:accounts.length, children:
                 accounts.length===0
                   ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>{q?"Ничего не найдено":"Аккаунтов пока нет"}</div>
