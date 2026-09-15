@@ -199,6 +199,12 @@ function waitForReturn(timeoutMs = 15000) {
     setTimeout(finish, timeoutMs);
   });
 }
+
+// Единица измерения нового товара (см. "+ Новый товар (не в 1С)") — фиксированный
+// список вместо свободного ввода, тот же список, что валидирует сервер
+// (см. WEB_PRODUCT_UNITS в server.js) — иначе один и тот же короб у разных
+// менеджеров называется то "кор", то "короб", то "коробка".
+const PRODUCT_UNITS = ['шт', 'кор', 'уп', 'кг', 'л'];
 const SL = {
   new: "Ожидает",
   in_transit: "В работе",
@@ -14614,23 +14620,14 @@ function AdminCabinet({
     setShowClientModal(true);
   };
 
-  // ===== НОМЕНКЛАТУРА, созданная на сайте (без 1С) — см. POST/GET
-  // /api/products-web. Отдельная коллекция от `products` (см. сервер) —
-  // не сливается с каталогом заказа (нет и не может быть остатка), только
-  // карточка + дубль-проверка, тот же принцип, что и у контрагентов выше.
-  const [productsWeb, setProductsWeb] = useState([]);
-  const loadProductsWeb = useCallback(async () => {
-    try {
-      setProductsWeb(await apiCall('GET', '/api/products-web'));
-    } catch (e) {}
-  }, []);
-  useEffect(() => {
-    loadProductsWeb();
-  }, []);
-  const [webProductSearch, setWebProductSearch] = useState("");
+  // ===== НОМЕНКЛАТУРА, созданная на сайте (без 1С) — см. POST /api/products-web.
+  // Отдельная коллекция от `products` на сервере (переживает пересинхронизацию
+  // из 1С), но GET /api/products уже сливает её в общий каталог (см. сервер) —
+  // здесь на фронте отдельно её загружать не нужно, карточка появится сама
+  // при следующем loadProducts(), тот же принцип, что и у контрагентов выше.
   const [newWebProduct, setNewWebProduct] = useState({
     name: '',
-    unit: '',
+    unit: PRODUCT_UNITS[0],
     barcode: '',
     category: ''
   });
@@ -14640,7 +14637,6 @@ function AdminCabinet({
   // тот же tab==="aliases" ниже) — владелец решил, что два похожих места
   // "завести товар" путают, а само действие редкое.
   const [showWebProductModal, setShowWebProductModal] = useState(false);
-  const [showWebProductsList, setShowWebProductsList] = useState(false);
   const updateNewWebProduct = (field, value) => {
     setNewWebProduct(f => ({
       ...f,
@@ -14649,25 +14645,22 @@ function AdminCabinet({
     setWebProductDupeConfirmed(false);
   };
 
-  // Дубль-поиск по объединённому списку `products`(1С)+`productsWeb`: точный
-  // штрихкод (самый надёжный сигнал для товара, аналог БИН у контрагента),
-  // иначе подстрока по названию — тот же паттерн includes(), что уже в
-  // поиске товара при оформлении заявки выше.
+  // Дубль-поиск по каталогу `products` — он теперь уже содержит и 1С-, и
+  // сайтовые (WEBP-...) товары одним списком (см. GET /api/products на
+  // сервере), поэтому отдельно перебирать productsWeb не нужно: источник
+  // узнаём по префиксу кода. Точный штрихкод (самый надёжный сигнал для
+  // товара, аналог БИН у контрагента), иначе подстрока по названию — тот
+  // же паттерн includes(), что уже в поиске товара при оформлении заявки.
   const webProductDupeMatches = useMemo(() => {
     const name = newWebProduct.name.trim().toLowerCase();
     const barcode = newWebProduct.barcode.trim();
     if (!name && !barcode) return [];
-    const all = [...products.map(p => ({
+    const all = products.map(p => ({
       name: p.display_name || p.name,
       barcode: p.barcode || '',
       code: p.code,
-      source: '1С'
-    })), ...productsWeb.filter(p => !p.archived).map(p => ({
-      name: p.name,
-      barcode: p.barcode || '',
-      code: p.code,
-      source: 'Сайт'
-    }))];
+      source: p.code.startsWith('WEBP-') ? 'Сайт' : '1С'
+    }));
     if (barcode) {
       const m = all.filter(p => p.barcode && p.barcode === barcode);
       if (m.length) return m;
@@ -14676,7 +14669,7 @@ function AdminCabinet({
       return all.filter(p => (p.name || '').toLowerCase().includes(name));
     }
     return [];
-  }, [newWebProduct, products, productsWeb]);
+  }, [newWebProduct, products]);
   const createWebProduct = async () => {
     if (!newWebProduct.name.trim() || !newWebProduct.unit.trim()) {
       alert('Укажите наименование и единицу измерения');
@@ -14685,10 +14678,10 @@ function AdminCabinet({
     setCreatingWebProduct(true);
     try {
       await apiCall('POST', '/api/products-web', newWebProduct);
-      await loadProductsWeb();
+      await loadProducts();
       setNewWebProduct({
         name: '',
-        unit: '',
+        unit: PRODUCT_UNITS[0],
         barcode: '',
         category: ''
       });
@@ -17339,38 +17332,7 @@ function AdminCabinet({
       fontSize: 14
     },
     onClick: () => setShowWebProductModal(true)
-  }, "+ \u041D\u043E\u0432\u044B\u0439 \u0442\u043E\u0432\u0430\u0440 (\u043D\u0435 \u0432 1\u0421)"), productsWeb.length > 0 && /*#__PURE__*/React.createElement("button", {
-    style: {
-      background: "none",
-      border: "none",
-      color: C.textSub,
-      fontSize: 13,
-      fontWeight: 600,
-      cursor: "pointer",
-      textDecoration: "underline"
-    },
-    onClick: () => setShowWebProductsList(v => !v)
-  }, showWebProductsList ? "Скрыть" : "Показать", " \u0442\u043E\u0432\u0430\u0440\u044B \u043D\u0435 \u0438\u0437 1\u0421 (", productsWeb.length, ")")), showWebProductsList && productsWeb.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 16
-    }
-  }, productsWeb.slice().reverse().map(p => /*#__PURE__*/React.createElement("div", {
-    key: p.id,
-    style: {
-      ...S.card,
-      padding: 10,
-      marginBottom: 6
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: S.cardTitle
-  }, p.name), /*#__PURE__*/React.createElement("p", {
-    style: S.cardSub
-  }, p.code, " \xB7 ", p.unit, p.barcode ? ` · ${p.barcode}` : '', p.category ? ` · ${p.category}` : ''), /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.cardSub,
-      color: C.textFaint
-    }
-  }, "\u0421\u043E\u0437\u0434\u0430\u043B: ", p.created_by_name, ", ", new Date(p.created_at).toLocaleDateString('ru-RU'))))), showWebProductModal && /*#__PURE__*/React.createElement("div", {
+  }, "+ \u041D\u043E\u0432\u044B\u0439 \u0442\u043E\u0432\u0430\u0440 (\u043D\u0435 \u0432 1\u0421)")), showWebProductModal && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "fixed",
       inset: 0,
@@ -17413,7 +17375,7 @@ function AdminCabinet({
       marginTop: 0,
       marginBottom: 14
     }
-  }, "\u0414\u043B\u044F \u0442\u043E\u0432\u0430\u0440\u0430, \u043A\u043E\u0442\u043E\u0440\u043E\u0433\u043E \u0435\u0449\u0451 \u043D\u0435\u0442 \u0432 1\u0421 \u2014 \u043A\u043E\u0434 (WEBP-...) \u0432\u044B\u0434\u0430\u0451\u0442 \u0441\u0430\u0439\u0442, \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u0437\u0436\u0435 \u0431\u0443\u0445\u0433\u0430\u043B\u0442\u0435\u0440 \u043F\u0440\u0438\u043D\u044F\u043B \u0435\u0433\u043E \u0432 1\u0421 \u0431\u0435\u0437 \u043A\u043E\u043B\u043B\u0438\u0437\u0438\u0439. \u0412 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435 \u0437\u0430\u043A\u0430\u0437\u0430 \u043D\u0435 \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u2014 \u0443 \u043D\u0435\u0433\u043E \u043D\u0435\u0442 \u043E\u0441\u0442\u0430\u0442\u043A\u0430."), /*#__PURE__*/React.createElement("div", {
+  }, "\u0414\u043B\u044F \u0442\u043E\u0432\u0430\u0440\u0430, \u043A\u043E\u0442\u043E\u0440\u043E\u0433\u043E \u0435\u0449\u0451 \u043D\u0435\u0442 \u0432 1\u0421 \u2014 \u043A\u043E\u0434 (WEBP-...) \u0432\u044B\u0434\u0430\u0451\u0442 \u0441\u0430\u0439\u0442, \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u0437\u0436\u0435 \u0431\u0443\u0445\u0433\u0430\u043B\u0442\u0435\u0440 \u043F\u0440\u0438\u043D\u044F\u043B \u0435\u0433\u043E \u0432 1\u0421 \u0431\u0435\u0437 \u043A\u043E\u043B\u043B\u0438\u0437\u0438\u0439. \u0422\u043E\u0432\u0430\u0440 \u0441\u0440\u0430\u0437\u0443 \u0432\u0438\u0434\u0435\u043D \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435 \u0437\u0430\u043A\u0430\u0437\u0430, \u043D\u043E \u043E\u0441\u0442\u0430\u0442\u043E\u043A \u0443 \u043D\u0435\u0433\u043E 0, \u043F\u043E\u043A\u0430 \u0434\u043B\u044F \u043D\u0435\u0433\u043E \u043D\u0435 \u043E\u0444\u043E\u0440\u043C\u044F\u0442 \"\u041F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u0435\"."), /*#__PURE__*/React.createElement("div", {
     style: S.card
   }, /*#__PURE__*/React.createElement("div", {
     style: S.formGroup
@@ -17428,12 +17390,14 @@ function AdminCabinet({
     style: S.formGroup
   }, /*#__PURE__*/React.createElement("label", {
     style: S.label
-  }, "\u0415\u0434\u0438\u043D\u0438\u0446\u0430 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F *"), /*#__PURE__*/React.createElement("input", {
+  }, "\u0415\u0434\u0438\u043D\u0438\u0446\u0430 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F *"), /*#__PURE__*/React.createElement("select", {
     style: S.input,
-    placeholder: "\u0448\u0442, \u043A\u043E\u0440, \u043A\u0433...",
     value: newWebProduct.unit,
     onChange: e => updateNewWebProduct('unit', e.target.value)
-  })), /*#__PURE__*/React.createElement("div", {
+  }, PRODUCT_UNITS.map(u => /*#__PURE__*/React.createElement("option", {
+    key: u,
+    value: u
+  }, u)))), /*#__PURE__*/React.createElement("div", {
     style: S.formGroup
   }, /*#__PURE__*/React.createElement("label", {
     style: S.label

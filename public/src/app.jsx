@@ -173,6 +173,12 @@ function waitForReturn(timeoutMs = 15000) {
   });
 }
 
+// Единица измерения нового товара (см. "+ Новый товар (не в 1С)") — фиксированный
+// список вместо свободного ввода, тот же список, что валидирует сервер
+// (см. WEB_PRODUCT_UNITS в server.js) — иначе один и тот же короб у разных
+// менеджеров называется то "кор", то "короб", то "коробка".
+const PRODUCT_UNITS = ['шт', 'кор', 'уп', 'кг', 'л'];
+
 const SL = { new: "Ожидает", in_transit: "В работе", delivered: "Доставлено", cancelled: "Отказ при получении", returned: "Возврат", revoked: "Отозвана", annulled: "Аннулирована" };
 const SC = { new: "#DA1A10", in_transit: "#B45309", delivered: "#15803D", cancelled: "#DC2626", returned: "#7C3AED", revoked: "#6B7280", annulled: "#991B1B" };
 const SB = { new: "#FCEBEA", in_transit: "#FBF3E6", delivered: "#EAF5EE", cancelled: "#FEF2F2", returned: "#F5F3FF", revoked: "#F3F4F6", annulled: "#FEE2E2" };
@@ -7089,40 +7095,32 @@ function AdminCabinet({ user, onLogout, desktop }) {
     setShowClientModal(true);
   };
 
-  // ===== НОМЕНКЛАТУРА, созданная на сайте (без 1С) — см. POST/GET
-  // /api/products-web. Отдельная коллекция от `products` (см. сервер) —
-  // не сливается с каталогом заказа (нет и не может быть остатка), только
-  // карточка + дубль-проверка, тот же принцип, что и у контрагентов выше.
-  const [productsWeb, setProductsWeb] = useState([]);
-  const loadProductsWeb = useCallback(async () => {
-    try { setProductsWeb(await apiCall('GET', '/api/products-web')); } catch(e) {}
-  }, []);
-  useEffect(() => { loadProductsWeb(); }, []);
-
-  const [webProductSearch, setWebProductSearch] = useState("");
-  const [newWebProduct, setNewWebProduct] = useState({ name: '', unit: '', barcode: '', category: '' });
+  // ===== НОМЕНКЛАТУРА, созданная на сайте (без 1С) — см. POST /api/products-web.
+  // Отдельная коллекция от `products` на сервере (переживает пересинхронизацию
+  // из 1С), но GET /api/products уже сливает её в общий каталог (см. сервер) —
+  // здесь на фронте отдельно её загружать не нужно, карточка появится сама
+  // при следующем loadProducts(), тот же принцип, что и у контрагентов выше.
+  const [newWebProduct, setNewWebProduct] = useState({ name: '', unit: PRODUCT_UNITS[0], barcode: '', category: '' });
   const [creatingWebProduct, setCreatingWebProduct] = useState(false);
   const [webProductDupeConfirmed, setWebProductDupeConfirmed] = useState(false);
   // "Номенклатура" — не отдельная вкладка, а кнопка внутри "Товары" (см.
   // тот же tab==="aliases" ниже) — владелец решил, что два похожих места
   // "завести товар" путают, а само действие редкое.
   const [showWebProductModal, setShowWebProductModal] = useState(false);
-  const [showWebProductsList, setShowWebProductsList] = useState(false);
 
   const updateNewWebProduct = (field, value) => { setNewWebProduct(f => ({...f, [field]: value})); setWebProductDupeConfirmed(false); };
 
-  // Дубль-поиск по объединённому списку `products`(1С)+`productsWeb`: точный
-  // штрихкод (самый надёжный сигнал для товара, аналог БИН у контрагента),
-  // иначе подстрока по названию — тот же паттерн includes(), что уже в
-  // поиске товара при оформлении заявки выше.
+  // Дубль-поиск по каталогу `products` — он теперь уже содержит и 1С-, и
+  // сайтовые (WEBP-...) товары одним списком (см. GET /api/products на
+  // сервере), поэтому отдельно перебирать productsWeb не нужно: источник
+  // узнаём по префиксу кода. Точный штрихкод (самый надёжный сигнал для
+  // товара, аналог БИН у контрагента), иначе подстрока по названию — тот
+  // же паттерн includes(), что уже в поиске товара при оформлении заявки.
   const webProductDupeMatches = useMemo(() => {
     const name = newWebProduct.name.trim().toLowerCase();
     const barcode = newWebProduct.barcode.trim();
     if (!name && !barcode) return [];
-    const all = [
-      ...products.map(p => ({ name: p.display_name || p.name, barcode: p.barcode || '', code: p.code, source: '1С' })),
-      ...productsWeb.filter(p => !p.archived).map(p => ({ name: p.name, barcode: p.barcode || '', code: p.code, source: 'Сайт' })),
-    ];
+    const all = products.map(p => ({ name: p.display_name || p.name, barcode: p.barcode || '', code: p.code, source: p.code.startsWith('WEBP-') ? 'Сайт' : '1С' }));
     if (barcode) {
       const m = all.filter(p => p.barcode && p.barcode === barcode);
       if (m.length) return m;
@@ -7131,15 +7129,15 @@ function AdminCabinet({ user, onLogout, desktop }) {
       return all.filter(p => (p.name || '').toLowerCase().includes(name));
     }
     return [];
-  }, [newWebProduct, products, productsWeb]);
+  }, [newWebProduct, products]);
 
   const createWebProduct = async () => {
     if (!newWebProduct.name.trim() || !newWebProduct.unit.trim()) { alert('Укажите наименование и единицу измерения'); return; }
     setCreatingWebProduct(true);
     try {
       await apiCall('POST', '/api/products-web', newWebProduct);
-      await loadProductsWeb();
-      setNewWebProduct({ name: '', unit: '', barcode: '', category: '' });
+      await loadProducts();
+      setNewWebProduct({ name: '', unit: PRODUCT_UNITS[0], barcode: '', category: '' });
       setWebProductDupeConfirmed(false);
       setShowWebProductModal(false);
     } catch(e) { alert(e.message); }
@@ -8504,23 +8502,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
           </p>
           <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12,flexWrap:"wrap"}}>
             <button style={{...S.btnOutline,width:"auto",padding:"8px 14px",fontSize:14}} onClick={()=>setShowWebProductModal(true)}>+ Новый товар (не в 1С)</button>
-            {productsWeb.length>0&&(
-              <button style={{background:"none",border:"none",color:C.textSub,fontSize:13,fontWeight:600,cursor:"pointer",textDecoration:"underline"}} onClick={()=>setShowWebProductsList(v=>!v)}>
-                {showWebProductsList?"Скрыть":"Показать"} товары не из 1С ({productsWeb.length})
-              </button>
-            )}
           </div>
-          {showWebProductsList&&productsWeb.length>0&&(
-            <div style={{marginBottom:16}}>
-              {productsWeb.slice().reverse().map(p=>(
-                <div key={p.id} style={{...S.card,padding:10,marginBottom:6}}>
-                  <p style={S.cardTitle}>{p.name}</p>
-                  <p style={S.cardSub}>{p.code} · {p.unit}{p.barcode?` · ${p.barcode}`:''}{p.category?` · ${p.category}`:''}</p>
-                  <p style={{...S.cardSub,color:C.textFaint}}>Создал: {p.created_by_name}, {new Date(p.created_at).toLocaleDateString('ru-RU')}</p>
-                </div>
-              ))}
-            </div>
-          )}
           {showWebProductModal&&(
             <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}} onClick={e=>{ if(e.target===e.currentTarget) setShowWebProductModal(false); }}>
               <div style={{background:C.surface,margin:"16px auto",borderRadius:16,padding:20,maxWidth:480,minHeight:"calc(100vh - 32px)"}}>
@@ -8529,7 +8511,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   <button style={S.btnSecondary} onClick={()=>setShowWebProductModal(false)}>✕ Закрыть</button>
                 </div>
                 <p style={{fontSize:14,color:C.textSub,marginTop:0,marginBottom:14}}>
-                  Для товара, которого ещё нет в 1С — код (WEBP-...) выдаёт сайт, чтобы позже бухгалтер принял его в 1С без коллизий. В каталоге заказа не появится — у него нет остатка.
+                  Для товара, которого ещё нет в 1С — код (WEBP-...) выдаёт сайт, чтобы позже бухгалтер принял его в 1С без коллизий. Товар сразу виден в каталоге заказа, но остаток у него 0, пока для него не оформят "Поступление".
                 </p>
                 <div style={S.card}>
                   <div style={S.formGroup}>
@@ -8538,7 +8520,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
                   </div>
                   <div style={S.formGroup}>
                     <label style={S.label}>Единица измерения *</label>
-                    <input style={S.input} placeholder="шт, кор, кг..." value={newWebProduct.unit} onChange={e=>updateNewWebProduct('unit',e.target.value)}/>
+                    <select style={S.input} value={newWebProduct.unit} onChange={e=>updateNewWebProduct('unit',e.target.value)}>
+                      {PRODUCT_UNITS.map(u=><option key={u} value={u}>{u}</option>)}
+                    </select>
                   </div>
                   <div style={S.formGroup}>
                     <label style={S.label}>Штрихкод</label>
