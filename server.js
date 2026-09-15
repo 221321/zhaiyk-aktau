@@ -2169,6 +2169,29 @@ app.post('/api/products-web', authMiddleware, (req, res) => {
   res.json(record);
 });
 
+// Закупочная цена (cost) на позиции заявки/продажи — снимок на момент
+// продажи (см. getCostMap ниже), поэтому когда для товара только сейчас
+// впервые завели закупку (или обновили её через приход/карточку товара),
+// все УЖЕ оформленные заявки/продажи этого товара так и остаются с
+// cost==null и портят отчёт "прибыль занижена" (владелец жаловался — товар
+// с ценой на карточке, а касса всё равно ругается). Раз в такой позиции
+// закупки не было вовсе — это не "правка задним числом" уже посчитанной
+// суммы (см. комментарий у getCostMap: тот запрет — только чтобы НОВАЯ
+// закупка не переписала уже зафиксированную старую), а просто донаполнение
+// пустого поля, поэтому подставить туда текущую цену безопасно. Позиции,
+// где cost уже стоит (даже другой), не трогаем. Только мутирует в памяти —
+// вызывающий код сам делает db.write() следующим шагом.
+function backfillMissingCostInPlace(code, cost) {
+  if (!code || cost == null || !(Number(cost) >= 0)) return;
+  ['orders', 'sales'].forEach(coll => {
+    db.get(coll).value().forEach(rec => {
+      (rec.items || []).forEach(it => {
+        if (it.code === code && it.cost == null) it.cost = Number(cost);
+      });
+    });
+  });
+}
+
 // ===== PRODUCT ALIASES (псевдонимы и цены для сайта) =====
 app.get('/api/product-aliases', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'manager') {
@@ -2211,6 +2234,7 @@ app.post('/api/product-aliases', authMiddleware, (req, res) => {
   // и не перезаписать её следующим массовым подбором.
   if (nkt_code !== undefined) { patch.nkt_code = nkt_code; patch.nkt_status = nkt_code ? 'manual' : null; }
 
+  if (patch.cost != null) backfillMissingCostInPlace(code, patch.cost);
   const existing = db.get('productAliases').find({ code }).value();
   if (existing) {
     db.get('productAliases').find({ code }).assign(patch).write();
@@ -3219,6 +3243,7 @@ app.post('/api/stock-receipts', authMiddleware, (req, res) => {
         aliases.push(newAlias);
         aliasMap[code] = newAlias;
       }
+      backfillMissingCostInPlace(code, price);
     }
     const rec = stockByCode[code];
     if (rec) {
@@ -3263,6 +3288,174 @@ app.get('/api/stock-receipts', authMiddleware, (req, res) => {
     return res.status(403).json({ error: 'Нет доступа' });
   }
   res.json(db.get('stockReceipts').value());
+});
+
+// Правка позиций уже проведённого поступления — ошиблись количеством,
+// забыли или лишний раз внесли позицию, а заводить новый документ на
+// разницу неудобно и путает историю движения. Только admin, а не manager
+// (как и вся остальная правка задним числом уже подействовавших на остаток
+// документов — см. PUT /api/orders/:id/delivered-items): это не черновик,
+// а уже случившееся движение склада.
+app.put('/api/stock-receipts/:id', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Редактировать поступление может только администратор' });
+  }
+  const id = parseInt(req.params.id);
+  const receipt = db.get('stockReceipts').find({ id }).value();
+  if (!receipt) return res.status(404).json({ error: 'Поступление не найдено' });
+  if (receipt.voided) return res.status(400).json({ error: 'Поступление аннулировано, править нельзя' });
+  const { items, reason } = req.body || {};
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Нет позиций в приходе' });
+  }
+  if (!reason || !reason.trim()) return res.status(400).json({ error: 'Укажите причину правки' });
+
+  const productByCode = {};
+  db.get('products').value().forEach(p => { productByCode[p.code] = p; });
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+  const stock = db.get('stock').value();
+  const stockByCode = {};
+  stock.forEach(s => { stockByCode[s.code] = s; });
+
+  for (const it of items) {
+    if (!it || !it.code || !productByCode[it.code]) {
+      return res.status(400).json({ error: `Товар с кодом "${it && it.code}" не найден в каталоге` });
+    }
+    if (!(Number(it.qty) > 0)) {
+      return res.status(400).json({ error: `Некорректное количество для "${productByCode[it.code].name}"` });
+    }
+    if (it.price != null && !(Number(it.price) >= 0)) {
+      return res.status(400).json({ error: `Некорректная цена для "${productByCode[it.code].name}"` });
+    }
+  }
+
+  // Дельта по каждому коду между старым и новым составом документа:
+  // позицию убрали — delta = -было (откатить целиком), новую добавили —
+  // delta = +станет, количество поменяли — разница. Считаем и проверяем
+  // ВСЁ до единой правки остатка — тот же принцип "всё или ничего", что и
+  // при создании прихода/списания выше.
+  const oldByCode = {};
+  (receipt.items || []).forEach(it => { oldByCode[it.code] = (oldByCode[it.code] || 0) + Number(it.qty || 0); });
+  const newByCode = {};
+  items.forEach(it => { newByCode[it.code] = (newByCode[it.code] || 0) + Number(it.qty); });
+  const allCodes = new Set([...Object.keys(oldByCode), ...Object.keys(newByCode)]);
+  for (const code of allCodes) {
+    const delta = (newByCode[code] || 0) - (oldByCode[code] || 0);
+    if (delta >= 0) continue; // приход только увеличивается или не меняется — остатку это не грозит
+    const isWeightItem = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+    const rec = stockByCode[code];
+    const have = isWeightItem ? (rec && rec.weight_kg != null ? Number(rec.weight_kg) : 0) : (rec ? Number(rec.qty) || 0 : 0);
+    if (have + delta < -1e-9) {
+      const name = (productByCode[code] || {}).name || code;
+      return res.status(400).json({ error: `Нельзя уменьшить приход "${name}" — на складе уже меньше, чем нужно откатить (в наличии ${have}${isWeightItem ? ' кг' : ''})` });
+    }
+  }
+
+  const aliases = db.get('productAliases').value();
+  for (const code of allCodes) {
+    const delta = (newByCode[code] || 0) - (oldByCode[code] || 0);
+    if (Math.abs(delta) < 1e-9) continue;
+    const isWeightItem = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+    const rec = stockByCode[code];
+    if (rec) {
+      if (isWeightItem) {
+        const before = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
+        rec.weight_kg = round2(before + delta);
+        pushLedgerEntry(code, 'weight_kg', delta, rec.weight_kg, 'receipt_edit', { doc_number: receipt.doc_number || null, receipt_id: id });
+      } else {
+        const before = Number(rec.qty) || 0;
+        rec.qty = before + delta;
+        pushLedgerEntry(code, 'qty', delta, rec.qty, 'receipt_edit', { doc_number: receipt.doc_number || null, receipt_id: id });
+      }
+    } else if (delta > 0) {
+      const newRec = isWeightItem ? { code, qty: 0, weight_kg: delta } : { code, qty: delta };
+      stock.push(newRec);
+      stockByCode[code] = newRec;
+      pushLedgerEntry(code, isWeightItem ? 'weight_kg' : 'qty', delta, delta, 'receipt_edit', { doc_number: receipt.doc_number || null, receipt_id: id });
+    }
+  }
+
+  const newItems = items.map(it => {
+    const code = it.code;
+    const qty = Number(it.qty);
+    const price = it.price != null ? Number(it.price) : 0;
+    const isWeightItem = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+    if (price > 0) {
+      const aliasRec = aliasMap[code];
+      if (aliasRec) { aliasRec.cost = price; } else { const na = { code, cost: price }; aliases.push(na); aliasMap[code] = na; }
+      backfillMissingCostInPlace(code, price);
+    }
+    return { code, name: productByCode[code].name, qty, price, line_total: round2(qty * price), is_weight_item: isWeightItem };
+  });
+
+  const patch = {
+    items: newItems,
+    total: round2(newItems.reduce((s, it) => s + it.line_total, 0)),
+    edited_at: new Date().toISOString(),
+    edited_by_id: req.user.id,
+    edited_by_name: req.user.name,
+  };
+  const edits = Array.isArray(receipt.edits) ? receipt.edits.slice() : [];
+  edits.push({ at: patch.edited_at, by_id: req.user.id, by_name: req.user.name, reason: reason.trim(), before_items: receipt.items, before_total: receipt.total, after_items: newItems, after_total: patch.total });
+  patch.edits = edits;
+
+  db.get('stockReceipts').find({ id }).assign(patch).write();
+  res.json(db.get('stockReceipts').find({ id }).value());
+});
+
+// Аннулирование поступления целиком — "этого прихода вообще не должно
+// было быть" (ошиблись документом, задвоили). Только admin, требует
+// причину — тот же уровень, что у аннулирования заявки (PUT
+// /api/orders/:id/annul). Откатывает остаток по каждой позиции; если товар
+// уже успели продать/списать дальше и остатка не хватает — отказываем, а
+// не уводим склад в минус, админ сначала разбирается на месте.
+app.put('/api/stock-receipts/:id/annul', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Аннулировать поступление может только администратор' });
+  }
+  const id = parseInt(req.params.id);
+  const receipt = db.get('stockReceipts').find({ id }).value();
+  if (!receipt) return res.status(404).json({ error: 'Поступление не найдено' });
+  if (receipt.voided) return res.status(400).json({ error: 'Уже аннулировано' });
+  const { reason } = req.body || {};
+  if (!reason || !reason.trim()) return res.status(400).json({ error: 'Укажите причину аннулирования' });
+
+  const stock = db.get('stock').value();
+  const stockByCode = {};
+  stock.forEach(s => { stockByCode[s.code] = s; });
+
+  for (const it of receipt.items) {
+    const isWeightItem = !!it.is_weight_item;
+    const rec = stockByCode[it.code];
+    const have = isWeightItem ? (rec && rec.weight_kg != null ? Number(rec.weight_kg) : 0) : (rec ? Number(rec.qty) || 0 : 0);
+    if (have < Number(it.qty) - 1e-9) {
+      return res.status(400).json({ error: `Нельзя аннулировать: "${it.name}" уже частично продан/списан дальше (в наличии ${have}${isWeightItem ? ' кг' : ''}, нужно откатить ${it.qty})` });
+    }
+  }
+
+  receipt.items.forEach(it => {
+    const isWeightItem = !!it.is_weight_item;
+    const rec = stockByCode[it.code];
+    if (isWeightItem) {
+      const before = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
+      rec.weight_kg = round2(before - it.qty);
+      pushLedgerEntry(it.code, 'weight_kg', -it.qty, rec.weight_kg, 'receipt_void', { doc_number: receipt.doc_number || null, receipt_id: id });
+    } else {
+      const before = Number(rec.qty) || 0;
+      rec.qty = before - it.qty;
+      pushLedgerEntry(it.code, 'qty', -it.qty, rec.qty, 'receipt_void', { doc_number: receipt.doc_number || null, receipt_id: id });
+    }
+  });
+
+  db.get('stockReceipts').find({ id }).assign({
+    voided: true,
+    voided_at: new Date().toISOString(),
+    voided_by_id: req.user.id,
+    voided_by_name: req.user.name,
+    void_reason: reason.trim(),
+  }).write();
+  res.json(db.get('stockReceipts').find({ id }).value());
 });
 
 // ===== СПИСАНИЕ ТОВАРА (без 1С) =====
@@ -3364,6 +3557,147 @@ app.get('/api/stock-write-offs', authMiddleware, (req, res) => {
   res.json(db.get('stockWriteOffs').value());
 });
 
+// Правка позиций уже проведённого списания — зеркало правки поступления
+// выше, но в другую сторону: увеличение количества по позиции СПИСЫВАЕТ ЕЩЁ
+// (нужно хватает ли физически), уменьшение или удаление позиции ВОЗВРАЩАЕТ
+// остаток обратно (всегда безопасно). Только admin.
+app.put('/api/stock-write-offs/:id', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Редактировать списание может только администратор' });
+  }
+  const id = parseInt(req.params.id);
+  const writeOff = db.get('stockWriteOffs').find({ id }).value();
+  if (!writeOff) return res.status(404).json({ error: 'Списание не найдено' });
+  if (writeOff.voided) return res.status(400).json({ error: 'Списание аннулировано, править нельзя' });
+  const { items, reason } = req.body || {};
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Нет позиций в списании' });
+  }
+  if (!reason || !reason.trim()) return res.status(400).json({ error: 'Укажите причину правки' });
+
+  const productByCode = {};
+  db.get('products').value().forEach(p => { productByCode[p.code] = p; });
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+  const stock = db.get('stock').value();
+  const stockByCode = {};
+  stock.forEach(s => { stockByCode[s.code] = s; });
+
+  for (const it of items) {
+    if (!it || !it.code || !productByCode[it.code]) {
+      return res.status(400).json({ error: `Товар с кодом "${it && it.code}" не найден в каталоге` });
+    }
+    if (!(Number(it.qty) > 0)) {
+      return res.status(400).json({ error: `Некорректное количество для "${productByCode[it.code].name}"` });
+    }
+    if (it.price != null && !(Number(it.price) >= 0)) {
+      return res.status(400).json({ error: `Некорректная цена для "${productByCode[it.code].name}"` });
+    }
+  }
+
+  const oldByCode = {};
+  (writeOff.items || []).forEach(it => { oldByCode[it.code] = (oldByCode[it.code] || 0) + Number(it.qty || 0); });
+  const newByCode = {};
+  items.forEach(it => { newByCode[it.code] = (newByCode[it.code] || 0) + Number(it.qty); });
+  const allCodes = new Set([...Object.keys(oldByCode), ...Object.keys(newByCode)]);
+  for (const code of allCodes) {
+    const delta = (newByCode[code] || 0) - (oldByCode[code] || 0);
+    if (delta <= 0) continue; // уменьшение/удаление позиции — возврат остатка, всегда безопасно
+    const isWeightItem = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+    const rec = stockByCode[code];
+    const have = isWeightItem ? (rec && rec.weight_kg != null ? Number(rec.weight_kg) : 0) : (rec ? Number(rec.qty) || 0 : 0);
+    if (delta > have + 1e-9) {
+      const name = (productByCode[code] || {}).name || code;
+      return res.status(400).json({ error: `Нельзя увеличить списание "${name}" — на складе не хватает (в наличии ${have}${isWeightItem ? ' кг' : ''}, нужно дополнительно списать ${delta})` });
+    }
+  }
+
+  for (const code of allCodes) {
+    const delta = (newByCode[code] || 0) - (oldByCode[code] || 0);
+    if (Math.abs(delta) < 1e-9) continue;
+    const isWeightItem = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+    const rec = stockByCode[code];
+    if (isWeightItem) {
+      const before = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
+      rec.weight_kg = round2(before - delta);
+      pushLedgerEntry(code, 'weight_kg', -delta, rec.weight_kg, 'write_off_edit', { reason: writeOff.reason, doc_number: writeOff.doc_number || null, write_off_id: id });
+    } else {
+      const before = Number(rec.qty) || 0;
+      rec.qty = before - delta;
+      pushLedgerEntry(code, 'qty', -delta, rec.qty, 'write_off_edit', { reason: writeOff.reason, doc_number: writeOff.doc_number || null, write_off_id: id });
+    }
+  }
+
+  const newItems = items.map(it => {
+    const code = it.code;
+    const qty = Number(it.qty);
+    const price = it.price != null ? Number(it.price) : 0;
+    const isWeightItem = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+    return { code, name: productByCode[code].name, qty, price, line_total: round2(qty * price), is_weight_item: isWeightItem };
+  });
+
+  const patch = {
+    items: newItems,
+    total: round2(newItems.reduce((s, it) => s + it.line_total, 0)),
+    edited_at: new Date().toISOString(),
+    edited_by_id: req.user.id,
+    edited_by_name: req.user.name,
+  };
+  const edits = Array.isArray(writeOff.edits) ? writeOff.edits.slice() : [];
+  edits.push({ at: patch.edited_at, by_id: req.user.id, by_name: req.user.name, reason: reason.trim(), before_items: writeOff.items, before_total: writeOff.total, after_items: newItems, after_total: patch.total });
+  patch.edits = edits;
+
+  db.get('stockWriteOffs').find({ id }).assign(patch).write();
+  res.json(db.get('stockWriteOffs').find({ id }).value());
+});
+
+// Аннулирование списания целиком — товар уходил СО склада, поэтому откат
+// просто возвращает его обратно, это всегда безопасно (в отличие от отката
+// поступления выше) — проверять хватает ли остатка не нужно. Только admin.
+app.put('/api/stock-write-offs/:id/annul', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Аннулировать списание может только администратор' });
+  }
+  const id = parseInt(req.params.id);
+  const writeOff = db.get('stockWriteOffs').find({ id }).value();
+  if (!writeOff) return res.status(404).json({ error: 'Списание не найдено' });
+  if (writeOff.voided) return res.status(400).json({ error: 'Уже аннулировано' });
+  const { reason } = req.body || {};
+  if (!reason || !reason.trim()) return res.status(400).json({ error: 'Укажите причину аннулирования' });
+
+  const stock = db.get('stock').value();
+  const stockByCode = {};
+  stock.forEach(s => { stockByCode[s.code] = s; });
+
+  writeOff.items.forEach(it => {
+    const isWeightItem = !!it.is_weight_item;
+    let rec = stockByCode[it.code];
+    if (!rec) {
+      rec = isWeightItem ? { code: it.code, qty: 0, weight_kg: 0 } : { code: it.code, qty: 0 };
+      stock.push(rec);
+      stockByCode[it.code] = rec;
+    }
+    if (isWeightItem) {
+      const before = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
+      rec.weight_kg = round2(before + it.qty);
+      pushLedgerEntry(it.code, 'weight_kg', it.qty, rec.weight_kg, 'write_off_void', { reason: writeOff.reason, doc_number: writeOff.doc_number || null, write_off_id: id });
+    } else {
+      const before = Number(rec.qty) || 0;
+      rec.qty = before + it.qty;
+      pushLedgerEntry(it.code, 'qty', it.qty, rec.qty, 'write_off_void', { reason: writeOff.reason, doc_number: writeOff.doc_number || null, write_off_id: id });
+    }
+  });
+
+  db.get('stockWriteOffs').find({ id }).assign({
+    voided: true,
+    voided_at: new Date().toISOString(),
+    voided_by_id: req.user.id,
+    voided_by_name: req.user.name,
+    void_reason: reason.trim(),
+  }).write();
+  res.json(db.get('stockWriteOffs').find({ id }).value());
+});
+
 // История движения по товару — по просьбе владельца: "был остаток, торговый
 // продал минус, остаток после заявки" одним взглядом, без ручного разбора
 // db.json. Ничего нового не пишем в базу — заявки уже хранят всё нужное
@@ -3427,12 +3761,20 @@ app.get('/api/products/:code/ledger', authMiddleware, (req, res) => {
     return_rollback: 'Отмена возврата',
     removed: 'Товар удалён из номенклатуры 1С',
     annulment: 'Аннулирование заявки',
+    receipt: 'Поступление',
+    receipt_edit: 'Правка поступления',
+    receipt_void: 'Аннулирование поступления',
+    write_off: 'Списание',
+    write_off_edit: 'Правка списания',
+    write_off_void: 'Аннулирование списания',
   };
   const labelFor = (e) => {
     const base = LABELS[e.type] || e.type;
     if (e.order_id != null) return `${base} №${e.order_id}`;
     if (e.sale_id != null) return `${base} №${e.sale_id}`;
     if (e.return_id != null) return `${base} №${e.return_id}`;
+    if (e.receipt_id != null) return `${base} №${e.receipt_id}`;
+    if (e.write_off_id != null) return `${base} №${e.write_off_id}`;
     return base;
   };
 
