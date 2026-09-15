@@ -422,8 +422,10 @@ app.post('/api/orders', authMiddleware, (req, res) => {
   }
 
   // Цену может свободно назначать только admin — торговый/менеджер
-  // ограничен ценами из каталога (см. enforceCatalogPrice).
+  // ограничен ценами из каталога (см. enforceCatalogPrice). Комиссию (бонус
+  // сотруднику) из запроса не берём вообще, ни для кого — только каталог.
   finalItems = enforceCatalogPrice(finalItems, req.user.role, aliasMap);
+  finalItems = enforceCatalogCommission(finalItems, aliasMap);
 
   // cost — себестоимость на момент оформления заявки, для обоих источников
   // (торгпред и магазин), см. getCostMap. Пишется в саму заявку, чтобы
@@ -629,7 +631,9 @@ app.put('/api/orders/:id/items', authMiddleware, (req, res) => {
 
   // Цену может свободно назначать только admin — торговому/менеджеру, как и
   // при создании заявки (см. POST /api/orders), цена ограничена каталогом.
+  // Комиссию из запроса не берём вообще, ни для кого — только каталог.
   finalItems = enforceCatalogPrice(finalItems, req.user.role, aliasMap);
+  finalItems = enforceCatalogCommission(finalItems, aliasMap);
 
   // Тот же дубль-код, что и при создании (см. POST /api/orders) — тут его
   // так же легко внести при правке состава.
@@ -3835,6 +3839,20 @@ function enforceCatalogPrice(items, role, aliasMap) {
   });
 }
 
+// Комиссия — прямая ставка бонуса сотруднику за единицу товара (вкладка
+// "Товары", rec.commission, по умолчанию 4 ₸, см. getCommissionMap), а не
+// цена со своими VIP-исключениями — произвольно задавать её через запрос
+// нельзя никому, включая admin (для этого нет и не должно быть отдельного
+// эндпоинта правки, в отличие от PUT /api/orders/:id/prices).
+function enforceCatalogCommission(items, aliasMap) {
+  return items.map(it => {
+    if (!it.code) return it;
+    const rec = aliasMap[it.code];
+    const commission = rec && rec.commission != null ? rec.commission : 4;
+    return { ...it, commission: Number(commission) };
+  });
+}
+
 function getCostMap() {
   const products = db.get('products').value();
   const aliases = db.get('productAliases').value();
@@ -3950,10 +3968,13 @@ app.post('/api/returns', authMiddleware, (req, res) => {
 
   const costMap = getCostMap();
   const commissionMap = getCommissionMap();
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+  const productPriceMap = {};
+  db.get('products').value().forEach(p => { productPriceMap[p.code] = p.price; });
   const cleanItems = [];
   for (const it of (items || [])) {
     const qty = Number(it.qty) || 0;
-    const price = Number(it.price) || 0;
     const name = (it.name || '').trim();
     if (!name || qty <= 0) continue;
     let orderItem = null;
@@ -3963,6 +3984,19 @@ app.post('/api/returns', authMiddleware, (req, res) => {
       const already = alreadyReturned[it.code] || 0;
       if (qty > delivered - already) {
         return res.status(400).json({ error: `"${name}": нельзя вернуть больше, чем доставлено (доставлено ${delivered}, уже возвращено ${already})` });
+      }
+    }
+    // Цену может свободно назначать только admin — водителю/менеджеру, как и
+    // при оформлении заявки (см. enforceCatalogPrice), цена возврата не
+    // берётся из запроса: по заявке — это цена самой заявки (то, что реально
+    // было продано), без заявки — цена из каталога.
+    let price = Number(it.price) || 0;
+    if (req.user.role !== 'admin') {
+      if (orderItem) {
+        price = Number(orderItem.price) || 0;
+      } else {
+        const allowed = getAllowedPrices(it.code, aliasMap, productPriceMap);
+        if (allowed.length > 0 && !allowed.includes(price)) price = allowed[0];
       }
     }
     cleanItems.push({
@@ -4356,11 +4390,22 @@ app.post('/api/sales', authMiddleware, (req, res) => {
 
   const availableMap = computeAvailableStock();
   const costMap = getCostMap();
+  // Цену позиции при продаже с кассы может свободно назначать только admin —
+  // как и при оформлении заявки (см. enforceCatalogPrice), кассиру/менеджеру
+  // цена ограничена каталогом (price1/price2/price3 или базовая цена товара).
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+  const productPriceMap = {};
+  db.get('products').value().forEach(p => { productPriceMap[p.code] = p.price; });
   const cleanItems = [];
   for (const it of items) {
     const qty = Number(it.qty) || 0;
-    const price = Number(it.price) || 0;
+    let price = Number(it.price) || 0;
     if (!it.code || qty <= 0) continue;
+    if (req.user.role !== 'admin') {
+      const allowed = getAllowedPrices(it.code, aliasMap, productPriceMap);
+      if (allowed.length > 0 && !allowed.includes(price)) price = allowed[0];
+    }
     const avail = availableMap[it.code] != null ? availableMap[it.code] : 0;
     if (qty > avail) {
       return res.status(400).json({ error: `Недостаточно остатка: "${it.name}" (доступно ${avail})` });
