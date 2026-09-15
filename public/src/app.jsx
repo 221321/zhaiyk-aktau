@@ -7158,6 +7158,12 @@ function AdminCabinet({ user, onLogout, desktop }) {
   useEffect(() => { loadStockReceipts(); }, []);
 
   const todayStr2 = new Date().toISOString().slice(0,10);
+  // "Поступление" и "Списание" объединены в одну вкладку — общий поиск
+  // (по номеру/накладной/поставщику) и раскрытие отдельной карточки по
+  // клику, вместо всегда развёрнутого списка (см. tab==="stockMovements").
+  const [stockMovementSearch, setStockMovementSearch] = useState("");
+  const [expandedMovements, setExpandedMovements] = useState({});
+  const toggleMovementExpanded = (key) => setExpandedMovements(m => ({...m, [key]: !m[key]}));
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receiptDocNumber, setReceiptDocNumber] = useState("");
   const [receiptSupplier, setReceiptSupplier] = useState("");
@@ -7901,9 +7907,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const TABS = readOnlyOp
     ? [["all","📋","Заявки"],["cashbox","💵","Касса"]]
     : user.role==="manager"
-      ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["stockReceipts","🚚","Поступление"],["stockWriteOffs","📤","Списание"],["clientsWeb","🏢","Контрагенты"]]
-      : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["stockReceipts","🚚","Поступление"],["stockWriteOffs","📤","Списание"],["clientsWeb","🏢","Контрагенты"],["employees","👤","Сотрудники"]];
-  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",stockReceipts:"Поступление",stockWriteOffs:"Списание",clientsWeb:"Контрагенты",employees:"Сотрудники"};
+      ? [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["stockMovements","🚚","Приход/Списание"],["clientsWeb","🏢","Контрагенты"]]
+      : [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["aliases","🏷","Товары"],["stock","📦","Остатки"],["stockMovements","🚚","Приход/Списание"],["clientsWeb","🏢","Контрагенты"],["employees","👤","Сотрудники"]];
+  const TAB_TITLES={all:"Заявки",report:"Отчёт",cashbox:"Касса",aliases:"Псевдонимы товаров",stock:"Остатки",catalog:"Каталог",nkt:"Коды НКТ",stockMovements:"Поступление/Списание",clientsWeb:"Контрагенты",employees:"Сотрудники"};
 
   const dateRangeInputs = (
     <div style={{marginBottom:16,maxWidth:420}}>
@@ -8814,25 +8820,82 @@ function AdminCabinet({ user, onLogout, desktop }) {
           </div>
         )}
       </>}
-      {tab==="stockReceipts"&&<>
-        {!desktop&&<p style={S.sectionTitle}>Поступление</p>}
+      {tab==="stockMovements"&&<>
+        {!desktop&&<p style={S.sectionTitle}>Поступление и списание</p>}
         <div style={{maxWidth: desktop?680:"none"}}>
           <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
-            Приход по накладной от поставщика — сразу прибавляется к остатку, торговые видят обновлённый остаток сразу в обычном каталоге.
+            Поступление — приход по накладной от поставщика, прибавляется к остатку. Списание — возврат поставщику или порча/брак, уменьшает остаток. Оба сразу видны в обычном каталоге.
           </p>
-          <button style={{...S.btnPrimary,marginBottom:16}} onClick={openReceiptModal}>+ Создать поступление</button>
+          <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+            <button style={{...S.btnPrimary,flex:"1 1 auto",marginTop:0}} onClick={openReceiptModal}>+ Создать поступление</button>
+            <button style={{...S.btnOutline,flex:"1 1 auto",marginTop:0}} onClick={openWriteOffModal}>+ Создать списание</button>
+          </div>
 
-          <p style={{fontSize:14,fontWeight:700,color:C.navy,margin:"0 0 8px"}}>История приходов</p>
-          {stockReceipts.length===0
-            ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>Приходов пока не было</div>
-            : stockReceipts.slice().reverse().map(r=>(
-              <div key={r.id} style={{...S.card,padding:10,marginBottom:6}}>
-                <p style={S.cardTitle}>{r.doc_number?`Накладная № ${r.doc_number}`:'Без номера накладной'}{r.supplier?` · ${r.supplier}`:''}</p>
-                <p style={S.cardSub}>{r.date} · {r.items.map(it=>`${it.name} +${it.qty}${it.is_weight_item?' кг':''}${it.price?` × ${it.price.toLocaleString()} ₸ = ${it.line_total.toLocaleString()} ₸`:''}`).join(', ')}</p>
-                {r.total>0&&<p style={{...S.cardSub,fontWeight:700,color:C.navy}}>Итого: {r.total.toLocaleString()} ₸</p>}
-                <p style={{...S.cardSub,color:C.textFaint}}>Занёс: {r.created_by_name}, {new Date(r.created_at).toLocaleString('ru-RU')}</p>
-              </div>
-            ))}
+          <input
+            type="search"
+            style={{...S.input,marginBottom:16}}
+            placeholder="Поиск по номеру, накладной, поставщику..."
+            value={stockMovementSearch}
+            onChange={e=>setStockMovementSearch(e.target.value)}
+            autoComplete="off"
+            name="stock-movements-search"
+          />
+
+          {(() => {
+            const q = stockMovementSearch.trim().toLowerCase();
+            const matchesQuery = (m) => !q || String(m.id).includes(q) || (m.doc_number||'').toLowerCase().includes(q) || (m.supplier||'').toLowerCase().includes(q);
+            const filteredReceipts = stockReceipts.filter(matchesQuery).slice().reverse();
+            const filteredWriteOffs = stockWriteOffs.filter(matchesQuery).slice().reverse();
+
+            const renderItemsLine = (items, sign) => items.map(it=>`${it.name} ${sign}${it.qty}${it.is_weight_item?' кг':''}${it.price?` × ${it.price.toLocaleString()} ₸ = ${it.line_total.toLocaleString()} ₸`:''}`).join(', ');
+
+            return <>
+              <p style={{fontSize:14,fontWeight:700,color:C.navy,margin:"0 0 8px"}}>История поступлений ({filteredReceipts.length})</p>
+              {filteredReceipts.length===0
+                ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15,marginBottom:16}}>{q?"Ничего не найдено":"Приходов пока не было"}</div>
+                : filteredReceipts.map(r=>{
+                  const key = `r-${r.id}`;
+                  const open = !!expandedMovements[key];
+                  return (
+                    <div key={key} style={{...S.card,padding:10,marginBottom:6,cursor:"pointer"}} onClick={()=>toggleMovementExpanded(key)}>
+                      <div style={S.row}>
+                        <p style={S.cardTitle}>🚚 Приход № {r.id}{r.supplier?` · ${r.supplier}`:''}</p>
+                        <span style={{fontSize:13,color:C.textFaint}}>{open?"▲":"▼"}</span>
+                      </div>
+                      <p style={S.cardSub}>{r.date}{r.total>0?` · Итого: ${r.total.toLocaleString()} ₸`:''}</p>
+                      {open&&<>
+                        {r.doc_number&&<p style={S.cardSub}>Накладная № {r.doc_number}</p>}
+                        <p style={S.cardSub}>{renderItemsLine(r.items, '+')}</p>
+                        <p style={{...S.cardSub,color:C.textFaint}}>Занёс: {r.created_by_name}, {new Date(r.created_at).toLocaleString('ru-RU')}</p>
+                      </>}
+                    </div>
+                  );
+                })}
+
+              <p style={{fontSize:14,fontWeight:700,color:C.navy,margin:"16px 0 8px"}}>История списаний ({filteredWriteOffs.length})</p>
+              {filteredWriteOffs.length===0
+                ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>{q?"Ничего не найдено":"Списаний пока не было"}</div>
+                : filteredWriteOffs.map(w=>{
+                  const key = `w-${w.id}`;
+                  const open = !!expandedMovements[key];
+                  return (
+                    <div key={key} style={{...S.card,padding:10,marginBottom:6,cursor:"pointer"}} onClick={()=>toggleMovementExpanded(key)}>
+                      <div style={S.row}>
+                        <p style={S.cardTitle}>📤 Списание № {w.id} · {WRITE_OFF_REASONS.find(([v])=>v===w.reason)?.[1]||w.reason}{w.supplier?` · ${w.supplier}`:''}</p>
+                        <span style={{fontSize:13,color:C.textFaint}}>{open?"▲":"▼"}</span>
+                      </div>
+                      <p style={S.cardSub}>{w.date}{w.total>0?` · Итого: ${w.total.toLocaleString()} ₸`:''}</p>
+                      {open&&<>
+                        {w.doc_number&&<p style={S.cardSub}>№ документа: {w.doc_number}</p>}
+                        <p style={S.cardSub}>{renderItemsLine(w.items, '-')}</p>
+                        {w.note&&<p style={S.cardSub}>{w.note}</p>}
+                        <p style={{...S.cardSub,color:C.textFaint}}>Занёс: {w.created_by_name}, {new Date(w.created_at).toLocaleString('ru-RU')}</p>
+                      </>}
+                    </div>
+                  );
+                })}
+            </>;
+          })()}
         </div>
 
         {showReceiptModal&&(
@@ -8921,28 +8984,6 @@ function AdminCabinet({ user, onLogout, desktop }) {
             </div>
           </div>
         )}
-      </>}
-      {tab==="stockWriteOffs"&&<>
-        {!desktop&&<p style={S.sectionTitle}>Списание</p>}
-        <div style={{maxWidth: desktop?680:"none"}}>
-          <p style={{fontSize:14,color:C.textSub,marginTop:desktop?0:-8,marginBottom:12}}>
-            Возврат поставщику или порча/брак на складе — уменьшает остаток. Порча, обнаруженная у клиента после доставки, оформляется через "Возвраты", не здесь.
-          </p>
-          <button style={{...S.btnPrimary,marginBottom:16}} onClick={openWriteOffModal}>+ Создать списание</button>
-
-          <p style={{fontSize:14,fontWeight:700,color:C.navy,margin:"0 0 8px"}}>История списаний</p>
-          {stockWriteOffs.length===0
-            ? <div style={{textAlign:"center",padding:"16px 0",color:C.textFaint,fontSize:15}}>Списаний пока не было</div>
-            : stockWriteOffs.slice().reverse().map(w=>(
-              <div key={w.id} style={{...S.card,padding:10,marginBottom:6}}>
-                <p style={S.cardTitle}>{WRITE_OFF_REASONS.find(([v])=>v===w.reason)?.[1]||w.reason}{w.doc_number?` · № ${w.doc_number}`:''}{w.supplier?` · ${w.supplier}`:''}</p>
-                <p style={S.cardSub}>{w.date} · {w.items.map(it=>`${it.name} -${it.qty}${it.is_weight_item?' кг':''}${it.price?` × ${it.price.toLocaleString()} ₸ = ${it.line_total.toLocaleString()} ₸`:''}`).join(', ')}</p>
-                {w.total>0&&<p style={{...S.cardSub,fontWeight:700,color:C.red}}>Итого: {w.total.toLocaleString()} ₸</p>}
-                {w.note&&<p style={S.cardSub}>{w.note}</p>}
-                <p style={{...S.cardSub,color:C.textFaint}}>Занёс: {w.created_by_name}, {new Date(w.created_at).toLocaleString('ru-RU')}</p>
-              </div>
-            ))}
-        </div>
 
         {showWriteOffModal&&(
           <div style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.45)",zIndex:200,overflowY:"auto"}} onClick={e=>{ if(e.target===e.currentTarget) setShowWriteOffModal(false); }}>
@@ -9390,7 +9431,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
         }
         const mobilePrimaryTabs = [["all","📋","Заявки"],["report","📊","Отчёт"],["cashbox","💵","Касса"],["stock","📦","Остатки"]];
         const mobileMoreTabs = [
-          ["aliases","🏷","Товары"],["stockReceipts","🚚","Поступление"],["stockWriteOffs","📤","Списание"],
+          ["aliases","🏷","Товары"],["stockMovements","🚚","Приход/Списание"],
           ["clientsWeb","🏢","Контрагенты"],
           ...(user.role==="admin"?[["employees","👤","Сотрудники"]]:[]),
         ];
