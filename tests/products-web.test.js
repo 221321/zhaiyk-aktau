@@ -1,10 +1,11 @@
 // Номенклатура, созданная на сайте, без 1С (см. POST/GET /api/products-web).
 // Ключевой регресс, как и у clients-web: /api/products/sync (полная
 // замена коллекции `products` из 1С) не трогает `productsWeb` — иначе
-// сайтовый товар терялся бы при ближайшем синке. Сайтовый товар
-// НАМЕРЕННО не появляется в GET /api/products/списке заказа — своего
-// остатка у него нет и быть не может (остаток ведёт только 1С через
-// /api/stock/sync), это отдельная задача на будущее.
+// сайтовый товар терялся бы при ближайшем синке. Сайтовый товар слит в
+// общий каталог (GET /api/products) тем же способом, что и сайтовые
+// контрагенты — сразу доступен для заказа/прихода/списания, но с
+// остатком 0, пока для него не оформят "Поступление" (см.
+// stock-receipts.test.js).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { startServer, login, apiCall, SYNC_SECRET } = require('./helpers');
@@ -66,6 +67,15 @@ test('обязательные поля: без наименования/ед. �
   );
 });
 
+test('единица измерения — только из фиксированного списка, свободный текст отклоняется', async () => {
+  await assert.rejects(
+    apiCall(server.baseUrl, 'POST', '/api/products-web', { name: 'Тест единицы', unit: 'коробка' }, adminToken),
+    (err) => err.status === 400
+  );
+  const rec = await apiCall(server.baseUrl, 'POST', '/api/products-web', { name: 'Тест единицы 2', unit: 'уп' }, adminToken);
+  assert.equal(rec.unit, 'уп');
+});
+
 test('GET /api/products-web возвращает все созданные записи', async () => {
   const list = await apiCall(server.baseUrl, 'GET', '/api/products-web', undefined, managerToken);
   assert.ok(Array.isArray(list));
@@ -73,7 +83,7 @@ test('GET /api/products-web возвращает все созданные за�
   assert.ok(list.some(p => p.code === 'WEBP-000001'));
 });
 
-test('/api/products/sync (полная замена из 1С) не стирает productsWeb, и сайтовый товар не появляется в GET /api/products', async () => {
+test('/api/products/sync (полная замена из 1С) не стирает productsWeb, и сайтовый товар слит в GET /api/products с остатком 0', async () => {
   await apiCall(server.baseUrl, 'POST', '/api/products/sync', {
     secret: SYNC_SECRET,
     items: [{ code: 'P900', name: 'Товар из 1С', unit: 'кор', price: 500 }],
@@ -83,5 +93,15 @@ test('/api/products/sync (полная замена из 1С) не стирае�
 
   const products = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
   assert.ok(products.some(p => p.code === 'P900'), '/api/products/sync продолжает работать как раньше');
-  assert.ok(!products.some(p => p.code === 'WEBP-000001'), 'сайтовый товар намеренно не в списке заказа — своего остатка у него нет');
+  const webProduct = products.find(p => p.code === 'WEBP-000001');
+  assert.ok(webProduct, 'сайтовый товар теперь виден в общем каталоге заказа, как и контрагенты');
+  assert.equal(webProduct.name, 'Мука в/с 25кг');
+  assert.equal(webProduct.stock, 0, 'остатка ещё нет — товар ни разу не приходовали');
+});
+
+test('поступление по сайтовому товару поднимает его остаток в общем каталоге', async () => {
+  const rec = await apiCall(server.baseUrl, 'POST', '/api/products-web', { name: 'Товар для прихода', unit: 'кор' }, adminToken);
+  await apiCall(server.baseUrl, 'POST', '/api/stock-receipts', { items: [{ code: rec.code, qty: 12 }] }, adminToken);
+  const products = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.equal(products.find(p => p.code === rec.code).stock, 12);
 });

@@ -1930,6 +1930,76 @@ app.post('/api/employees/sync', (req, res) => {
 // ===== PRODUCTS (Номенклатура из 1С) =====
 db.defaults({ products: [], productAliases: [] }).write();
 
+// Строит одну строку каталога из "сырой" записи товара (из 1С или с
+// сайта) + оверлеев (productAliases) и остатка — общая логика для 1С-
+// номенклатуры и для товаров, заведённых на сайте (см. GET /api/products
+// ниже), чтобы не дублировать 25 строк дважды.
+function buildProductRow(p, { aliasMap, stockMap, availableMap, breakdown }) {
+  const rec = aliasMap[p.code];
+  const stockRec = stockMap[p.code];
+  const hasAlias = !!(rec && rec.alias && rec.alias.trim());
+  // categoryCleared — раздел явно очищен на сайте (например, раздел
+  // удалили в "Управлении разделами"), даже если у товара есть непустая
+  // группа в 1С. Без этого флага rec.category==='' неотличимо от "правки
+  // не было", и очистка молча откатывалась бы обратно на p.group.
+  const hasCategory = !!(rec && (rec.categoryCleared || (rec.category && rec.category.trim())));
+  return {
+    ...p,
+    display_name: hasAlias ? rec.alias : p.name,
+    has_alias: hasAlias,
+    // group — раздел в каталоге. По умолчанию из 1С, но менеджер может
+    // переопределить на сайте (rec.category) — например, у 1С группа
+    // называется иначе или её вообще нет, а на сайте нужен свой раздел.
+    group: hasCategory ? (rec.category || '') : (p.group || ''),
+    barcode: rec && rec.barcode ? rec.barcode : (p.barcode || ''),
+    // Закупочная цена — из 1С (p.cost, когда обмен начнёт её отдавать),
+    // либо вручную на вкладке "Товары" (rec.cost перекрывает p.cost).
+    // Нужна только для расчёта прибыли в отчётах — на резерв/остаток
+    // не влияет.
+    cost: rec && rec.cost != null ? rec.cost : (p.cost != null ? p.cost : null),
+    price1: rec && rec.price1 != null ? rec.price1 : null,
+    price2: rec && rec.price2 != null ? rec.price2 : null,
+    price3: rec && rec.price3 != null ? rec.price3 : null,
+    // Комиссия — фиксированная сумма в ₸ за единицу товара сотруднику
+    // (см. commissionTotal в POST /api/orders и bonus в отчёте
+    // AdminCabinet), не % от суммы строки. По умолчанию 4 ₸, пока
+    // менеджер не переопределит в карточке товара на вкладке "Товары".
+    commission: rec && rec.commission != null ? rec.commission : 4,
+    // Весовой товар — цена за кг, но заказывают коробками/штуками, точный
+    // вес узнаётся только на складе (см. POST /api/orders/weights).
+    // Помечает менеджер вручную на вкладке "Товары".
+    priced_by_weight: !!(rec && rec.priced_by_weight),
+    // Средний вес одного короба, кг — вписывает менеджер вручную на
+    // вкладке "Товары" для развесного товара (вес каждый раз разный,
+    // 1С короба вообще не считает, см. /api/stock/sync). Используется
+    // только чтобы прикинуть кол-во коробов от актуального кг-остатка
+    // для персонала (см. stockAmount/stockLabel на фронте) — не влияет
+    // ни на резерв, ни на цену.
+    avg_box_weight: rec && rec.avg_box_weight != null ? rec.avg_box_weight : null,
+    stock: availableMap[p.code] != null ? availableMap[p.code] : 0,
+    // Разбивка для отчёта "Остатки" (см. StockPanel на фронте) — сколько
+    // физически прислала 1С и сколько из этого уже разобрано текущими
+    // заявками (new/in_transit), чтобы "доступно" (stock/stock_weight_kg
+    // выше) не выглядело немой цифрой без объяснения, откуда расхождение.
+    stock_raw: breakdown.rawQty[p.code] != null ? breakdown.rawQty[p.code] : 0,
+    stock_reserved: breakdown.reservedQty[p.code] || 0,
+    // Единица измерения и вес остатка — правит зав. склад вручную на
+    // экране "Остатки" (см. PUT /api/stock/:code), 1С шлёт только qty.
+    // Нужно, когда товар физически весовой, а 1С отдаёт его коробками/
+    // штуками — склад фиксирует, сколько реально килограммов в остатке.
+    stock_unit: stockRec && stockRec.unit ? stockRec.unit : (p.unit || null),
+    stock_weight_kg: stockRec && stockRec.weight_kg != null ? stockRec.weight_kg : null,
+    stock_weight_kg_reserved: breakdown.reservedKg[p.code] || 0,
+    photo: rec && rec.photo ? rec.photo : null,
+    // Код НКТ (NTIN) — подбирается по штрихкоду/названию через nct.gov.kz
+    // (см. /api/nkt/*), либо вводится вручную. nkt_status: 'matched'
+    // (найден автоматически), 'manual' (вписан руками), 'not_found'
+    // (не нашли по штрихкоду) — используется в админке для сортировки/фильтра.
+    nkt_code: rec && rec.nkt_code ? rec.nkt_code : '',
+    nkt_status: rec && rec.nkt_status ? rec.nkt_status : null,
+  };
+}
+
 app.get('/api/products', (req, res) => {
   const products = db.get('products').value();
   const aliases = db.get('productAliases').value();
@@ -1939,73 +2009,23 @@ app.get('/api/products', (req, res) => {
   aliases.forEach(a => { aliasMap[a.code] = a; });
   const stockMap = {};
   db.get('stock').value().forEach(s => { stockMap[s.code] = s; });
+  const ctx = { aliasMap, stockMap, availableMap, breakdown };
 
-  const result = products.map(p => {
-    const rec = aliasMap[p.code];
-    const stockRec = stockMap[p.code];
-    const hasAlias = !!(rec && rec.alias && rec.alias.trim());
-    // categoryCleared — раздел явно очищен на сайте (например, раздел
-    // удалили в "Управлении разделами"), даже если у товара есть непустая
-    // группа в 1С. Без этого флага rec.category==='' неотличимо от "правки
-    // не было", и очистка молча откатывалась бы обратно на p.group.
-    const hasCategory = !!(rec && (rec.categoryCleared || (rec.category && rec.category.trim())));
-    return {
-      ...p,
-      display_name: hasAlias ? rec.alias : p.name,
-      has_alias: hasAlias,
-      // group — раздел в каталоге. По умолчанию из 1С, но менеджер может
-      // переопределить на сайте (rec.category) — например, у 1С группа
-      // называется иначе или её вообще нет, а на сайте нужен свой раздел.
-      group: hasCategory ? (rec.category || '') : (p.group || ''),
-      barcode: rec && rec.barcode ? rec.barcode : (p.barcode || ''),
-      // Закупочная цена — из 1С (p.cost, когда обмен начнёт её отдавать),
-      // либо вручную на вкладке "Товары" (rec.cost перекрывает p.cost).
-      // Нужна только для расчёта прибыли в отчётах — на резерв/остаток
-      // не влияет.
-      cost: rec && rec.cost != null ? rec.cost : (p.cost != null ? p.cost : null),
-      price1: rec && rec.price1 != null ? rec.price1 : null,
-      price2: rec && rec.price2 != null ? rec.price2 : null,
-      price3: rec && rec.price3 != null ? rec.price3 : null,
-      // Комиссия — фиксированная сумма в ₸ за единицу товара сотруднику
-      // (см. commissionTotal в POST /api/orders и bonus в отчёте
-      // AdminCabinet), не % от суммы строки. По умолчанию 4 ₸, пока
-      // менеджер не переопределит в карточке товара на вкладке "Товары".
-      commission: rec && rec.commission != null ? rec.commission : 4,
-      // Весовой товар — цена за кг, но заказывают коробками/штуками, точный
-      // вес узнаётся только на складе (см. POST /api/orders/weights).
-      // Помечает менеджер вручную на вкладке "Товары".
-      priced_by_weight: !!(rec && rec.priced_by_weight),
-      // Средний вес одного короба, кг — вписывает менеджер вручную на
-      // вкладке "Товары" для развесного товара (вес каждый раз разный,
-      // 1С короба вообще не считает, см. /api/stock/sync). Используется
-      // только чтобы прикинуть кол-во коробов от актуального кг-остатка
-      // для персонала (см. stockAmount/stockLabel на фронте) — не влияет
-      // ни на резерв, ни на цену.
-      avg_box_weight: rec && rec.avg_box_weight != null ? rec.avg_box_weight : null,
-      stock: availableMap[p.code] != null ? availableMap[p.code] : 0,
-      // Разбивка для отчёта "Остатки" (см. StockPanel на фронте) — сколько
-      // физически прислала 1С и сколько из этого уже разобрано текущими
-      // заявками (new/in_transit), чтобы "доступно" (stock/stock_weight_kg
-      // выше) не выглядело немой цифрой без объяснения, откуда расхождение.
-      stock_raw: breakdown.rawQty[p.code] != null ? breakdown.rawQty[p.code] : 0,
-      stock_reserved: breakdown.reservedQty[p.code] || 0,
-      // Единица измерения и вес остатка — правит зав. склад вручную на
-      // экране "Остатки" (см. PUT /api/stock/:code), 1С шлёт только qty.
-      // Нужно, когда товар физически весовой, а 1С отдаёт его коробками/
-      // штуками — склад фиксирует, сколько реально килограммов в остатке.
-      stock_unit: stockRec && stockRec.unit ? stockRec.unit : (p.unit || null),
-      stock_weight_kg: stockRec && stockRec.weight_kg != null ? stockRec.weight_kg : null,
-      stock_weight_kg_reserved: breakdown.reservedKg[p.code] || 0,
-      photo: rec && rec.photo ? rec.photo : null,
-      // Код НКТ (NTIN) — подбирается по штрихкоду/названию через nct.gov.kz
-      // (см. /api/nkt/*), либо вводится вручную. nkt_status: 'matched'
-      // (найден автоматически), 'manual' (вписан руками), 'not_found'
-      // (не нашли по штрихкоду) — используется в админке для сортировки/фильтра.
-      nkt_code: rec && rec.nkt_code ? rec.nkt_code : '',
-      nkt_status: rec && rec.nkt_status ? rec.nkt_status : null,
-    };
-  });
-  res.json(result);
+  const result = products.map(p => buildProductRow(p, ctx));
+
+  // Товары, созданные на сайте (см. POST /api/products-web) — по просьбе
+  // владельца слиты в общий каталог так же, как контрагенты (см. GET
+  // /api/clients выше): сразу видны в заявках, в приходе/списании и
+  // везде, где выбирают товар, а не только на вкладке "Товары". Остаток
+  // у них появляется только когда для них впервые сделают "Поступление"
+  // (см. POST /api/stock-receipts) — до этого stock=0, как у любого
+  // другого товара без остатка: торговый просто не наберёт в заявку то,
+  // чего физически ещё нет, точно так же, как с 1С-товаром без остатка.
+  const webProducts = db.get('productsWeb').value()
+    .filter(p => !p.archived)
+    .map(p => buildProductRow({ code: p.code, name: p.name, unit: p.unit, barcode: p.barcode, group: p.category, cost: null }, ctx));
+
+  res.json([...result, ...webProducts]);
 });
 
 // Фото карточки товара — грузит admin/manager, хранится в productAliases
@@ -2117,17 +2137,22 @@ app.post('/api/products/sync', (req, res) => {
 // ===== PRODUCTS-WEB (номенклатура, созданная на сайте, без 1С) =====
 // Отдельная коллекция — не расширение productAliases и не запись в
 // `products`: /api/products/sync выше полностью ЗАТИРАЕТ `products` при
-// каждой синхронизации, и GET /api/products строит список ИЗ `products`,
-// накладывая productAliases только как оверлей поверх уже существующих в
-// 1С кодов (см. GET /api/products выше — сама точка входа "for products
-// of ...products.map", новый код там просто не появится). Значит: (1)
-// синк из 1С никак не заденет эту коллекцию, и (2) карточка, созданная
-// здесь, СОЗНАТЕЛЬНО не попадает в список товаров для заказа — у нее нет
-// и не может быть остатка (остаток ведёт только /api/stock/sync из 1С),
-// поэтому обычная проверка доступного остатка при оформлении заявки её
-// просто заблокировала бы. Это отдельная задача (сверка/ведение остатка
-// для сайтовых товаров) — сейчас только карточка + дубль-проверка.
+// каждой синхронизации (см. тот эндпоинт), а эта коллекция должна
+// пережить пересинхронизацию нетронутой. По просьбе владельца ТЕПЕРЬ
+// слита в общий каталог (см. GET /api/products — buildProductRow и
+// webProducts там же), тем же способом, что и сайтовые контрагенты (см.
+// GET /api/clients): товар сразу доступен для заказа/прихода/списания.
+// Остаток у такого товара появляется только когда для него впервые
+// оформят "Поступление" — до этого stock=0, как у любого другого товара
+// без остатка (это не блокирует создание карточки, просто товар нельзя
+// будет набрать в заявку, пока не оприходован — тот же принцип, что и
+// для 1С-товара с нулевым остатком).
 db.defaults({ productsWeb: [], nextWebProductId: 1 }).write();
+
+// Единица измерения — фиксированный список, а не свободный ввод: иначе
+// один и тот же короб у разных менеджеров называется то "кор", то
+// "короб", то "коробка" — и это расползается по отчётам/накладным.
+const WEB_PRODUCT_UNITS = ['шт', 'кор', 'уп', 'кг', 'л'];
 
 // Код WEBP-NNNNNN — свой префикс, отличимый и от кодов 1С, и от кодов
 // сайтовых контрагентов (WEB-NNNNNN, см. /api/clients-web), чтобы не
@@ -2151,7 +2176,7 @@ app.post('/api/products-web', authMiddleware, (req, res) => {
   }
   const { name, unit, barcode, category } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'Не указано наименование' });
-  if (!unit || !unit.trim()) return res.status(400).json({ error: 'Не указана единица измерения' });
+  if (!WEB_PRODUCT_UNITS.includes(unit)) return res.status(400).json({ error: 'Не указана единица измерения' });
 
   const record = {
     id: Date.now(),
@@ -3178,13 +3203,27 @@ app.post('/api/stock/sync', (req, res) => {
   res.json({ success: true, count, zeroed: full ? zeroed : undefined });
 });
 
+// Каталог для проверки кода товара в приходе/списании — 1С-номенклатура
+// плюс товары, заведённые на сайте (см. productsWeb/GET /api/products),
+// иначе новый сайтовый товар нельзя было бы оприходовать первым же
+// приходом: его остаток появляется именно через приход, значит приход
+// обязан его находить, а не только уже известную 1С-номенклатуру.
+function buildCatalogProductByCode() {
+  const map = {};
+  db.get('products').value().forEach(p => { map[p.code] = p; });
+  db.get('productsWeb').value().forEach(p => {
+    if (!p.archived) map[p.code] = { code: p.code, name: p.name, unit: p.unit };
+  });
+  return map;
+}
+
 // ===== ПОСТУПЛЕНИЕ ТОВАРА НА САЙТЕ (без 1С) =====
 // Менеджер заносит приход по накладной от поставщика — по позициям уже
-// существующего каталога (код должен быть в `products`), сразу прибавляет
-// к stock.qty/weight_kg тем же способом, что и остальные движения
-// (доставка/продажа/возврат — см. logStockMovement выше), а не отдельным
-// "черновиком" поверх: torgovyy сразу увидит новый остаток в обычном
-// каталоге, никакого дополнительного сведения не нужно.
+// существующего каталога (код должен быть в `products` или `productsWeb`),
+// сразу прибавляет к stock.qty/weight_kg тем же способом, что и остальные
+// движения (доставка/продажа/возврат — см. logStockMovement выше), а не
+// отдельным "черновиком" поверх: torgovyy сразу увидит новый остаток в
+// обычном каталоге, никакого дополнительного сведения не нужно.
 db.defaults({ stockReceipts: [], nextStockReceiptId: 1 }).write();
 
 app.post('/api/stock-receipts', authMiddleware, (req, res) => {
@@ -3196,8 +3235,7 @@ app.post('/api/stock-receipts', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Нет позиций в приходе' });
   }
 
-  const productByCode = {};
-  db.get('products').value().forEach(p => { productByCode[p.code] = p; });
+  const productByCode = buildCatalogProductByCode();
   const aliasMap = {};
   db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
 
@@ -3310,8 +3348,7 @@ app.put('/api/stock-receipts/:id', authMiddleware, (req, res) => {
   }
   if (!reason || !reason.trim()) return res.status(400).json({ error: 'Укажите причину правки' });
 
-  const productByCode = {};
-  db.get('products').value().forEach(p => { productByCode[p.code] = p; });
+  const productByCode = buildCatalogProductByCode();
   const aliasMap = {};
   db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
   const stock = db.get('stock').value();
@@ -3481,8 +3518,7 @@ app.post('/api/stock-write-offs', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Нет позиций в списании' });
   }
 
-  const productByCode = {};
-  db.get('products').value().forEach(p => { productByCode[p.code] = p; });
+  const productByCode = buildCatalogProductByCode();
   const aliasMap = {};
   db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
   const stock = db.get('stock').value();
@@ -3575,8 +3611,7 @@ app.put('/api/stock-write-offs/:id', authMiddleware, (req, res) => {
   }
   if (!reason || !reason.trim()) return res.status(400).json({ error: 'Укажите причину правки' });
 
-  const productByCode = {};
-  db.get('products').value().forEach(p => { productByCode[p.code] = p; });
+  const productByCode = buildCatalogProductByCode();
   const aliasMap = {};
   db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
   const stock = db.get('stock').value();
