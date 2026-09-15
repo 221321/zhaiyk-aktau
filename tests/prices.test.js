@@ -200,3 +200,23 @@ test('admin может оформить возврат без заявки со 
   assert.equal(ret.items[0].price, 1);
   assert.equal(ret.total, 1);
 });
+
+// Регресс: getAllowedPrices раньше считал 0/непроставленную базовую цену
+// товара (частый случай — 1С не для каждого товара присылает "Цену")
+// законным единственным допустимым значением — и любая присланная цена
+// тихо подменялась на 0, заявка уходила с бесплатной позицией. Когда у
+// товара вообще нет цены в каталоге (ни price1/2/3, ни базовой > 0),
+// цену по-прежнему берём из запроса, а не обнуляем.
+test('товар без цены в каталоге (0/не задана) — цена берётся из запроса, а не обнуляется', async () => {
+  await apiCall(server.baseUrl, 'POST', '/api/products/sync', {
+    secret: 'test_sync_secret',
+    items: [{ code: 'NOPRICE', name: 'Товар без цены', unit: 'шт', price: 0 }],
+  });
+  await apiCall(server.baseUrl, 'POST', '/api/stock/sync', {
+    secret: 'test_sync_secret',
+    items: [{ code: 'NOPRICE', qty: 100 }],
+  });
+  const order = await createOrder(server.baseUrl, salesToken, { items: [{ code: 'NOPRICE', name: 'Товар без цены', qty: 3, price: 250, commission: 5 }] });
+  assert.equal(order.items[0].price, 250);
+  assert.equal(order.total, 750);
+});

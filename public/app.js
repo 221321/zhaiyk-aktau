@@ -6211,8 +6211,11 @@ function SalesCabinet({
       unit: prod.unit,
       // Цену может свободно менять только admin (см. disabled на инпуте цены
       // ниже) — при одном уровне каталога подставляем его, при нескольких
-      // ждём выбор кнопкой, а без уровней вовсе — базовую цену из каталога.
-      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : prod.priceOptions && prod.priceOptions.length > 1 ? "" : prod.price,
+      // ждём выбор кнопкой; без уровней вовсе поле остаётся пустым (не
+      // базовой ценой p.price — она у многих товаров 0/непроставлена, и
+      // автоподстановка 0 тихо не давала добавить строку в заявку вообще,
+      // даже admin, пока он не замечал и не перезабивал руками).
+      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : "",
       search: prod.name,
       showDrop: false,
       qty: "",
@@ -6362,8 +6365,11 @@ function SalesCabinet({
       unit: prod.unit,
       // Цену может свободно менять только admin (см. disabled на инпуте цены
       // ниже) — при одном уровне каталога подставляем его, при нескольких
-      // ждём выбор кнопкой, а без уровней вовсе — базовую цену из каталога.
-      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : prod.priceOptions && prod.priceOptions.length > 1 ? "" : prod.price,
+      // ждём выбор кнопкой; без уровней вовсе поле остаётся пустым (не
+      // базовой ценой p.price — она у многих товаров 0/непроставлена, и
+      // автоподстановка 0 тихо не давала добавить строку в заявку вообще,
+      // даже admin, пока он не замечал и не перезабивал руками).
+      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : "",
       search: prod.name,
       showDrop: false,
       qty: "",
@@ -12614,8 +12620,11 @@ function NewOrderModal({
       unit: prod.unit,
       // Цену может свободно менять только admin (см. disabled на инпуте цены
       // ниже) — при одном уровне каталога подставляем его, при нескольких
-      // ждём выбор кнопкой, а без уровней вовсе — базовую цену из каталога.
-      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : prod.priceOptions && prod.priceOptions.length > 1 ? "" : prod.price,
+      // ждём выбор кнопкой; без уровней вовсе поле остаётся пустым (не
+      // базовой ценой p.price — она у многих товаров 0/непроставлена, и
+      // автоподстановка 0 тихо не давала добавить строку в заявку вообще,
+      // даже admin, пока он не замечал и не перезабивал руками).
+      price: prod.priceOptions && prod.priceOptions.length === 1 ? prod.priceOptions[0] : "",
       search: prod.name,
       showDrop: false,
       qty: "",
