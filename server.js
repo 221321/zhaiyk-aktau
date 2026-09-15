@@ -3132,6 +3132,199 @@ app.post('/api/stock/sync', (req, res) => {
   res.json({ success: true, count, zeroed: full ? zeroed : undefined });
 });
 
+// ===== ПОСТУПЛЕНИЕ ТОВАРА НА САЙТЕ (без 1С) =====
+// Менеджер заносит приход по накладной от поставщика — по позициям уже
+// существующего каталога (код должен быть в `products`), сразу прибавляет
+// к stock.qty/weight_kg тем же способом, что и остальные движения
+// (доставка/продажа/возврат — см. logStockMovement выше), а не отдельным
+// "черновиком" поверх: torgovyy сразу увидит новый остаток в обычном
+// каталоге, никакого дополнительного сведения не нужно.
+db.defaults({ stockReceipts: [], nextStockReceiptId: 1 }).write();
+
+app.post('/api/stock-receipts', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { doc_number, supplier, date, items } = req.body || {};
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Нет позиций в приходе' });
+  }
+
+  const productByCode = {};
+  db.get('products').value().forEach(p => { productByCode[p.code] = p; });
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+
+  // Валидируем ВСЕ строки до того, как что-то менять — иначе при ошибке на
+  // третьей строке первые две уже прибавились бы к остатку, а накладная
+  // осталась бы несохранённой (частично применённый приход хуже, чем отказ
+  // целиком до единой записи).
+  for (const it of items) {
+    if (!it || !it.code || !productByCode[it.code]) {
+      return res.status(400).json({ error: `Товар с кодом "${it && it.code}" не найден в каталоге` });
+    }
+    if (!(Number(it.qty) > 0)) {
+      return res.status(400).json({ error: `Некорректное количество для "${productByCode[it.code].name}"` });
+    }
+    if (it.price != null && !(Number(it.price) >= 0)) {
+      return res.status(400).json({ error: `Некорректная цена для "${productByCode[it.code].name}"` });
+    }
+  }
+
+  const stock = db.get('stock').value();
+  const stockByCode = {};
+  stock.forEach(s => { stockByCode[s.code] = s; });
+
+  // Цена в приходе — закупочная стоимость по накладной поставщика, только
+  // для самого документа (итог накладной), значение продажи/каталога
+  // (productAliases.price1-3, cost) не трогает — это отдельная ручная
+  // настройка на вкладке "Товары", смешивать с приходом не просили.
+  const receiptItems = items.map(it => {
+    const code = it.code;
+    const qty = Number(it.qty);
+    const price = it.price != null ? Number(it.price) : 0;
+    const isWeightItem = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+    const rec = stockByCode[code];
+    if (rec) {
+      if (isWeightItem) {
+        const before = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
+        rec.weight_kg = round2(before + qty);
+        pushLedgerEntry(code, 'weight_kg', qty, rec.weight_kg, 'receipt', { doc_number: doc_number || null });
+      } else {
+        const before = Number(rec.qty) || 0;
+        rec.qty = before + qty;
+        pushLedgerEntry(code, 'qty', qty, rec.qty, 'receipt', { doc_number: doc_number || null });
+      }
+    } else {
+      const newRec = isWeightItem ? { code, qty: 0, weight_kg: qty } : { code, qty };
+      stock.push(newRec);
+      stockByCode[code] = newRec;
+      pushLedgerEntry(code, isWeightItem ? 'weight_kg' : 'qty', qty, qty, 'receipt', { doc_number: doc_number || null });
+    }
+    return { code, name: productByCode[code].name, qty, price, line_total: round2(qty * price), is_weight_item: isWeightItem };
+  });
+
+  const id = db.get('nextStockReceiptId').value();
+  db.set('nextStockReceiptId', id + 1).write();
+  const receipt = {
+    id,
+    doc_number: (doc_number || '').trim(),
+    supplier: (supplier || '').trim(),
+    date: date || new Date().toISOString().slice(0, 10),
+    items: receiptItems,
+    total: round2(receiptItems.reduce((s, it) => s + it.line_total, 0)),
+    created_by_id: req.user.id,
+    created_by_name: req.user.name,
+    created_at: new Date().toISOString(),
+  };
+  db.get('stockReceipts').push(receipt).write();
+  res.json(receipt);
+});
+
+app.get('/api/stock-receipts', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('stockReceipts').value());
+});
+
+// ===== СПИСАНИЕ ТОВАРА (без 1С) =====
+// Зеркало "Поступления" выше, но в другую сторону: товар уходит со склада
+// не через продажу/доставку, а по возврату поставщику (брак при приёмке)
+// или порче/списанию на самом складе (см. обсуждение с владельцем — для
+// порчи, обнаруженной у клиента ПОСЛЕ доставки, уже есть отдельный
+// POST /api/returns, который увеличивает остаток; здесь наоборот, товар
+// списывается с ещё не отгруженного остатка).
+db.defaults({ stockWriteOffs: [], nextStockWriteOffId: 1 }).write();
+
+const WRITE_OFF_REASONS = ['supplier_return', 'damage', 'other'];
+
+app.post('/api/stock-write-offs', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  const { reason, doc_number, note, date, items } = req.body || {};
+  if (!WRITE_OFF_REASONS.includes(reason)) {
+    return res.status(400).json({ error: 'Не указана причина списания' });
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Нет позиций в списании' });
+  }
+
+  const productByCode = {};
+  db.get('products').value().forEach(p => { productByCode[p.code] = p; });
+  const aliasMap = {};
+  db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
+  const stock = db.get('stock').value();
+  const stockByCode = {};
+  stock.forEach(s => { stockByCode[s.code] = s; });
+
+  // Валидируем ВСЕ строки до применения (как и в /api/stock-receipts) —
+  // включая проверку "не больше, чем реально есть физически на складе"
+  // (по raw stock.qty/weight_kg, БЕЗ вычета резерва под едущие заявки —
+  // тот же принцип, что и у /api/stock/sync: резерв под заявки этот
+  // эндпоинт не учитывает нигде в проекте).
+  for (const it of items) {
+    if (!it || !it.code || !productByCode[it.code]) {
+      return res.status(400).json({ error: `Товар с кодом "${it && it.code}" не найден в каталоге` });
+    }
+    if (!(Number(it.qty) > 0)) {
+      return res.status(400).json({ error: `Некорректное количество для "${productByCode[it.code].name}"` });
+    }
+    const isWeightItem = !!(aliasMap[it.code] && aliasMap[it.code].priced_by_weight);
+    const rec = stockByCode[it.code];
+    const have = isWeightItem ? (rec && rec.weight_kg != null ? Number(rec.weight_kg) : 0) : (rec ? Number(rec.qty) || 0 : 0);
+    if (Number(it.qty) > have) {
+      return res.status(400).json({ error: `Нельзя списать больше, чем есть на складе: "${productByCode[it.code].name}" (в наличии ${have}${isWeightItem ? ' кг' : ''})` });
+    }
+    if (it.price != null && !(Number(it.price) >= 0)) {
+      return res.status(400).json({ error: `Некорректная цена для "${productByCode[it.code].name}"` });
+    }
+  }
+
+  const writeOffItems = items.map(it => {
+    const code = it.code;
+    const qty = Number(it.qty);
+    const price = it.price != null ? Number(it.price) : 0;
+    const isWeightItem = !!(aliasMap[code] && aliasMap[code].priced_by_weight);
+    const rec = stockByCode[code];
+    if (isWeightItem) {
+      const before = rec.weight_kg != null ? Number(rec.weight_kg) : 0;
+      rec.weight_kg = round2(before - qty);
+      pushLedgerEntry(code, 'weight_kg', -qty, rec.weight_kg, 'write_off', { reason, doc_number: doc_number || null });
+    } else {
+      const before = Number(rec.qty) || 0;
+      rec.qty = before - qty;
+      pushLedgerEntry(code, 'qty', -qty, rec.qty, 'write_off', { reason, doc_number: doc_number || null });
+    }
+    return { code, name: productByCode[code].name, qty, price, line_total: round2(qty * price), is_weight_item: isWeightItem };
+  });
+
+  const id = db.get('nextStockWriteOffId').value();
+  db.set('nextStockWriteOffId', id + 1).write();
+  const writeOff = {
+    id,
+    reason,
+    doc_number: (doc_number || '').trim(),
+    note: (note || '').trim(),
+    date: date || new Date().toISOString().slice(0, 10),
+    items: writeOffItems,
+    total: round2(writeOffItems.reduce((s, it) => s + it.line_total, 0)),
+    created_by_id: req.user.id,
+    created_by_name: req.user.name,
+    created_at: new Date().toISOString(),
+  };
+  db.get('stockWriteOffs').push(writeOff).write();
+  res.json(writeOff);
+});
+
+app.get('/api/stock-write-offs', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+  res.json(db.get('stockWriteOffs').value());
+});
+
 // История движения по товару — по просьбе владельца: "был остаток, торговый
 // продал минус, остаток после заявки" одним взглядом, без ручного разбора
 // db.json. Ничего нового не пишем в базу — заявки уже хранят всё нужное
