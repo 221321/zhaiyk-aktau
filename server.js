@@ -3538,6 +3538,15 @@ app.post('/api/stock-write-offs', authMiddleware, (req, res) => {
   const stockByCode = {};
   stock.forEach(s => { stockByCode[s.code] = s; });
 
+  // Один и тот же код может встретиться в items дважды (две отдельные
+  // строки документа) — сверяем с остатком СУММУ по коду, а не каждую
+  // строку по отдельности против одного и того же неизменного "have":
+  // иначе две строки по 60% остатка каждая обе прошли бы проверку
+  // "не больше, чем есть", хотя вместе они и есть 120%. Тот же принцип,
+  // что и newByCode в PUT .../:id (правка) ниже.
+  const qtyByCode = {};
+  items.forEach(it => { if (it && it.code) qtyByCode[it.code] = (qtyByCode[it.code] || 0) + (Number(it.qty) || 0); });
+
   // Валидируем ВСЕ строки до применения (как и в /api/stock-receipts) —
   // включая проверку "не больше, чем реально есть физически на складе"
   // (по raw stock.qty/weight_kg, БЕЗ вычета резерва под едущие заявки —
@@ -3553,7 +3562,7 @@ app.post('/api/stock-write-offs', authMiddleware, (req, res) => {
     const isWeightItem = !!(aliasMap[it.code] && aliasMap[it.code].priced_by_weight);
     const rec = stockByCode[it.code];
     const have = isWeightItem ? (rec && rec.weight_kg != null ? Number(rec.weight_kg) : 0) : (rec ? Number(rec.qty) || 0 : 0);
-    if (Number(it.qty) > have) {
+    if (qtyByCode[it.code] > have) {
       return res.status(400).json({ error: `Нельзя списать больше, чем есть на складе: "${productByCode[it.code].name}" (в наличии ${have}${isWeightItem ? ' кг' : ''})` });
     }
     if (it.price != null && !(Number(it.price) >= 0)) {
@@ -4723,6 +4732,16 @@ app.post('/api/returns', authMiddleware, (req, res) => {
   db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
   const productPriceMap = {};
   db.get('products').value().forEach(p => { productPriceMap[p.code] = p.price; });
+  // Тот же код может встретиться в items дважды в одном возврате —
+  // сверяем с "сколько ещё можно вернуть" СУММУ запрашиваемого по коду за
+  // весь возврат, а не каждую строку по отдельности против одного и того
+  // же alreadyReturned (который не обновляется внутри этого цикла): иначе
+  // две строки по 100% доставленного каждая обе прошли бы проверку, хотя
+  // вместе просят вернуть вдвое больше, чем было доставлено — а вместе с
+  // этим и вернуть/списать долгом больше денег, чем стоит реально
+  // доставленное.
+  const requestedByCode = {};
+  (items || []).forEach(it => { if (it && it.code) requestedByCode[it.code] = (requestedByCode[it.code] || 0) + (Number(it.qty) || 0); });
   const cleanItems = [];
   for (const it of (items || [])) {
     const qty = Number(it.qty) || 0;
@@ -4733,7 +4752,8 @@ app.post('/api/returns', authMiddleware, (req, res) => {
       orderItem = orderItemsParsed.find(oi => oi.code === it.code);
       const delivered = orderItem ? (Number(orderItem.qty) || 0) : 0;
       const already = alreadyReturned[it.code] || 0;
-      if (qty > delivered - already) {
+      const requested = it.code ? (requestedByCode[it.code] || 0) : qty;
+      if (requested > delivered - already) {
         return res.status(400).json({ error: `"${name}": нельзя вернуть больше, чем доставлено (доставлено ${delivered}, уже возвращено ${already})` });
       }
     }
@@ -5217,6 +5237,14 @@ app.post('/api/sales', authMiddleware, (req, res) => {
   db.get('productAliases').value().forEach(a => { aliasMap[a.code] = a; });
   const productPriceMap = {};
   db.get('products').value().forEach(p => { productPriceMap[p.code] = p.price; });
+  // Тот же код может встретиться в items дважды — сверяем с остатком
+  // СУММУ по коду за всю продажу, а не каждую строку по отдельности
+  // против одного и того же неизменного avail (иначе чек пробьётся на
+  // сумму, которой физически нет, см. floor на Math.max(0,...) ниже —
+  // без этой проверки остаток тихо обнулился бы, а деньги за фантомный
+  // товар всё равно списались бы).
+  const qtyByCode = {};
+  items.forEach(it => { if (it && it.code) qtyByCode[it.code] = (qtyByCode[it.code] || 0) + (Number(it.qty) || 0); });
   const cleanItems = [];
   for (const it of items) {
     const qty = Number(it.qty) || 0;
@@ -5227,7 +5255,7 @@ app.post('/api/sales', authMiddleware, (req, res) => {
       if (allowed.length > 0 && !allowed.includes(price)) price = allowed[0];
     }
     const avail = availableMap[it.code] != null ? availableMap[it.code] : 0;
-    if (qty > avail) {
+    if (qtyByCode[it.code] > avail) {
       return res.status(400).json({ error: `Недостаточно остатка: "${it.name}" (доступно ${avail})` });
     }
     // cost — себестоимость на момент продажи (см. getCostMap); null, если

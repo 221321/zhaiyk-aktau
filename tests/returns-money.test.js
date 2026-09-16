@@ -110,3 +110,24 @@ test('возврат без orderId (свободный формат) — refund
     (err) => err.status === 400
   );
 });
+
+test('один код дважды в одном возврате — сверяется СУММА запрошенного, не каждая строка отдельно', async () => {
+  // Доставлено 4 коробки. Просим вернуть 4 ДВУМЯ строками по 3 — по
+  // отдельности каждая строка <= 4 (доставлено), но вместе это 6, больше
+  // доставленного. Раньше alreadyReturned не обновлялся внутри цикла, и
+  // обе строки проходили бы валидацию независимо друг от друга.
+  const order = await createOrder(server.baseUrl, salesToken, { clientName: 'Дубль Клиент', clientCode: 'DUPCODE1', items: [{ code: 'RM1', name: 'Мука', qty: 4, price: 1000, commission: 5 }] });
+  await deliverOrder(server.baseUrl, driverToken, order.id, { cash: 4000, qr: 0, debt: 0 });
+
+  await assert.rejects(
+    apiCall(server.baseUrl, 'POST', '/api/returns', {
+      orderId: order.id,
+      items: [{ code: 'RM1', name: 'Мука', qty: 3, price: 1000 }, { code: 'RM1', name: 'Мука', qty: 3, price: 1000 }],
+      refundCash: 6000,
+    }, driverToken),
+    (err) => err.status === 400
+  );
+
+  const returns = await apiCall(server.baseUrl, 'GET', '/api/returns', undefined, adminToken);
+  assert.ok(!returns.some(r => r.order_id === order.id), 'отклонённый возврат не должен был создаться вообще');
+});

@@ -202,3 +202,20 @@ test('admin аннулирует списание — остаток возвр�
     (err) => err.status === 400
   );
 });
+
+test('один код дважды в одном списании — сверяется СУММА, не каждая строка отдельно', async () => {
+  const before = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  const w1Before = before.find(p => p.code === 'W1').stock;
+  // Каждая строка по отдельности <= остатка, но вместе — больше:
+  // раньше обе строки проходили бы валидацию против одного и того же
+  // неизменного "have", уводя остаток в минус.
+  const halfPlus = Math.ceil(w1Before / 2) + 1;
+  await assert.rejects(
+    apiCall(server.baseUrl, 'POST', '/api/stock-write-offs', {
+      reason: 'other', items: [{ code: 'W1', qty: halfPlus }, { code: 'W1', qty: halfPlus }],
+    }, adminToken),
+    (err) => err.status === 400
+  );
+  const after = await apiCall(server.baseUrl, 'GET', '/api/products', undefined, adminToken);
+  assert.equal(after.find(p => p.code === 'W1').stock, w1Before, 'отказ должен быть целиком, остаток не должен был измениться ни на часть');
+});
