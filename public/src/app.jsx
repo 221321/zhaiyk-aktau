@@ -4770,6 +4770,11 @@ const ProductAliasCard = memo(function ProductAliasCard({ p, locked: lockedProp,
           <div style={{fontSize:15,fontWeight:600,color:C.textMid}}>{p.name}</div>
         </div>
       </div>
+      {p.price_needs_review&&(
+        <div style={{background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:8,padding:"7px 10px",marginBottom:6,fontSize:13,fontWeight:600,color:"#B91C1C"}}>
+          🔺 Закупка изменилась: было {p.price_reviewed_cost.toLocaleString()} ₸, стало {p.cost.toLocaleString()} ₸ — проверьте Цену 1/2/3
+        </div>
+      )}
       <input
         style={{...S.input,padding:"7px 10px",fontSize:15,marginBottom:6,background:locked?C.surface:C.white,color:locked?C.textSub:C.text}}
         placeholder="Название для сайта (необязательно)"
@@ -4876,7 +4881,7 @@ function ProductAliasesPanel({ desktop }) {
   const [edits, setEdits] = useState({});
   const [savingCode, setSavingCode] = useState(null);
   const [editingCodes, setEditingCodes] = useState({});
-  const [aliasSectionsOpen, setAliasSectionsOpen] = useState({ unset: true, set: false });
+  const [aliasSectionsOpen, setAliasSectionsOpen] = useState({ review: true, unset: true, set: false });
   const [onlyMismatch, setOnlyMismatch] = useState(false);
 
   const loadProducts = useCallback(async () => {
@@ -4990,8 +4995,9 @@ function ProductAliasesPanel({ desktop }) {
   const filtered = products
     .filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name||'').toLowerCase().includes(q) || (p.code||'').includes(q))
     .filter(p => !onlyMismatch || weightUnitMismatch(p.unit, !!p.priced_by_weight));
-  const withoutAlias = filtered.filter(p => !p.has_alias);
-  const withAlias = filtered.filter(p => p.has_alias);
+  const needsReview = filtered.filter(p => p.price_needs_review);
+  const withoutAlias = filtered.filter(p => !p.has_alias && !p.price_needs_review);
+  const withAlias = filtered.filter(p => p.has_alias && !p.price_needs_review);
 
   return (
     <>
@@ -5009,6 +5015,7 @@ function ProductAliasesPanel({ desktop }) {
           autoComplete="off"
           name="alias-search"
         />
+        {needsReview.length>0&&renderAliasSection({ id:"review", title:"🔺 Проверьте цену — закупка изменилась", badgeColor:"#B91C1C", list:needsReview })}
         {renderAliasSection({ id:"unset", title:"⚠️ Цены не установлены", badgeColor:C.red, list:withoutAlias })}
         {renderAliasSection({ id:"set", title:"✅ Цены установлены", badgeColor:C.green, list:withAlias })}
         {products.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.textFaint}}>Номенклатура ещё не синхронизирована из 1С</div>}
@@ -6921,7 +6928,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
   const [edits, setEdits] = useState({});
   const [savingCode, setSavingCode] = useState(null);
   const [editingCodes, setEditingCodes] = useState({});
-  const [aliasSectionsOpen, setAliasSectionsOpen] = useState({ unset: true, set: false });
+  const [aliasSectionsOpen, setAliasSectionsOpen] = useState({ review: true, unset: true, set: false });
 
   const [clients, setClients] = useState([]);
   const [clientSearch, setClientSearch] = useState("");
@@ -8670,8 +8677,9 @@ function AdminCabinet({ user, onLogout, desktop }) {
             const filtered = products
               .filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name||'').toLowerCase().includes(q) || (p.code||'').includes(q))
               .filter(p => !onlyMismatch || weightUnitMismatch(p.unit, !!p.priced_by_weight));
-            const withoutAlias = filtered.filter(p => !p.has_alias);
-            const withAlias = filtered.filter(p => p.has_alias);
+            const needsReview = filtered.filter(p => p.price_needs_review);
+            const withoutAlias = filtered.filter(p => !p.has_alias && !p.price_needs_review);
+            const withAlias = filtered.filter(p => p.has_alias && !p.price_needs_review);
 
             // ВАЖНО: это обычная функция, возвращающая JSX, а НЕ JSX-компонент
             // (не вызывается как <AliasSection/>). Раньше здесь была
@@ -8709,6 +8717,7 @@ function AdminCabinet({ user, onLogout, desktop }) {
             };
 
             return <>
+              {needsReview.length>0&&renderAliasSection({ id:"review", title:"🔺 Проверьте цену — закупка изменилась", badgeColor:"#B91C1C", list:needsReview })}
               {renderAliasSection({ id:"unset", title:"⚠️ Цены не установлены", badgeColor:C.red, list:withoutAlias })}
               {renderAliasSection({ id:"set", title:"✅ Цены установлены", badgeColor:C.green, list:withAlias })}
             </>;
