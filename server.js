@@ -431,7 +431,7 @@ app.post('/api/orders', authMiddleware, (req, res) => {
   // ограничен ценами из каталога (см. enforceCatalogPrice). Комиссию (бонус
   // сотруднику) из запроса не берём вообще, ни для кого — только каталог.
   finalItems = enforceCatalogPrice(finalItems, req.user.role, aliasMap);
-  finalItems = enforceCatalogCommission(finalItems, aliasMap);
+  finalItems = enforceCatalogCommission(finalItems, aliasMap, timeSlot);
 
   // cost — себестоимость на момент оформления заявки, для обоих источников
   // (торгпред и магазин), см. getCostMap. Пишется в саму заявку, чтобы
@@ -639,7 +639,7 @@ app.put('/api/orders/:id/items', authMiddleware, (req, res) => {
   // при создании заявки (см. POST /api/orders), цена ограничена каталогом.
   // Комиссию из запроса не берём вообще, ни для кого — только каталог.
   finalItems = enforceCatalogPrice(finalItems, req.user.role, aliasMap);
-  finalItems = enforceCatalogCommission(finalItems, aliasMap);
+  finalItems = enforceCatalogCommission(finalItems, aliasMap, order.time_slot);
 
   // Тот же дубль-код, что и при создании (см. POST /api/orders) — тут его
   // так же легко внести при правке состава.
@@ -4638,9 +4638,19 @@ function enforceCatalogPrice(items, role, aliasMap) {
 // цена со своими VIP-исключениями — произвольно задавать её через запрос
 // нельзя никому, включая admin (для этого нет и не должно быть отдельного
 // эндпоинта правки, в отличие от PUT /api/orders/:id/prices).
-function enforceCatalogCommission(items, aliasMap) {
+// timeSlot — при самовывозе (клиент забирает сам, см. isPickupOrder в
+// PUT /api/orders/:id/status) бонус торговому не начисляется вообще:
+// владелец решил, что комиссия компенсирует именно сопровождение
+// доставки, а самовывоз обходится без неё. Зануляем прямо здесь, в
+// момент фиксации комиссии на позиции (см. комментарий у repBreakdown в
+// app.jsx) — тогда и итог заявки (commission_total), и отчёт по
+// торговым, и всё, что позже читает уже сохранённую комиссию с позиции,
+// увидят 0 без отдельных проверок time_slot в каждом месте.
+function enforceCatalogCommission(items, aliasMap, timeSlot) {
+  const isPickup = timeSlot === 'Самовывоз';
   return items.map(it => {
     if (!it.code) return it;
+    if (isPickup) return { ...it, commission: 0 };
     const rec = aliasMap[it.code];
     const commission = rec && rec.commission != null ? rec.commission : 4;
     return { ...it, commission: Number(commission) };
