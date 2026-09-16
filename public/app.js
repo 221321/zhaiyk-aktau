@@ -2074,6 +2074,21 @@ function DebtsPanel({
     groupList.sort((a, b) => ((byAmount ? a.totalRemaining : a.maxDaysAgo) - (byAmount ? b.totalRemaining : b.maxDaysAgo)) * dir);
     return groupList.flatMap(g => g.items);
   }, [visibleDebts, debtSort]);
+
+  // Мини-сводка по текущему отбору (поиск/торговый/период) — по просьбе
+  // владельца: операторам нужно было видеть общую картину, не пересчитывая
+  // карточки вручную. Считаем от visibleDebts, а не от всех debts — сводка
+  // должна отражать именно то, что сейчас видно на экране. "Должников"
+  // считаем по groupKey, а не по числу карточек: если у одного клиента
+  // 3-5 накладных, это всё ещё один должник.
+  const debtsSummary = useMemo(() => {
+    const debtorKeys = new Set(visibleDebts.map(groupKey));
+    return {
+      invoiceCount: visibleDebts.length,
+      totalAmount: visibleDebts.reduce((s, d) => s + d.remaining, 0),
+      debtorCount: debtorKeys.size
+    };
+  }, [visibleDebts]);
   const settle = async d => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
     const amount = Number(settleAmounts[key] ?? d.remaining);
@@ -2178,6 +2193,29 @@ function DebtsPanel({
     key: v,
     value: v
   }, l)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.statsRow,
+      gridTemplateColumns: "repeat(3,1fr)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.statCard()
+  }, /*#__PURE__*/React.createElement("p", {
+    style: S.statNum()
+  }, debtsSummary.invoiceCount), /*#__PURE__*/React.createElement("p", {
+    style: S.statLabel
+  }, "\u041D\u0430\u043A\u043B\u0430\u0434\u043D\u044B\u0445")), /*#__PURE__*/React.createElement("div", {
+    style: S.statCard()
+  }, /*#__PURE__*/React.createElement("p", {
+    style: S.statNum()
+  }, debtsSummary.debtorCount), /*#__PURE__*/React.createElement("p", {
+    style: S.statLabel
+  }, "\u0414\u043E\u043B\u0436\u043D\u0438\u043A\u043E\u0432")), /*#__PURE__*/React.createElement("div", {
+    style: S.statCard()
+  }, /*#__PURE__*/React.createElement("p", {
+    style: S.statNum(C.red)
+  }, debtsSummary.totalAmount.toLocaleString(), " \u20B8"), /*#__PURE__*/React.createElement("p", {
+    style: S.statLabel
+  }, "\u0421\u0443\u043C\u043C\u0430 \u0434\u043E\u043B\u0433\u0430"))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16,
       maxWidth: 420

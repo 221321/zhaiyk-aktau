@@ -1031,6 +1031,21 @@ function DebtsPanel({ readOnly, role }) {
     return groupList.flatMap(g => g.items);
   }, [visibleDebts, debtSort]);
 
+  // Мини-сводка по текущему отбору (поиск/торговый/период) — по просьбе
+  // владельца: операторам нужно было видеть общую картину, не пересчитывая
+  // карточки вручную. Считаем от visibleDebts, а не от всех debts — сводка
+  // должна отражать именно то, что сейчас видно на экране. "Должников"
+  // считаем по groupKey, а не по числу карточек: если у одного клиента
+  // 3-5 накладных, это всё ещё один должник.
+  const debtsSummary = useMemo(() => {
+    const debtorKeys = new Set(visibleDebts.map(groupKey));
+    return {
+      invoiceCount: visibleDebts.length,
+      totalAmount: visibleDebts.reduce((s,d)=>s+d.remaining,0),
+      debtorCount: debtorKeys.size,
+    };
+  }, [visibleDebts]);
+
   const settle = async (d) => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
     const amount = Number(settleAmounts[key] ?? d.remaining);
@@ -1091,6 +1106,11 @@ function DebtsPanel({ readOnly, role }) {
         <select style={{...S.select,width:"auto",minWidth:200}} value={debtSort} onChange={e=>setDebtSort(e.target.value)}>
           {DEBT_SORTS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
         </select>
+      </div>
+      <div style={{...S.statsRow,gridTemplateColumns:"repeat(3,1fr)"}}>
+        <div style={S.statCard()}><p style={S.statNum()}>{debtsSummary.invoiceCount}</p><p style={S.statLabel}>Накладных</p></div>
+        <div style={S.statCard()}><p style={S.statNum()}>{debtsSummary.debtorCount}</p><p style={S.statLabel}>Должников</p></div>
+        <div style={S.statCard()}><p style={S.statNum(C.red)}>{debtsSummary.totalAmount.toLocaleString()} ₸</p><p style={S.statLabel}>Сумма долга</p></div>
       </div>
       <div style={{marginBottom:16,maxWidth:420}}>
         <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
