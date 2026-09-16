@@ -1943,6 +1943,25 @@ app.post('/api/employees/sync', (req, res) => {
 // ===== PRODUCTS (Номенклатура из 1С) =====
 db.defaults({ products: [], productAliases: [] }).write();
 
+// Бэкфилл price_reviewed_cost для уже существующих товаров, у которых на
+// момент выката этой фичи уже стоят и закупка, и price1 — считаем текущую
+// закупку УЖЕ просмотренной, иначе весь каталог разом попал бы в "Проверьте
+// цену" в день деплоя (закупка ведь не менялась, просто раньше это не
+// отслеживалось). Идемпотентно — держим на старте, как и другие бэкфиллы.
+(() => {
+  let filled = 0;
+  db.get('productAliases').value().forEach(rec => {
+    if (rec.cost != null && rec.price1 != null && rec.price_reviewed_cost === undefined) {
+      rec.price_reviewed_cost = rec.cost;
+      filled++;
+    }
+  });
+  if (filled > 0) {
+    db.write();
+    console.log(`✅ Бэкфилл price_reviewed_cost для ${filled} товаров (закупка на момент деплоя считается просмотренной)`);
+  }
+})();
+
 // Строит одну строку каталога из "сырой" записи товара (из 1С или с
 // сайта) + оверлеев (productAliases) и остатка — общая логика для 1С-
 // номенклатуры и для товаров, заведённых на сайте (см. GET /api/products
@@ -1970,6 +1989,16 @@ function buildProductRow(p, { aliasMap, stockMap, availableMap, breakdown }) {
     // Нужна только для расчёта прибыли в отчётах — на резерв/остаток
     // не влияет.
     cost: rec && rec.cost != null ? rec.cost : (p.cost != null ? p.cost : null),
+    // Закупка изменилась после последнего сохранения цен продажи —
+    // владелец попросил подсвечивать такие товары на "Товарах": price1
+    // выставляют исходя из закупки на тот момент, а закупка потом
+    // меняется (приход по новой цене) без того, чтобы кто-то заново
+    // посмотрел на price1/2/3. price_reviewed_cost — снимок закупки на
+    // момент последнего сохранения цены через "Товары" (см.
+    // POST /api/product-aliases); если текущая закупка от него отличается
+    // — цены продажи не пересматривали с тех пор.
+    price_reviewed_cost: rec && rec.price_reviewed_cost != null ? rec.price_reviewed_cost : null,
+    price_needs_review: !!(rec && rec.cost != null && rec.price1 != null && rec.price_reviewed_cost != null && Number(rec.cost) !== Number(rec.price_reviewed_cost)),
     price1: rec && rec.price1 != null ? rec.price1 : null,
     price2: rec && rec.price2 != null ? rec.price2 : null,
     price3: rec && rec.price3 != null ? rec.price3 : null,
@@ -2274,6 +2303,14 @@ app.post('/api/product-aliases', authMiddleware, (req, res) => {
 
   if (patch.cost != null) backfillMissingCostInPlace(code, patch.cost);
   const existing = db.get('productAliases').find({ code }).value();
+  // Сохранение price1 с экрана "Товары" — это и есть момент, когда цену
+  // продажи посмотрели/пересчитали под текущую закупку. Снимаем закупку
+  // на этот момент в price_reviewed_cost, чтобы позже (см. buildProductRow)
+  // сравнить её с новой закупкой из следующего прихода и подсветить товар,
+  // если price1 с тех пор не трогали.
+  if (patch.price1 !== undefined) {
+    patch.price_reviewed_cost = patch.cost !== undefined ? patch.cost : (existing && existing.cost != null ? existing.cost : null);
+  }
   if (existing) {
     db.get('productAliases').find({ code }).assign(patch).write();
   } else {

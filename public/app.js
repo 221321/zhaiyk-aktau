@@ -9599,7 +9599,18 @@ const ProductAliasCard = memo(function ProductAliasCard({
       fontWeight: 600,
       color: C.textMid
     }
-  }, p.name))), /*#__PURE__*/React.createElement("input", {
+  }, p.name))), p.price_needs_review && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#FEF2F2",
+      border: "1px solid #FECACA",
+      borderRadius: 8,
+      padding: "7px 10px",
+      marginBottom: 6,
+      fontSize: 13,
+      fontWeight: 600,
+      color: "#B91C1C"
+    }
+  }, "\uD83D\uDD3A \u0417\u0430\u043A\u0443\u043F\u043A\u0430 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C: \u0431\u044B\u043B\u043E ", p.price_reviewed_cost.toLocaleString(), " \u20B8, \u0441\u0442\u0430\u043B\u043E ", p.cost.toLocaleString(), " \u20B8 \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0426\u0435\u043D\u0443 1/2/3"), /*#__PURE__*/React.createElement("input", {
     style: {
       ...S.input,
       padding: "7px 10px",
@@ -9816,6 +9827,7 @@ function ProductAliasesPanel({
   const [savingCode, setSavingCode] = useState(null);
   const [editingCodes, setEditingCodes] = useState({});
   const [aliasSectionsOpen, setAliasSectionsOpen] = useState({
+    review: true,
     unset: true,
     set: false
   });
@@ -9988,8 +10000,9 @@ function ProductAliasesPanel({
   const q = aliasSearch.trim().toLowerCase();
   const mismatchCount = products.filter(p => weightUnitMismatch(p.unit, !!p.priced_by_weight)).length;
   const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name || '').toLowerCase().includes(q) || (p.code || '').includes(q)).filter(p => !onlyMismatch || weightUnitMismatch(p.unit, !!p.priced_by_weight));
-  const withoutAlias = filtered.filter(p => !p.has_alias);
-  const withAlias = filtered.filter(p => p.has_alias);
+  const needsReview = filtered.filter(p => p.price_needs_review);
+  const withoutAlias = filtered.filter(p => !p.has_alias && !p.price_needs_review);
+  const withAlias = filtered.filter(p => p.has_alias && !p.price_needs_review);
   return /*#__PURE__*/React.createElement(React.Fragment, null, !desktop && /*#__PURE__*/React.createElement("p", {
     style: S.sectionTitle
   }, "\u041F\u0441\u0435\u0432\u0434\u043E\u043D\u0438\u043C\u044B \u0442\u043E\u0432\u0430\u0440\u043E\u0432"), /*#__PURE__*/React.createElement("div", {
@@ -10014,6 +10027,11 @@ function ProductAliasesPanel({
     onChange: e => setAliasSearch(e.target.value),
     autoComplete: "off",
     name: "alias-search"
+  }), needsReview.length > 0 && renderAliasSection({
+    id: "review",
+    title: "🔺 Проверьте цену — закупка изменилась",
+    badgeColor: "#B91C1C",
+    list: needsReview
   }), renderAliasSection({
     id: "unset",
     title: "⚠️ Цены не установлены",
@@ -14359,6 +14377,7 @@ function AdminCabinet({
   const [savingCode, setSavingCode] = useState(null);
   const [editingCodes, setEditingCodes] = useState({});
   const [aliasSectionsOpen, setAliasSectionsOpen] = useState({
+    review: true,
     unset: true,
     set: false
   });
@@ -17616,8 +17635,9 @@ function AdminCabinet({
     // фикс в ProductAliasesPanel.
     const q = aliasSearch.trim().toLowerCase();
     const filtered = products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.display_name || '').toLowerCase().includes(q) || (p.code || '').includes(q)).filter(p => !onlyMismatch || weightUnitMismatch(p.unit, !!p.priced_by_weight));
-    const withoutAlias = filtered.filter(p => !p.has_alias);
-    const withAlias = filtered.filter(p => p.has_alias);
+    const needsReview = filtered.filter(p => p.price_needs_review);
+    const withoutAlias = filtered.filter(p => !p.has_alias && !p.price_needs_review);
+    const withAlias = filtered.filter(p => p.has_alias && !p.price_needs_review);
 
     // ВАЖНО: это обычная функция, возвращающая JSX, а НЕ JSX-компонент
     // (не вызывается как <AliasSection/>). Раньше здесь была
@@ -17696,7 +17716,12 @@ function AdminCabinet({
         }
       }, q ? "Ничего не найдено" : "Пусто") : list.map(renderProductCard)));
     };
-    return /*#__PURE__*/React.createElement(React.Fragment, null, renderAliasSection({
+    return /*#__PURE__*/React.createElement(React.Fragment, null, needsReview.length > 0 && renderAliasSection({
+      id: "review",
+      title: "🔺 Проверьте цену — закупка изменилась",
+      badgeColor: "#B91C1C",
+      list: needsReview
+    }), renderAliasSection({
       id: "unset",
       title: "⚠️ Цены не установлены",
       badgeColor: C.red,
