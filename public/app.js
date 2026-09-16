@@ -2044,6 +2044,36 @@ function DebtsPanel({
   const [clientSearch, setClientSearch] = useState("");
   const q = clientSearch.trim().toLowerCase();
   const visibleDebts = !q ? byDateFilter : byDateFilter.filter(d => (d.client_name || '').toLowerCase().includes(q) || (d.client_code || '').toLowerCase().includes(q));
+
+  // Сортировка — по просьбе владельца: операторы путались, в каком порядке
+  // идёт список. Сортируем не отдельные накладные, а ГРУППЫ (клиент/
+  // одиночная накладная без кода) — иначе накладные одного должника
+  // расползлись бы по всему списку вперемешку с чужими, а жалоба как раз
+  // была на путаницу, когда у одного клиента несколько накладных. Внутри
+  // группы порядок всегда от старой накладной к новой — тот же порядок,
+  // которым "Погасить по клиенту" распределяет сумму.
+  const DEBT_SORTS = [["overdue_desc", "Давность: сначала старые"], ["overdue_asc", "Давность: сначала новые"], ["amount_desc", "Сумма: сначала больше"], ["amount_asc", "Сумма: сначала меньше"]];
+  const [debtSort, setDebtSort] = useState("overdue_desc");
+  const sortedVisibleDebts = useMemo(() => {
+    const groups = new Map();
+    visibleDebts.forEach(d => {
+      const k = groupKey(d);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(d);
+    });
+    const groupList = Array.from(groups.values()).map(items => {
+      const sorted = items.slice().sort((a, b) => a.date.localeCompare(b.date));
+      return {
+        items: sorted,
+        totalRemaining: sorted.reduce((s, d) => s + d.remaining, 0),
+        maxDaysAgo: Math.max(...sorted.map(d => d.days_ago))
+      };
+    });
+    const byAmount = debtSort.startsWith("amount");
+    const dir = debtSort.endsWith("_desc") ? -1 : 1;
+    groupList.sort((a, b) => ((byAmount ? a.totalRemaining : a.maxDaysAgo) - (byAmount ? b.totalRemaining : b.maxDaysAgo)) * dir);
+    return groupList.flatMap(g => g.items);
+  }, [visibleDebts, debtSort]);
   const settle = async d => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
     const amount = Number(settleAmounts[key] ?? d.remaining);
@@ -2136,7 +2166,18 @@ function DebtsPanel({
   }, "\u0412\u0441\u0435 \u0442\u043E\u0440\u0433\u043E\u0432\u044B\u0435"), salesReps.map(r => /*#__PURE__*/React.createElement("option", {
     key: r.id,
     value: r.id
-  }, r.name)))), /*#__PURE__*/React.createElement("div", {
+  }, r.name))), /*#__PURE__*/React.createElement("select", {
+    style: {
+      ...S.select,
+      width: "auto",
+      minWidth: 200
+    },
+    value: debtSort,
+    onChange: e => setDebtSort(e.target.value)
+  }, DEBT_SORTS.map(([v, l]) => /*#__PURE__*/React.createElement("option", {
+    key: v,
+    value: v
+  }, l)))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16,
       maxWidth: 420
@@ -2208,13 +2249,13 @@ function DebtsPanel({
     onChange: e => setDebtDateTo(e.target.value)
   })))), loadingDebts ? /*#__PURE__*/React.createElement("div", {
     style: S.loadingWrap
-  }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : visibleDebts.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...") : sortedVisibleDebts.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
       padding: "24px 0",
       color: C.textFaint
     }
-  }, debtDatePreset === "all" ? "Долгов нет" : "Долгов за этот период нет") : visibleDebts.map(d => {
+  }, debtDatePreset === "all" ? "Долгов нет" : "Долгов за этот период нет") : sortedVisibleDebts.map(d => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
     const gKey = groupKey(d);
     const isFirstOfGroup = !renderedGroups.has(gKey);
@@ -2242,7 +2283,19 @@ function DebtsPanel({
         ...S.cardSub,
         color: d.overdue ? "#B91C1C" : C.textSub
       }
-    }, d.order_id ? `№ ${d.order_id}` : `Касса № ${d.sale_id}`, " \xB7 ", d.date, " \xB7 ", d.days_ago === 0 ? 'сегодня' : `${d.days_ago} ${daysWord(d.days_ago)}`, d.settled > 0 ? ` · погашено ${d.settled.toLocaleString()} ₸` : ''), totalsByClient.counts[groupKey(d)] > 1 && /*#__PURE__*/React.createElement("p", {
+    }, d.order_id ? `№ ${d.order_id}` : `Касса № ${d.sale_id}`, " \xB7 ", d.date, " \xB7 ", d.days_ago === 0 ? 'сегодня' : `${d.days_ago} ${daysWord(d.days_ago)}`, d.settled > 0 ? ` · погашено ${d.settled.toLocaleString()} ₸` : ''), d.delivered_at && /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "2px 0 0",
+        fontSize: 13,
+        color: C.textFaint
+      }
+    }, "\u0414\u043E\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043E: ", new Date(d.delivered_at).toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })), totalsByClient.counts[groupKey(d)] > 1 && /*#__PURE__*/React.createElement("p", {
       style: {
         margin: "2px 0 0",
         fontSize: 13,

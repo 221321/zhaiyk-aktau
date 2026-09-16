@@ -996,6 +996,41 @@ function DebtsPanel({ readOnly, role }) {
     (d.client_name||'').toLowerCase().includes(q) || (d.client_code||'').toLowerCase().includes(q)
   );
 
+  // Сортировка — по просьбе владельца: операторы путались, в каком порядке
+  // идёт список. Сортируем не отдельные накладные, а ГРУППЫ (клиент/
+  // одиночная накладная без кода) — иначе накладные одного должника
+  // расползлись бы по всему списку вперемешку с чужими, а жалоба как раз
+  // была на путаницу, когда у одного клиента несколько накладных. Внутри
+  // группы порядок всегда от старой накладной к новой — тот же порядок,
+  // которым "Погасить по клиенту" распределяет сумму.
+  const DEBT_SORTS = [
+    ["overdue_desc", "Давность: сначала старые"],
+    ["overdue_asc", "Давность: сначала новые"],
+    ["amount_desc", "Сумма: сначала больше"],
+    ["amount_asc", "Сумма: сначала меньше"],
+  ];
+  const [debtSort, setDebtSort] = useState("overdue_desc");
+  const sortedVisibleDebts = useMemo(() => {
+    const groups = new Map();
+    visibleDebts.forEach(d => {
+      const k = groupKey(d);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(d);
+    });
+    const groupList = Array.from(groups.values()).map(items => {
+      const sorted = items.slice().sort((a,b)=>a.date.localeCompare(b.date));
+      return {
+        items: sorted,
+        totalRemaining: sorted.reduce((s,d)=>s+d.remaining,0),
+        maxDaysAgo: Math.max(...sorted.map(d=>d.days_ago)),
+      };
+    });
+    const byAmount = debtSort.startsWith("amount");
+    const dir = debtSort.endsWith("_desc") ? -1 : 1;
+    groupList.sort((a,b) => ((byAmount?a.totalRemaining:a.maxDaysAgo) - (byAmount?b.totalRemaining:b.maxDaysAgo)) * dir);
+    return groupList.flatMap(g => g.items);
+  }, [visibleDebts, debtSort]);
+
   const settle = async (d) => {
     const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
     const amount = Number(settleAmounts[key] ?? d.remaining);
@@ -1053,6 +1088,9 @@ function DebtsPanel({ readOnly, role }) {
           <option value="">Все торговые</option>
           {salesReps.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
+        <select style={{...S.select,width:"auto",minWidth:200}} value={debtSort} onChange={e=>setDebtSort(e.target.value)}>
+          {DEBT_SORTS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+        </select>
       </div>
       <div style={{marginBottom:16,maxWidth:420}}>
         <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
@@ -1073,8 +1111,8 @@ function DebtsPanel({ readOnly, role }) {
           </div>
         )}
       </div>
-      {loadingDebts?<div style={S.loadingWrap}>Загрузка...</div>:visibleDebts.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>{debtDatePreset==="all"?"Долгов нет":"Долгов за этот период нет"}</div>:
-        visibleDebts.map(d=>{
+      {loadingDebts?<div style={S.loadingWrap}>Загрузка...</div>:sortedVisibleDebts.length===0?<div style={{textAlign:"center",padding:"24px 0",color:C.textFaint}}>{debtDatePreset==="all"?"Долгов нет":"Долгов за этот период нет"}</div>:
+        sortedVisibleDebts.map(d=>{
           const key = d.order_id ? `o${d.order_id}` : `s${d.sale_id}`;
           const gKey = groupKey(d);
           const isFirstOfGroup = !renderedGroups.has(gKey);
@@ -1086,6 +1124,11 @@ function DebtsPanel({ readOnly, role }) {
               <div>
                 <p style={S.cardTitle}>{d.client_name} {d.overdue&&<span style={{color:C.red,fontSize:13,fontWeight:700}}>· ПРОСРОЧЕН</span>}</p>
                 <p style={{...S.cardSub,color:d.overdue?"#B91C1C":C.textSub}}>{d.order_id?`№ ${d.order_id}`:`Касса № ${d.sale_id}`} · {d.date} · {d.days_ago===0?'сегодня':`${d.days_ago} ${daysWord(d.days_ago)}`}{d.settled>0?` · погашено ${d.settled.toLocaleString()} ₸`:''}</p>
+                {/* Точное время доставки — по просьбе владельца, чтобы несколько
+                    накладных одного должника на разные дни/часы не путались
+                    между собой (одной даты заявки не хватало). У продажи кассы
+                    (sale_id, без order_id) доставки не бывает — поле не пришло бы. */}
+                {d.delivered_at&&<p style={{margin:"2px 0 0",fontSize:13,color:C.textFaint}}>Доставлено: {new Date(d.delivered_at).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</p>}
                 {totalsByClient.counts[groupKey(d)]>1&&<p style={{margin:"2px 0 0",fontSize:13,fontWeight:700,color:C.textFaint}}>Всего по клиенту: {totalsByClient.totals[groupKey(d)].toLocaleString()} ₸ · {totalsByClient.counts[groupKey(d)]} накладным</p>}
               </div>
               <p style={{margin:0,fontWeight:800,fontFamily:FH,color:d.overdue?C.red:"#92400E"}}>{d.remaining.toLocaleString()} ₸</p>
