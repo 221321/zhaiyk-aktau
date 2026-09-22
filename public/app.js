@@ -3630,7 +3630,7 @@ function buildWaybillInnerHtml(order, opts) {
   let totalNds = 0;
   const rows = items.map((it, i) => {
     const sum = Number(it.qty) * Number(it.price);
-    const nds = Math.round(sum * 16 / 116);
+    const nds = Math.round(sum * 16 / 116 * 100) / 100;
     totalNds += nds;
     return `
     <tr>
@@ -3642,7 +3642,10 @@ function buildWaybillInnerHtml(order, opts) {
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:right">${Number(it.price).toLocaleString()}</td>
       <td style="text-align:right">${sum.toLocaleString()}</td>
-      <td style="text-align:right">${nds.toLocaleString()}</td>
+      <td style="text-align:right">${nds.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}</td>
     </tr>`;
   }).join('');
   return `
@@ -3665,7 +3668,10 @@ function buildWaybillInnerHtml(order, opts) {
     <table>
       <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Ед.<br>изм.</th><th>Кол-во<br>подлежит<br>отпуску</th><th>Кол-во<br>отпущено</th><th>Цена за ед., ₸</th><th>Сумма, ₸</th><th>Сумма НДС, ₸</th></tr>
       ${rows}
-      <tr><td colspan="7" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(order.total || 0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds.toLocaleString()}</td></tr>
+      <tr><td colspan="7" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(order.total || 0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}</td></tr>
     </table>
     <div class="totals">
       <p>Всего отпущено на сумму: <b>${(order.total || 0).toLocaleString()} ₸</b></p>
@@ -3946,7 +3952,7 @@ function buildDogovornikWaybillSheet(ws, order, productNameByCode) {
   items.forEach(it => {
     const i = r - headRow - 1;
     const sum = (Number(it.qty) || 0) * (Number(it.price) || 0);
-    const nds = Math.round(sum * 16 / 116);
+    const nds = Math.round(sum * 16 / 116 * 100) / 100;
     totalNds += nds;
     const name = nameByCode[it.code] || it.name;
     const values = [i + 1, name, it.code || '', unitOf(it), Number(it.qty) || 0, Number(it.qty) || 0, Number(it.price) || 0, sum, nds];
@@ -3967,7 +3973,8 @@ function buildDogovornikWaybillSheet(ws, order, productNameByCode) {
       // цифр после неё — количество тут всегда маленькое, группировка не
       // нужна вообще, проще её не включать, чем гоняться за этим багом.
       if (ci === 4 || ci === 5) cell.numFmt = '0.##';
-      if (ci >= 6) cell.numFmt = '#,##0';
+      if (ci === 6 || ci === 7) cell.numFmt = '#,##0';
+      if (ci === 8) cell.numFmt = '#,##0.00'; // НДС — с тиынами, как в ЭСФ
       if (ci >= 4) cell.alignment = {
         horizontal: 'right'
       };
@@ -3987,7 +3994,7 @@ function buildDogovornikWaybillSheet(ws, order, productNameByCode) {
   [total, totalNds].forEach((v, i) => {
     const cell = ws.getCell(r, 8 + i);
     cell.value = v;
-    cell.numFmt = '#,##0';
+    cell.numFmt = i === 1 ? '#,##0.00' : '#,##0';
     cell.font = {
       bold: true
     };
@@ -4188,7 +4195,7 @@ function buildReturnWaybillInnerHtml(ret, productNameByCode) {
   let totalNds = 0;
   const rows = items.map((it, i) => {
     const sum = Number(it.qty) * Number(it.price);
-    const nds = Math.round(sum * 16 / 116);
+    const nds = Math.round(sum * 16 / 116 * 100) / 100;
     totalNds += nds;
     return `
     <tr>
@@ -4199,7 +4206,10 @@ function buildReturnWaybillInnerHtml(ret, productNameByCode) {
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:right">${Number(it.price).toLocaleString()}</td>
       <td style="text-align:right">${sum.toLocaleString()}</td>
-      <td style="text-align:right">${nds.toLocaleString()}</td>
+      <td style="text-align:right">${nds.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}</td>
     </tr>`;
   }).join('');
   return `
@@ -4222,7 +4232,10 @@ function buildReturnWaybillInnerHtml(ret, productNameByCode) {
     <table>
       <tr><th>№</th><th>Наименование</th><th>Номенкл. №</th><th>Ед.<br>изм.</th><th>Кол-во</th><th>Цена за ед., ₸</th><th>Сумма, ₸</th><th>Сумма НДС, ₸</th></tr>
       ${rows}
-      <tr><td colspan="6" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(ret.total || 0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds.toLocaleString()}</td></tr>
+      <tr><td colspan="6" style="text-align:right;font-weight:700">Итого</td><td style="text-align:right;font-weight:700">${(ret.total || 0).toLocaleString()}</td><td style="text-align:right;font-weight:700">${totalNds.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}</td></tr>
     </table>
     <div class="totals">
       <p>Всего принято на сумму: <b>${(ret.total || 0).toLocaleString()} ₸</b></p>
